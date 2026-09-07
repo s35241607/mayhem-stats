@@ -34,6 +34,26 @@ uv run app.py
 建議讓它跟著客戶端一起開著。關掉也不會馬上掉資料——只要在對局被擠出 100 場視窗之前重開,
 補漏掃描就會把中間漏掉的收回來。
 
+客戶端沒開的時候工具也能正常執行:採集器會靜靜跳過,分析頁面照常可用(資料讀的是本機資料庫)。
+唯一差別是英雄和增幅的圖示會空白,因為那些圖檔是即時跟客戶端要的。
+
+## 開機自動啟動
+
+已註冊為 Windows 排程工作 `MayhemStatsCollector`,登入後 30 秒自動以隱藏視窗啟動,
+不需要手動執行任何東西。它跑的是 [autostart.pyw](autostart.pyw)(用 `pythonw.exe`,所以沒有主控台視窗),
+執行記錄會寫到 `autostart.log`。
+
+```powershell
+Get-ScheduledTaskInfo -TaskName MayhemStatsCollector   # 看上次執行狀況
+Stop-ScheduledTask   -TaskName MayhemStatsCollector    # 停掉這次
+Disable-ScheduledTask -TaskName MayhemStatsCollector   # 暫時停用(不再開機啟動)
+Enable-ScheduledTask  -TaskName MayhemStatsCollector   # 恢復
+Unregister-ScheduledTask -TaskName MayhemStatsCollector -Confirm:$false   # 完全移除
+```
+
+服務已經在跑的時候再手動執行一次不會出事——`autostart.pyw` 會偵測到 port 5057 已被佔用,
+記一行 log 就自己退出,不會撞埠或產生第二份採集器。
+
 ## 採集怎麼運作
 
 兩層保險:

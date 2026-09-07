@@ -5,3 +5,7 @@ __pycache__/
 mayhem.db
 mayhem.db-wal
 mayhem.db-shm
+
+# 開機自動啟動的執行記錄
+autostart.log
+autostart.log.old
