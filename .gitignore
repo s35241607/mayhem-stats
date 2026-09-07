@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+
+# 採集下來的個人對戰資料庫(含同場其他玩家的名稱與 puuid),只留在本機
+mayhem.db
+mayhem.db-wal
+mayhem.db-shm

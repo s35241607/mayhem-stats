@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ARAM: Mayhem 個人戰績</title>
+<title>ARAM: Mayhem 戰績 BI</title>
 <style>
   :root{
     --bg:#0e1420; --surface:#161d2c; --surface-2:#1f2839; --ink:#eef1f8; --muted:#8d96ac;
     --border:rgba(238,241,248,0.10); --accent:#ff6a3d; --ice:#5fb3ef;
-    --up:#3ee0a4; --down:#ff6b6b;
+    --up:#3ee0a4; --down:#ff6b6b; --gold:#f0c05a; --prismatic:#c77dff; --silver:#b8c4d8;
   }
   *{box-sizing:border-box;}
   body{
@@ -16,269 +16,554 @@
     font-family:-apple-system,"Segoe UI","PingFang TC","Noto Sans TC",Arial,sans-serif;
     font-variant-numeric: tabular-nums;
   }
-  .wrap{ max-width:920px; margin:0 auto; padding:28px 20px 60px; }
-  h1{ font-size:24px; margin:0 0 4px; display:flex; align-items:center; gap:8px; }
+  .wrap{ max-width:1200px; margin:0 auto; padding:24px 20px 60px; }
+  h1{ font-size:23px; margin:0 0 4px; display:flex; align-items:center; gap:8px; }
   h1 .bolt{ color:var(--accent); }
-  .sub{ color:var(--muted); font-size:13.5px; margin:0 0 22px; }
+  .sub{ color:var(--muted); font-size:13.5px; margin:0 0 20px; }
 
   .panel{
     background:var(--surface); border:1px solid var(--border); border-radius:12px;
-    padding:18px 20px; margin-bottom:18px;
+    padding:16px 18px; margin-bottom:16px;
   }
   .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-  input[type=text]{
-    flex:1 1 260px; padding:9px 12px; border-radius:8px; border:1px solid var(--border);
-    background:var(--surface-2); color:var(--ink); font-size:13.5px;
-  }
-  input[type=text]:focus{ outline:2px solid var(--ice); outline-offset:1px; }
   button{
-    font-family:inherit; font-weight:600; font-size:14px; padding:10px 18px;
+    font-family:inherit; font-weight:600; font-size:13.5px; padding:8px 15px;
     border-radius:8px; border:1px solid var(--accent); background:var(--accent); color:#1a0a04;
     cursor:pointer;
   }
   button:hover{ filter:brightness(1.08); }
-  button:disabled{ opacity:0.55; cursor:default; }
-  button.ghost{
-    background:transparent; color:var(--ink); border-color:var(--border);
+  button:disabled{ opacity:0.5; cursor:default; }
+  button.ghost{ background:transparent; color:var(--ink); border-color:var(--border); }
+  button.ghost:hover{ background:var(--surface-2); }
+  select, input[type=date], input[type=number]{
+    padding:7px 10px; border-radius:8px; border:1px solid var(--border);
+    background:var(--surface-2); color:var(--ink); font-size:13px; font-family:inherit;
   }
-  .hint{ font-size:12px; color:var(--muted); margin-top:8px; line-height:1.6; }
+  label.fld{ display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--muted); }
 
-  #status-line{ font-size:13px; color:var(--muted); margin-top:10px; min-height:18px; }
-  #error-box{
-    display:none; background:rgba(255,107,107,0.12); border:1px solid var(--down); color:var(--down);
-    border-radius:8px; padding:10px 14px; font-size:13.5px; margin-top:10px;
+  /* ── 採集狀態列 ── */
+  .collector{
+    display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+    font-size:13px; color:var(--muted);
   }
+  .dot{ width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px; }
+  .dot.on{ background:var(--up); box-shadow:0 0 8px var(--up); }
+  .dot.off{ background:var(--muted); }
+  .collector b{ color:var(--ink); font-weight:700; }
 
-  #summary{ display:none; }
-  .summary-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(140px,1fr)); gap:12px; }
-  .stat-tile{ background:var(--surface-2); border-radius:10px; padding:12px 14px; }
-  .stat-tile .label{ font-size:11.5px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; }
-  .stat-tile .value{ font-size:20px; font-weight:700; margin-top:3px; }
-  .stat-tile .value.small{ font-size:14px; font-weight:600; }
+  /* ── 分頁 ── */
+  .tabs{ display:flex; gap:4px; flex-wrap:wrap; margin-bottom:16px; border-bottom:1px solid var(--border); }
+  .tab{
+    padding:10px 16px; font-size:14px; font-weight:600; color:var(--muted); cursor:pointer;
+    border:none; background:none; border-bottom:2px solid transparent; border-radius:0;
+  }
+  .tab:hover{ color:var(--ink); background:none; filter:none; }
+  .tab.active{ color:var(--accent); border-bottom-color:var(--accent); }
 
-  #table-section{ display:none; }
-  .search-row{ margin-bottom:10px; }
+  /* ── 篩選標籤 ── */
+  .chips{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; min-height:26px; }
+  .chip{
+    display:inline-flex; align-items:center; gap:6px; font-size:12.5px;
+    background:var(--surface-2); border:1px solid var(--border); border-radius:999px;
+    padding:4px 10px; color:var(--ink);
+  }
+  .chip button{
+    all:unset; cursor:pointer; color:var(--muted); font-size:14px; line-height:1;
+  }
+  .chip button:hover{ color:var(--down); }
+
+  .stat-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(150px,1fr)); gap:12px; }
+  .stat-tile{ background:var(--surface-2); border-radius:10px; padding:13px 15px; }
+  .stat-tile .label{ font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; }
+  .stat-tile .value{ font-size:22px; font-weight:700; margin-top:3px; }
+  .stat-tile .value.small{ font-size:15px; }
+
   .table-scroll{ overflow-x:auto; border:1px solid var(--border); border-radius:12px; background:var(--surface); }
-  table{ width:100%; border-collapse:collapse; min-width:480px; }
+  table{ width:100%; border-collapse:collapse; min-width:520px; }
   thead th{
-    text-align:left; font-weight:600; font-size:12.5px; letter-spacing:0.03em; text-transform:uppercase;
-    color:var(--muted); padding:10px 14px; border-bottom:1px solid var(--border); cursor:pointer; white-space:nowrap;
+    text-align:left; font-weight:600; font-size:12px; letter-spacing:0.03em; text-transform:uppercase;
+    color:var(--muted); padding:10px 14px; border-bottom:1px solid var(--border); white-space:nowrap;
+    cursor:pointer; user-select:none;
   }
   thead th.num{ text-align:right; }
-  thead th .arrow{ font-size:10px; opacity:0.6; margin-left:3px; }
-  tbody td{ padding:8px 14px; border-bottom:1px solid var(--border); font-size:14px; vertical-align:middle; }
+  tbody td{ padding:8px 14px; border-bottom:1px solid var(--border); font-size:13.5px; }
   tbody tr:last-child td{ border-bottom:none; }
-  tbody tr:hover{ background:var(--surface-2); }
-  tbody tr.hidden{ display:none; }
-  td.champion{ display:flex; align-items:center; gap:9px; font-weight:600; }
-  td.champion img{ width:26px; height:26px; border-radius:6px; }
+  tbody tr.clickable{ cursor:pointer; }
+  tbody tr.clickable:hover{ background:var(--surface-2); }
+  tbody tr.low-sample{ opacity:0.5; }
   td.num{ text-align:right; font-weight:700; }
-  td.wr-up{ color:var(--up); }
-  td.wr-down{ color:var(--down); }
+  td.dim{ font-weight:600; }
+  td.dim .cell{ display:flex; align-items:center; gap:9px; }
+  td.dim img{ width:26px; height:26px; border-radius:6px; flex:none; background:var(--surface-2); }
+  .wr-up{ color:var(--up); } .wr-down{ color:var(--down); }
+  .rarity{ font-size:10.5px; padding:1px 6px; border-radius:4px; font-weight:700; }
+  .rarity.kPrismatic{ background:rgba(199,125,255,0.18); color:var(--prismatic); }
+  .rarity.kGold{ background:rgba(240,192,90,0.18); color:var(--gold); }
+  .rarity.kSilver{ background:rgba(184,196,216,0.15); color:var(--silver); }
 
-  #empty-state{ display:none; padding:26px 14px; text-align:center; color:var(--muted); }
-  footer{ margin-top:24px; color:var(--muted); font-size:12px; line-height:1.7; }
+  .empty{ padding:30px 14px; text-align:center; color:var(--muted); font-size:13.5px; }
+  .note{ font-size:12px; color:var(--muted); margin-top:10px; line-height:1.6; }
+  .err{
+    background:rgba(255,107,107,0.12); border:1px solid var(--down); color:var(--down);
+    border-radius:8px; padding:10px 14px; font-size:13px; margin-top:10px;
+  }
+
+  /* ── 熱力圖 ── */
+  .heat{ display:grid; grid-template-columns:auto repeat(24, 1fr); gap:3px; font-size:10.5px; min-width:760px; }
+  .heat .h-label{ color:var(--muted); text-align:right; padding-right:6px; line-height:26px; white-space:nowrap; }
+  .heat .h-head{ color:var(--muted); text-align:center; }
+  .heat .cell{
+    height:26px; border-radius:4px; display:flex; align-items:center; justify-content:center;
+    background:var(--surface-2); color:var(--ink); font-weight:600; cursor:default;
+  }
+  .heat-scroll{ overflow-x:auto; }
+
+  /* ── 趨勢圖 ── */
+  svg.trend{ width:100%; height:120px; display:block; }
+  .trend-line{ fill:none; stroke:var(--ice); stroke-width:2; }
+  .trend-area{ fill:rgba(95,179,239,0.12); }
+  .trend-base{ stroke:var(--border); stroke-width:1; }
+
+  /* ── 戰績條 ── */
+  .streak{ display:flex; gap:3px; flex-wrap:wrap; margin-top:10px; }
+  .streak span{
+    width:22px; height:22px; border-radius:5px; font-size:11px; font-weight:700;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .streak .w{ background:rgba(62,224,164,0.18); color:var(--up); }
+  .streak .l{ background:rgba(255,107,107,0.16); color:var(--down); }
+
+  .builder{ display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:14px; }
+  .builder .box{ background:var(--surface-2); border-radius:10px; padding:12px 14px; }
+  .builder .box h4{ margin:0 0 9px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:0.04em; }
+  .checks{ display:flex; flex-direction:column; gap:6px; max-height:190px; overflow-y:auto; }
+  .checks label{ display:flex; align-items:center; gap:7px; font-size:13px; cursor:pointer; }
+  footer{ margin-top:26px; color:var(--muted); font-size:12px; line-height:1.7; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1><span class="bolt">⚡</span>ARAM: Mayhem 個人戰績</h1>
-  <p class="sub">直接讀取本機 League 客戶端的對戰紀錄,統計你玩過的每個英雄在 Mayhem 模式的場次與勝率。</p>
+  <h1><span class="bolt">⚡</span>ARAM: Mayhem 戰績 BI</h1>
+  <p class="sub">
+    客戶端開著時自動採集對局並存進本機資料庫,再往下做多維度分析。
+    因為 Riot 對 Mayhem 封鎖公開 API、客戶端也只保留最新 100 場,所以資料是「從開始採集那天起」慢慢累積的。
+  </p>
 
   <div class="panel">
-    <div class="row">
-      <input type="text" id="lockfile-override" placeholder="(選填)手動指定 lockfile 路徑,留空會自動偵測">
-      <button id="scan-btn" onclick="runScan()">開始查詢</button>
-      <button class="ghost" onclick="checkStatus()">檢查客戶端連線</button>
-    </div>
-    <div class="hint">
-      查詢前請確保 League of Legends 客戶端在背景開著(登入大廳畫面即可,不需要在遊玩中)。這個工具只會讀取「目前登入這台電腦客戶端」的帳號,查不到別人的資料。
-    </div>
-    <div id="status-line"></div>
-    <div id="error-box"></div>
+    <div class="collector" id="collector">載入中…</div>
   </div>
 
-  <div class="panel" id="summary">
-    <div class="summary-grid">
-      <div class="stat-tile">
-        <div class="label">帳號</div>
-        <div class="value small" id="s-name">—</div>
+  <div class="panel">
+    <div class="row" style="justify-content:space-between">
+      <div class="row">
+        <label class="fld">模式
+          <select id="f-queue">
+            <option value="2400">只看 Mayhem</option>
+            <option value="">全部模式</option>
+          </select>
+        </label>
+        <label class="fld">從 <input type="date" id="f-from"></label>
+        <label class="fld">到 <input type="date" id="f-to"></label>
+        <label class="fld">最少場次 <input type="number" id="f-min" value="3" min="1" max="99" style="width:64px"></label>
       </div>
-      <div class="stat-tile">
-        <div class="label">Mayhem 場次</div>
-        <div class="value" id="s-found">—</div>
-      </div>
-      <div class="stat-tile">
-        <div class="label">共掃描對局</div>
-        <div class="value" id="s-scanned">—</div>
-      </div>
-      <div class="stat-tile">
-        <div class="label">時間範圍</div>
-        <div class="value small" id="s-range">—</div>
-      </div>
+      <button class="ghost" onclick="clearDrill()">清除下鑽</button>
     </div>
-    <div class="hint" id="s-note"></div>
+    <div class="chips" id="chips" style="margin-top:12px"></div>
   </div>
 
-  <div id="table-section">
-    <div class="search-row">
-      <input type="text" id="search" placeholder="搜尋英雄名稱…" oninput="renderTable()">
-    </div>
-    <div class="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <th data-key="name">英雄<span class="arrow"></span></th>
-            <th data-key="games" class="num">場次<span class="arrow"></span></th>
-            <th data-key="wins" class="num">勝場<span class="arrow"></span></th>
-            <th data-key="losses" class="num">敗場<span class="arrow"></span></th>
-            <th data-key="winRate" class="num">勝率<span class="arrow"></span></th>
-          </tr>
-        </thead>
-        <tbody id="tbody"></tbody>
-      </table>
-      <div id="empty-state">沒有符合條件的英雄。</div>
-    </div>
-  </div>
+  <div class="tabs" id="tabs"></div>
+  <div id="view"></div>
 
   <footer>
-    資料來源:本機 League 客戶端的 LCU API(<code>/lol-match-history/v1/products/lol/current-summoner/matches</code>),篩選 queueId&nbsp;=&nbsp;2400(ARAM: Mayhem)。英雄圖示與名稱來自 Riot Data Dragon。此工具不會把任何資料上傳到任何地方,全部運算都在你自己的電腦上完成。
+    資料來源:本機 League 客戶端 LCU API。所有資料只存在你自己電腦上的 <code>mayhem.db</code>,不會上傳到任何地方。<br>
+    增幅裝置、英雄、裝備名稱取自客戶端內建的資源檔,會隨遊戲版本更新。
   </footer>
 </div>
 
 <script>
-let currentData = null;
-let sortKey = 'games';
-let sortDir = -1;
+const state = {
+  tab: 'overview',
+  drill: [],        // 下鑽產生的篩選條件
+  meta: null,
+  pivot: { dimensions: ['champion'], metrics: ['games','winrate','kda'] },
+};
 
-async function checkStatus(){
-  const line = document.getElementById('status-line');
-  const errBox = document.getElementById('error-box');
-  errBox.style.display = 'none';
-  line.textContent = '檢查中…';
-  const override = document.getElementById('lockfile-override').value.trim();
-  const url = '/api/status' + (override ? ('?lockfile=' + encodeURIComponent(override)) : '');
-  try{
-    const res = await fetch(url);
-    const data = await res.json();
-    if(data.lockfileFound){
-      line.textContent = '✓ 找到客戶端 lockfile:' + data.lockfilePath;
-    } else {
-      line.textContent = '✗ 找不到 lockfile,請確認客戶端已開啟,或在上面手動輸入路徑。';
-    }
-  } catch(e){
-    line.textContent = '檢查失敗:' + e.message;
-  }
+const SHAKY_SAMPLE = 5;   // 低於這個場次的統計標灰
+
+const TABS = [
+  { id:'overview',  title:'總覽' },
+  { id:'champion',  title:'英雄' },
+  { id:'augment',   title:'增幅裝置' },
+  { id:'players',   title:'隊友 / 對手' },
+  { id:'time',      title:'時段' },
+  { id:'pivot',     title:'自由樞紐' },
+];
+
+// ─────────────────────────────── 工具
+
+function baseFilters(){
+  const out = [...state.drill];
+  const queue = document.getElementById('f-queue').value;
+  if(queue) out.push({field:'queue', op:'eq', value:Number(queue)});
+  const from = document.getElementById('f-from').value;
+  const to = document.getElementById('f-to').value;
+  if(from && to) out.push({field:'date', op:'between', value:[from, to]});
+  else if(from)   out.push({field:'date', op:'gte', value:from});
+  else if(to)     out.push({field:'date', op:'lte', value:to});
+  return out;
 }
 
-async function runScan(){
-  const btn = document.getElementById('scan-btn');
-  const line = document.getElementById('status-line');
-  const errBox = document.getElementById('error-box');
-  errBox.style.display = 'none';
-  btn.disabled = true;
-  btn.textContent = '查詢中…';
-  line.textContent = '正在連線客戶端並掃描對戰紀錄,依帳號歷史場次多寡,可能需要幾秒到十幾秒…';
+function minGames(){ return Number(document.getElementById('f-min').value) || 1; }
 
-  const override = document.getElementById('lockfile-override').value.trim();
-  try{
-    const res = await fetch('/api/scan', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({lockfilePath: override || null})
-    });
-    const data = await res.json();
-    if(!res.ok){
-      errBox.style.display = 'block';
-      errBox.textContent = data.error || '查詢失敗。';
-      line.textContent = '';
-      return;
-    }
-    currentData = data;
-    renderSummary(data);
-    renderTable();
-    line.textContent = '完成。';
-  } catch(e){
-    errBox.style.display = 'block';
-    errBox.textContent = '連線失敗:' + e.message;
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '開始查詢';
-  }
-}
-
-function fmtDate(ms){
-  if(!ms) return '—';
-  const d = new Date(ms);
-  return d.toLocaleDateString('zh-TW', {year:'numeric', month:'2-digit', day:'2-digit'});
-}
-
-function renderSummary(data){
-  document.getElementById('summary').style.display = 'block';
-  document.getElementById('table-section').style.display = 'block';
-  document.getElementById('s-name').textContent = data.summonerName || '—';
-  document.getElementById('s-found').textContent = data.mayhemFound;
-  document.getElementById('s-scanned').textContent = data.totalScanned + (data.totalAvailable ? (' / ' + data.totalAvailable) : '');
-  document.getElementById('s-range').textContent = data.mayhemFound ? (fmtDate(data.oldestDate) + ' ~ ' + fmtDate(data.newestDate)) : '—';
-
-  let note = '';
-  if(data.paginationBroken){
-    note = '你的客戶端這個版本的本機 API 目前不支援翻頁(不管怎麼要求,永遠只回傳最新 100 場對局),所以這次只能統計到最近 100 場裡的 Mayhem 資料,無法往回掃更早的紀錄 —— 這是客戶端 API 的限制,不是這個帳號沒有更早的對局。';
-  } else if(data.mayhemFound === 0){
-    note = '在掃描到的對局裡沒有找到 Mayhem 場次 —— 可能這段時間沒玩過,或這個帳號的紀錄還沒涵蓋到 Mayhem 開放的時間。';
-  } else if(data.hitEnd){
-    note = '已經掃到帳號歷史紀錄的最底(沒有更早的對局了),上面的數字是這個帳號目前能查到的完整 Mayhem 資料。';
-  } else {
-    note = '這次掃描碰到安全上限就停了,可能還有更早的 Mayhem 對局沒被算進來 —— 上面數字是「目前為止」的統計,不是這個帳號的全部歷史。';
-  }
-  document.getElementById('s-note').textContent = note;
-}
-
-function renderTable(){
-  if(!currentData) return;
-  const q = document.getElementById('search').value.trim().toLowerCase();
-  let list = currentData.champions.filter(c => !q || c.name.toLowerCase().includes(q));
-  list = list.slice().sort((a,b)=>{
-    let av=a[sortKey], bv=b[sortKey];
-    if(typeof av === 'string'){ av=av.toLowerCase(); bv=bv.toLowerCase(); }
-    if(av<bv) return -1*sortDir;
-    if(av>bv) return 1*sortDir;
-    return b.games - a.games;
+async function runQuery(spec){
+  const res = await fetch('/api/query', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(spec),
   });
+  const data = await res.json();
+  if(!res.ok) throw new Error(data.error || '查詢失敗');
+  return data;
+}
 
-  const tbody = document.getElementById('tbody');
-  tbody.innerHTML = list.map(c => {
-    const wrClass = c.winRate >= 50 ? 'wr-up' : 'wr-down';
-    return `<tr>
-      <td class="champion">${c.icon ? `<img src="${c.icon}" alt="">` : ''}${c.name}</td>
-      <td class="num">${c.games}</td>
-      <td class="num">${c.wins}</td>
-      <td class="num">${c.losses}</td>
-      <td class="num ${wrClass}">${c.winRate.toFixed(1)}%</td>
-    </tr>`;
+function iconUrl(path){ return path ? '/api/icon?path=' + encodeURIComponent(path) : null; }
+
+function fmt(value, unit){
+  if(value === null || value === undefined) return '—';
+  if(typeof value === 'number' && !Number.isInteger(value)) value = value.toFixed(1).replace(/\.0$/,'');
+  return unit ? `${value}${unit}` : String(value);
+}
+
+function wrClass(column, value){
+  if(column.name !== 'winrate' || value === null) return '';
+  return value >= 50 ? 'wr-up' : 'wr-down';
+}
+
+const WEEKDAYS = ['日','一','二','三','四','五','六'];
+function dimLabel(dimName, row, column){
+  if(column.labelField) return row[column.labelField] ?? '—';
+  const raw = row[column.keyField];
+  if(dimName === 'weekday') return '週' + WEEKDAYS[raw];
+  if(dimName === 'hour_of_day') return String(raw).padStart(2,'0') + ':00';
+  if(dimName === 'result') return raw ? '勝' : '敗';
+  if(dimName === 'team_side') return raw === 100 ? '藍隊' : '紅隊';
+  return raw === null || raw === undefined ? '—' : String(raw);
+}
+
+// ─────────────────────────────── 通用表格
+
+function renderTable(result, opts = {}){
+  const { drillOn = null } = opts;
+  const cols = result.columns;
+  if(!result.rows.length){
+    return `<div class="panel"><div class="empty">這個條件下還沒有資料。<br>
+      如果剛開始採集,先打幾場 Mayhem,或按上面的「立即採集」把目前客戶端裡的紀錄收進來。</div></div>`;
+  }
+  const head = cols.map(c =>
+    `<th class="${c.type === 'metric' ? 'num' : ''}">${c.title}</th>`).join('');
+
+  // 「最少場次」已經在後端用 HAVING 濾掉了,所以這裡用一個獨立的統計門檻:
+  // 通過篩選但樣本仍然很小的列(例如 3 場 100%)標灰,提醒那是雜訊不是洞察。
+  const body = result.rows.map(row => {
+    const lowSample = row.games !== undefined && row.games < SHAKY_SAMPLE;
+    const cells = cols.map(c => {
+      if(c.type === 'dimension'){
+        const label = dimLabel(c.name, row, c);
+        const icon = c.iconField ? iconUrl(row[c.iconField]) : null;
+        const rarity = c.extraFields?.rarity ? row[c.extraFields.rarity] : null;
+        return `<td class="dim"><div class="cell">
+          ${icon ? `<img src="${icon}" alt="" loading="lazy">` : ''}
+          <span>${escapeHtml(label)}</span>
+          ${rarity ? `<span class="rarity ${rarity}">${rarity.replace('k','')}</span>` : ''}
+        </div></td>`;
+      }
+      const value = row[c.name];
+      return `<td class="num ${wrClass(c, value)}">${fmt(value, c.unit)}</td>`;
+    }).join('');
+
+    // 用 data 屬性 + 事件委派帶出下鑽資訊,不用 inline onclick——
+    // 中文名稱、引號、撇號都可能出現在標籤裡,拼進 onclick 字串會直接壞掉。
+    const keyCol = cols.find(c => c.type === 'dimension');
+    let attrs = lowSample ? 'class="low-sample"' : '';
+    if(drillOn && keyCol){
+      const payload = JSON.stringify({
+        field: drillOn,
+        value: row[keyCol.keyField],
+        label: dimLabel(keyCol.name, row, keyCol),
+      });
+      attrs = `class="clickable${lowSample ? ' low-sample':''}" data-drill="${escapeHtml(payload)}"`;
+    }
+    return `<tr ${attrs}>${cells}</tr>`;
   }).join('');
-  document.getElementById('empty-state').style.display = list.length ? 'none' : 'block';
 
-  document.querySelectorAll('thead th').forEach(th=>{
-    th.removeAttribute('data-active');
-    const arrow = th.querySelector('.arrow');
-    arrow.textContent = '';
-    if(th.dataset.key === sortKey){
-      arrow.textContent = sortDir === 1 ? '▲' : '▼';
-    }
-  });
+  return `<div class="table-scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
-document.querySelectorAll('thead th').forEach(th=>{
-  th.addEventListener('click', ()=>{
-    const key = th.dataset.key;
-    if(sortKey === key){ sortDir *= -1; }
-    else { sortKey = key; sortDir = (key === 'name') ? 1 : -1; }
-    renderTable();
-  });
-});
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, ch => (
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]
+  ));
+}
 
-checkStatus();
+// ─────────────────────────────── 下鑽
+
+function addDrill(field, value, label){
+  if(state.drill.some(d => d.field === field && d.value === value)) return;
+  state.drill.push({field, op:'eq', value, _label:`${field}: ${label}`});
+  renderChips(); render();
+}
+function removeDrill(index){ state.drill.splice(index,1); renderChips(); render(); }
+function clearDrill(){ state.drill = []; renderChips(); render(); }
+
+function renderChips(){
+  const box = document.getElementById('chips');
+  if(!state.drill.length){ box.innerHTML = '<span style="font-size:12.5px;color:var(--muted)">點表格任一列可以下鑽該項目</span>'; return; }
+  box.innerHTML = state.drill.map((d,i) =>
+    `<span class="chip">${escapeHtml(d._label)}<button onclick="removeDrill(${i})" title="移除">×</button></span>`
+  ).join('');
+}
+
+// ─────────────────────────────── 各分頁
+
+async function viewOverview(){
+  const filters = baseFilters();
+  const [totals, byDate, matches] = await Promise.all([
+    runQuery({dimensions:[], metrics:['games','wins','losses','winrate','kda','dpm','gpm','avg_duration'], filters}),
+    runQuery({dimensions:['date'], metrics:['games','winrate'], filters, sort:{field:'date',dir:'asc'}, limit:120}),
+    fetch('/api/matches?limit=30' + (document.getElementById('f-queue').value ? '&queue=' + document.getElementById('f-queue').value : '')).then(r => r.json()),
+  ]);
+  const t = totals.rows[0] || {};
+  const tiles = [
+    ['總場次', t.games ?? 0], ['勝 / 敗', `${t.wins ?? 0} / ${t.losses ?? 0}`],
+    ['勝率', fmt(t.winrate,'%')], ['KDA', fmt(t.kda)],
+    ['每分鐘傷害', fmt(t.dpm)], ['每分鐘經濟', fmt(t.gpm)],
+    ['平均時長', fmt(t.avg_duration,' 分')],
+  ].map(([label,value]) =>
+    `<div class="stat-tile"><div class="label">${label}</div><div class="value ${String(value).length>7?'small':''}">${value}</div></div>`
+  ).join('');
+
+  const streak = (matches.matches || []).map(m =>
+    `<span class="${m.win ? 'w':'l'}" title="${escapeHtml(m.champion_name)} ${m.kills}/${m.deaths}/${m.assists}">${m.win ? '勝':'敗'}</span>`
+  ).join('');
+
+  return `
+    <div class="panel"><div class="stat-grid">${tiles}</div>
+      <div class="note">最近 ${(matches.matches||[]).length} 場(新→舊)</div>
+      <div class="streak">${streak}</div>
+    </div>
+    <div class="panel"><h4 style="margin:0 0 10px;font-size:13px;color:var(--muted)">每日勝率趨勢</h4>
+      ${trendSvg(byDate.rows)}
+    </div>`;
+}
+
+function trendSvg(rows){
+  if(rows.length < 2) return '<div class="empty">資料還不夠畫趨勢(至少要兩天)。</div>';
+  const w = 1000, h = 120, pad = 10;
+  // 依實際日期定位,沒打球的日子要留白,不能把有間隔的兩天畫成相鄰
+  const t = rows.map(r => new Date(r.d0_key + 'T00:00:00').getTime());
+  const t0 = t[0], span = Math.max(t.at(-1) - t0, 1);
+  const maxGames = Math.max(...rows.map(r => r.games));
+  const pts = rows.map((r,i) => ({
+    x: pad + (t[i] - t0) / span * (w - pad*2),
+    y: h - pad - ((r.winrate ?? 0) / 100) * (h - pad*2),
+    r: 2 + 4 * Math.sqrt(r.games / maxGames),
+    row: r,
+  }));
+  const line = pts.map((p,i) => (i ? 'L':'M') + p.x.toFixed(1) + ',' + p.y.toFixed(1)).join(' ');
+  const area = line + ` L${pts.at(-1).x.toFixed(1)},${h-pad} L${pts[0].x.toFixed(1)},${h-pad} Z`;
+  const mid = h - pad - 0.5 * (h - pad*2);
+  const dots = pts.map(p =>
+    `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${p.r.toFixed(1)}" fill="var(--ice)">
+       <title>${p.row.d0_key} · ${p.row.games} 場 · 勝率 ${p.row.winrate}%</title></circle>`).join('');
+  return `<svg class="trend" viewBox="0 0 ${w} ${h}">
+    <line class="trend-base" x1="${pad}" y1="${mid}" x2="${w-pad}" y2="${mid}"/>
+    <path class="trend-area" d="${area}"/><path class="trend-line" d="${line}"/>${dots}
+  </svg>
+  <div class="note">橫線 = 50% 勝率基準線 · 橫軸依實際日期,沒打的日子會留白 ·
+    圓點大小 = 當天場次(點小的那天樣本少,勝率別當真) · 期間 ${rows[0].d0_key} ~ ${rows.at(-1).d0_key}</div>`;
+}
+
+async function viewChampion(){
+  const result = await runQuery({
+    dimensions:['champion'],
+    metrics:['games','wins','losses','winrate','kda','dpm','gpm','kill_participation','dmg_share'],
+    filters: baseFilters(), minGames: minGames(), sort:{field:'games',dir:'desc'}, limit:200,
+  });
+  return renderTable(result, {drillOn:'champion'}) +
+    `<div class="note">點任一列可下鑽該英雄,再切到「增幅裝置」分頁就會只看這隻英雄的增幅表現。</div>`;
+}
+
+async function viewAugment(){
+  const result = await runQuery({
+    dimensions:['augment'],
+    metrics:['games','wins','winrate','kda','dpm'],
+    filters: baseFilters(), minGames: minGames(), sort:{field:'games',dir:'desc'}, limit:300,
+  });
+  return renderTable(result, {drillOn:'augment'}) +
+    `<div class="note">這份資料只有你自己拿得到——Riot 對 Mayhem 封鎖了公開 API,任何第三方網站都算不出增幅勝率。</div>`;
+}
+
+async function viewPlayers(){
+  const filters = baseFilters();
+  const [mates, foes] = await Promise.all([
+    runQuery({dimensions:['teammate'], metrics:['games','wins','winrate','kda'],
+              filters, minGames: minGames(), sort:{field:'games',dir:'desc'}, limit:60}),
+    runQuery({dimensions:['opponent'], metrics:['games','wins','winrate'],
+              filters, minGames: minGames(), sort:{field:'games',dir:'desc'}, limit:60}),
+  ]);
+  return `
+    <div class="panel" style="padding-bottom:6px">
+      <h4 style="margin:0 0 10px;font-size:13px;color:var(--muted)">同隊隊友(勝率 = 和這個人同隊時你的勝率)</h4>
+      ${renderTable(mates)}
+    </div>
+    <div class="panel" style="padding-bottom:6px">
+      <h4 style="margin:0 0 10px;font-size:13px;color:var(--muted)">對手(勝率 = 對上這個人時你的勝率)</h4>
+      ${renderTable(foes)}
+    </div>
+    <div class="note">Riot 的 API 不提供「誰跟誰一起排隊」的欄位,但同隊次數本身就能看出固定車隊。</div>`;
+}
+
+async function viewTime(){
+  const filters = baseFilters();
+  const result = await runQuery({
+    dimensions:['weekday','hour_of_day'], metrics:['games','winrate'], filters, limit:2000,
+  });
+  const grid = {};
+  let maxGames = 0;
+  for(const row of result.rows){
+    grid[`${row.d0_key}-${row.d1_key}`] = row;
+    maxGames = Math.max(maxGames, row.games);
+  }
+  let html = '<div class="heat"><div></div>';
+  for(let h=0; h<24; h++) html += `<div class="h-head">${h}</div>`;
+  for(let d=0; d<7; d++){
+    html += `<div class="h-label">週${WEEKDAYS[d]}</div>`;
+    for(let h=0; h<24; h++){
+      const cell = grid[`${d}-${h}`];
+      if(!cell){ html += '<div class="cell" style="opacity:0.25"></div>'; continue; }
+      const wr = cell.winrate ?? 0;
+      const strength = 0.15 + 0.75 * (cell.games / maxGames);
+      const color = wr >= 50
+        ? `rgba(62,224,164,${strength.toFixed(2)})`
+        : `rgba(255,107,107,${strength.toFixed(2)})`;
+      html += `<div class="cell" style="background:${color}"
+        title="週${WEEKDAYS[d]} ${h}:00 · ${cell.games} 場 · 勝率 ${wr}%">${cell.games}</div>`;
+    }
+  }
+  html += '</div>';
+  return `<div class="panel"><div class="heat-scroll">${html}</div>
+    <div class="note">格子裡的數字是場次,顏色深淺代表場次多寡,綠 = 勝率過半、紅 = 未過半。滑過去看詳細。</div></div>`;
+}
+
+async function viewPivot(){
+  const meta = state.meta;
+  const dimBoxes = meta.dimensions.map(d => `
+    <label><input type="checkbox" value="${d.name}"
+      ${state.pivot.dimensions.includes(d.name)?'checked':''}
+      onchange="togglePivot('dimensions','${d.name}',this.checked)"> ${d.title}</label>`).join('');
+  const metricBoxes = meta.metrics.map(m => `
+    <label><input type="checkbox" value="${m.name}"
+      ${state.pivot.metrics.includes(m.name)?'checked':''}
+      onchange="togglePivot('metrics','${m.name}',this.checked)"> ${m.title}</label>`).join('');
+
+  let table = '<div class="empty">選好維度和指標後會自動查詢。</div>';
+  let sqlBox = '';
+  if(state.pivot.dimensions.length || state.pivot.metrics.length){
+    try{
+      const result = await runQuery({
+        dimensions: state.pivot.dimensions,
+        metrics: state.pivot.metrics.length ? state.pivot.metrics : ['games'],
+        filters: baseFilters(), minGames: minGames(), limit:500,
+      });
+      table = renderTable(result);
+      sqlBox = `<details class="note"><summary style="cursor:pointer">看這次查詢產生的 SQL</summary>
+        <pre style="white-space:pre-wrap;font-size:11.5px;color:var(--muted)">${escapeHtml(result.sql)}</pre></details>`;
+    }catch(err){ table = `<div class="err">${escapeHtml(err.message)}</div>`; }
+  }
+  return `
+    <div class="panel"><div class="builder">
+      <div class="box"><h4>分組維度(可複選)</h4><div class="checks">${dimBoxes}</div></div>
+      <div class="box"><h4>指標(可複選)</h4><div class="checks">${metricBoxes}</div></div>
+    </div></div>
+    ${table}${sqlBox}`;
+}
+
+function togglePivot(kind, name, on){
+  const list = state.pivot[kind];
+  const i = list.indexOf(name);
+  if(on && i < 0) list.push(name);
+  if(!on && i >= 0) list.splice(i,1);
+  render();
+}
+
+// ─────────────────────────────── 主流程
+
+const VIEWS = {
+  overview: viewOverview, champion: viewChampion, augment: viewAugment,
+  players: viewPlayers, time: viewTime, pivot: viewPivot,
+};
+
+async function render(){
+  const view = document.getElementById('view');
+  view.innerHTML = '<div class="panel"><div class="empty">查詢中…</div></div>';
+  try{
+    view.innerHTML = await VIEWS[state.tab]();
+  }catch(err){
+    view.innerHTML = `<div class="panel"><div class="err">${escapeHtml(err.message)}</div></div>`;
+  }
+}
+
+function renderTabs(){
+  document.getElementById('tabs').innerHTML = TABS.map(t =>
+    `<button class="tab ${state.tab===t.id?'active':''}" onclick="switchTab('${t.id}')">${t.title}</button>`
+  ).join('');
+}
+function switchTab(id){ state.tab = id; renderTabs(); render(); }
+
+async function refreshStatus(){
+  try{
+    const s = await fetch('/api/status').then(r => r.json());
+    const connected = s.clientConnected;
+    const last = s.lastRun;
+    const when = last ? new Date(last.at*1000).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'}) : '—';
+    const range = (s.oldestGame && s.newestGame)
+      ? `${new Date(s.oldestGame).toLocaleDateString('zh-TW')} ~ ${new Date(s.newestGame).toLocaleDateString('zh-TW')}`
+      : '—';
+    document.getElementById('collector').innerHTML = `
+      <span><span class="dot ${connected?'on':'off'}"></span>${connected ? '客戶端已連線' : '客戶端未執行'}
+        ${s.phase ? `· ${s.phase}` : ''}</span>
+      <span>資料庫 <b>${s.mayhemMatches}</b> 場 Mayhem / 共 <b>${s.totalMatches}</b> 場</span>
+      <span>涵蓋 <b>${range}</b></span>
+      <span>上次採集 <b>${when}</b>${last ? ` (新增 ${last.new})` : ''}</span>
+      <button class="ghost" onclick="ingestNow(this)">立即採集</button>
+      ${s.lastError && !connected ? '' : (s.lastError ? `<span style="color:var(--down)">${escapeHtml(s.lastError)}</span>` : '')}
+    `;
+  }catch{ /* 後端還沒起來,下一輪再說 */ }
+}
+
+async function ingestNow(btn){
+  btn.disabled = true; btn.textContent = '採集中…';
+  try{
+    await fetch('/api/ingest', {method:'POST'});
+    await refreshStatus(); await render();
+  } finally { btn.disabled = false; btn.textContent = '立即採集'; }
+}
+
+(async function init(){
+  state.meta = await fetch('/api/meta').then(r => r.json());
+
+  document.getElementById('view').addEventListener('click', event => {
+    const tr = event.target.closest('tr[data-drill]');
+    if(!tr) return;
+    const { field, value, label } = JSON.parse(tr.dataset.drill);
+    addDrill(field, value, label);
+  });
+
+  renderTabs(); renderChips(); await refreshStatus(); await render();
+  setInterval(refreshStatus, 30000);
+  for(const id of ['f-queue','f-from','f-to','f-min']){
+    document.getElementById(id).addEventListener('change', render);
+  }
+})();
 </script>
 </body>
 </html>
