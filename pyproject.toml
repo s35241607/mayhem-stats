@@ -1,0 +1,13 @@
+[project]
+name = "mayhem-stats"
+version = "0.1.0"
+description = "ARAM: Mayhem 個人戰績查詢工具(讀取本機 League 客戶端 LCU API)"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "requests>=2.31",
+]
+
+[tool.uv]
+package = false

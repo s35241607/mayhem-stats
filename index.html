@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ARAM: Mayhem 個人戰績</title>
+<style>
+  :root{
+    --bg:#0e1420; --surface:#161d2c; --surface-2:#1f2839; --ink:#eef1f8; --muted:#8d96ac;
+    --border:rgba(238,241,248,0.10); --accent:#ff6a3d; --ice:#5fb3ef;
+    --up:#3ee0a4; --down:#ff6b6b;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,"Segoe UI","PingFang TC","Noto Sans TC",Arial,sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
+  .wrap{ max-width:920px; margin:0 auto; padding:28px 20px 60px; }
+  h1{ font-size:24px; margin:0 0 4px; display:flex; align-items:center; gap:8px; }
+  h1 .bolt{ color:var(--accent); }
+  .sub{ color:var(--muted); font-size:13.5px; margin:0 0 22px; }
+
+  .panel{
+    background:var(--surface); border:1px solid var(--border); border-radius:12px;
+    padding:18px 20px; margin-bottom:18px;
+  }
+  .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  input[type=text]{
+    flex:1 1 260px; padding:9px 12px; border-radius:8px; border:1px solid var(--border);
+    background:var(--surface-2); color:var(--ink); font-size:13.5px;
+  }
+  input[type=text]:focus{ outline:2px solid var(--ice); outline-offset:1px; }
+  button{
+    font-family:inherit; font-weight:600; font-size:14px; padding:10px 18px;
+    border-radius:8px; border:1px solid var(--accent); background:var(--accent); color:#1a0a04;
+    cursor:pointer;
+  }
+  button:hover{ filter:brightness(1.08); }
+  button:disabled{ opacity:0.55; cursor:default; }
+  button.ghost{
+    background:transparent; color:var(--ink); border-color:var(--border);
+  }
+  .hint{ font-size:12px; color:var(--muted); margin-top:8px; line-height:1.6; }
+
+  #status-line{ font-size:13px; color:var(--muted); margin-top:10px; min-height:18px; }
+  #error-box{
+    display:none; background:rgba(255,107,107,0.12); border:1px solid var(--down); color:var(--down);
+    border-radius:8px; padding:10px 14px; font-size:13.5px; margin-top:10px;
+  }
+
+  #summary{ display:none; }
+  .summary-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(140px,1fr)); gap:12px; }
+  .stat-tile{ background:var(--surface-2); border-radius:10px; padding:12px 14px; }
+  .stat-tile .label{ font-size:11.5px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; }
+  .stat-tile .value{ font-size:20px; font-weight:700; margin-top:3px; }
+  .stat-tile .value.small{ font-size:14px; font-weight:600; }
+
+  #table-section{ display:none; }
+  .search-row{ margin-bottom:10px; }
+  .table-scroll{ overflow-x:auto; border:1px solid var(--border); border-radius:12px; background:var(--surface); }
+  table{ width:100%; border-collapse:collapse; min-width:480px; }
+  thead th{
+    text-align:left; font-weight:600; font-size:12.5px; letter-spacing:0.03em; text-transform:uppercase;
+    color:var(--muted); padding:10px 14px; border-bottom:1px solid var(--border); cursor:pointer; white-space:nowrap;
+  }
+  thead th.num{ text-align:right; }
+  thead th .arrow{ font-size:10px; opacity:0.6; margin-left:3px; }
+  tbody td{ padding:8px 14px; border-bottom:1px solid var(--border); font-size:14px; vertical-align:middle; }
+  tbody tr:last-child td{ border-bottom:none; }
+  tbody tr:hover{ background:var(--surface-2); }
+  tbody tr.hidden{ display:none; }
+  td.champion{ display:flex; align-items:center; gap:9px; font-weight:600; }
+  td.champion img{ width:26px; height:26px; border-radius:6px; }
+  td.num{ text-align:right; font-weight:700; }
+  td.wr-up{ color:var(--up); }
+  td.wr-down{ color:var(--down); }
+
+  #empty-state{ display:none; padding:26px 14px; text-align:center; color:var(--muted); }
+  footer{ margin-top:24px; color:var(--muted); font-size:12px; line-height:1.7; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1><span class="bolt">⚡</span>ARAM: Mayhem 個人戰績</h1>
+  <p class="sub">直接讀取本機 League 客戶端的對戰紀錄,統計你玩過的每個英雄在 Mayhem 模式的場次與勝率。</p>
+
+  <div class="panel">
+    <div class="row">
+      <input type="text" id="lockfile-override" placeholder="(選填)手動指定 lockfile 路徑,留空會自動偵測">
+      <button id="scan-btn" onclick="runScan()">開始查詢</button>
+      <button class="ghost" onclick="checkStatus()">檢查客戶端連線</button>
+    </div>
+    <div class="hint">
+      查詢前請確保 League of Legends 客戶端在背景開著(登入大廳畫面即可,不需要在遊玩中)。這個工具只會讀取「目前登入這台電腦客戶端」的帳號,查不到別人的資料。
+    </div>
+    <div id="status-line"></div>
+    <div id="error-box"></div>
+  </div>
+
+  <div class="panel" id="summary">
+    <div class="summary-grid">
+      <div class="stat-tile">
+        <div class="label">帳號</div>
+        <div class="value small" id="s-name">—</div>
+      </div>
+      <div class="stat-tile">
+        <div class="label">Mayhem 場次</div>
+        <div class="value" id="s-found">—</div>
+      </div>
+      <div class="stat-tile">
+        <div class="label">共掃描對局</div>
+        <div class="value" id="s-scanned">—</div>
+      </div>
+      <div class="stat-tile">
+        <div class="label">時間範圍</div>
+        <div class="value small" id="s-range">—</div>
+      </div>
+    </div>
+    <div class="hint" id="s-note"></div>
+  </div>
+
+  <div id="table-section">
+    <div class="search-row">
+      <input type="text" id="search" placeholder="搜尋英雄名稱…" oninput="renderTable()">
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th data-key="name">英雄<span class="arrow"></span></th>
+            <th data-key="games" class="num">場次<span class="arrow"></span></th>
+            <th data-key="wins" class="num">勝場<span class="arrow"></span></th>
+            <th data-key="losses" class="num">敗場<span class="arrow"></span></th>
+            <th data-key="winRate" class="num">勝率<span class="arrow"></span></th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <div id="empty-state">沒有符合條件的英雄。</div>
+    </div>
+  </div>
+
+  <footer>
+    資料來源:本機 League 客戶端的 LCU API(<code>/lol-match-history/v1/products/lol/current-summoner/matches</code>),篩選 queueId&nbsp;=&nbsp;2400(ARAM: Mayhem)。英雄圖示與名稱來自 Riot Data Dragon。此工具不會把任何資料上傳到任何地方,全部運算都在你自己的電腦上完成。
+  </footer>
+</div>
+
+<script>
+let currentData = null;
+let sortKey = 'games';
+let sortDir = -1;
+
+async function checkStatus(){
+  const line = document.getElementById('status-line');
+  const errBox = document.getElementById('error-box');
+  errBox.style.display = 'none';
+  line.textContent = '檢查中…';
+  const override = document.getElementById('lockfile-override').value.trim();
+  const url = '/api/status' + (override ? ('?lockfile=' + encodeURIComponent(override)) : '');
+  try{
+    const res = await fetch(url);
+    const data = await res.json();
+    if(data.lockfileFound){
+      line.textContent = '✓ 找到客戶端 lockfile:' + data.lockfilePath;
+    } else {
+      line.textContent = '✗ 找不到 lockfile,請確認客戶端已開啟,或在上面手動輸入路徑。';
+    }
+  } catch(e){
+    line.textContent = '檢查失敗:' + e.message;
+  }
+}
+
+async function runScan(){
+  const btn = document.getElementById('scan-btn');
+  const line = document.getElementById('status-line');
+  const errBox = document.getElementById('error-box');
+  errBox.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = '查詢中…';
+  line.textContent = '正在連線客戶端並掃描對戰紀錄,依帳號歷史場次多寡,可能需要幾秒到十幾秒…';
+
+  const override = document.getElementById('lockfile-override').value.trim();
+  try{
+    const res = await fetch('/api/scan', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({lockfilePath: override || null})
+    });
+    const data = await res.json();
+    if(!res.ok){
+      errBox.style.display = 'block';
+      errBox.textContent = data.error || '查詢失敗。';
+      line.textContent = '';
+      return;
+    }
+    currentData = data;
+    renderSummary(data);
+    renderTable();
+    line.textContent = '完成。';
+  } catch(e){
+    errBox.style.display = 'block';
+    errBox.textContent = '連線失敗:' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '開始查詢';
+  }
+}
+
+function fmtDate(ms){
+  if(!ms) return '—';
+  const d = new Date(ms);
+  return d.toLocaleDateString('zh-TW', {year:'numeric', month:'2-digit', day:'2-digit'});
+}
+
+function renderSummary(data){
+  document.getElementById('summary').style.display = 'block';
+  document.getElementById('table-section').style.display = 'block';
+  document.getElementById('s-name').textContent = data.summonerName || '—';
+  document.getElementById('s-found').textContent = data.mayhemFound;
+  document.getElementById('s-scanned').textContent = data.totalScanned + (data.totalAvailable ? (' / ' + data.totalAvailable) : '');
+  document.getElementById('s-range').textContent = data.mayhemFound ? (fmtDate(data.oldestDate) + ' ~ ' + fmtDate(data.newestDate)) : '—';
+
+  let note = '';
+  if(data.paginationBroken){
+    note = '你的客戶端這個版本的本機 API 目前不支援翻頁(不管怎麼要求,永遠只回傳最新 100 場對局),所以這次只能統計到最近 100 場裡的 Mayhem 資料,無法往回掃更早的紀錄 —— 這是客戶端 API 的限制,不是這個帳號沒有更早的對局。';
+  } else if(data.mayhemFound === 0){
+    note = '在掃描到的對局裡沒有找到 Mayhem 場次 —— 可能這段時間沒玩過,或這個帳號的紀錄還沒涵蓋到 Mayhem 開放的時間。';
+  } else if(data.hitEnd){
+    note = '已經掃到帳號歷史紀錄的最底(沒有更早的對局了),上面的數字是這個帳號目前能查到的完整 Mayhem 資料。';
+  } else {
+    note = '這次掃描碰到安全上限就停了,可能還有更早的 Mayhem 對局沒被算進來 —— 上面數字是「目前為止」的統計,不是這個帳號的全部歷史。';
+  }
+  document.getElementById('s-note').textContent = note;
+}
+
+function renderTable(){
+  if(!currentData) return;
+  const q = document.getElementById('search').value.trim().toLowerCase();
+  let list = currentData.champions.filter(c => !q || c.name.toLowerCase().includes(q));
+  list = list.slice().sort((a,b)=>{
+    let av=a[sortKey], bv=b[sortKey];
+    if(typeof av === 'string'){ av=av.toLowerCase(); bv=bv.toLowerCase(); }
+    if(av<bv) return -1*sortDir;
+    if(av>bv) return 1*sortDir;
+    return b.games - a.games;
+  });
+
+  const tbody = document.getElementById('tbody');
+  tbody.innerHTML = list.map(c => {
+    const wrClass = c.winRate >= 50 ? 'wr-up' : 'wr-down';
+    return `<tr>
+      <td class="champion">${c.icon ? `<img src="${c.icon}" alt="">` : ''}${c.name}</td>
+      <td class="num">${c.games}</td>
+      <td class="num">${c.wins}</td>
+      <td class="num">${c.losses}</td>
+      <td class="num ${wrClass}">${c.winRate.toFixed(1)}%</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('empty-state').style.display = list.length ? 'none' : 'block';
+
+  document.querySelectorAll('thead th').forEach(th=>{
+    th.removeAttribute('data-active');
+    const arrow = th.querySelector('.arrow');
+    arrow.textContent = '';
+    if(th.dataset.key === sortKey){
+      arrow.textContent = sortDir === 1 ? '▲' : '▼';
+    }
+  });
+}
+
+document.querySelectorAll('thead th').forEach(th=>{
+  th.addEventListener('click', ()=>{
+    const key = th.dataset.key;
+    if(sortKey === key){ sortDir *= -1; }
+    else { sortKey = key; sortDir = (key === 'name') ? 1 : -1; }
+    renderTable();
+  });
+});
+
+checkStatus();
+</script>
+</body>
+</html>
