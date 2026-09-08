@@ -33,6 +33,7 @@ class Collector:
         }
         self._saw_in_game = False
         self._dimensions_loaded = False
+        self._was_connected = False
 
     # ---------------------------------------------------------------- ingest
 
@@ -149,10 +150,21 @@ class Collector:
             self.status["clientConnected"] = True
             self.status["phase"] = phase
         except lcu.LCUUnavailable as exc:
-            # 客戶端沒開是常態,不是錯誤,靜靜等下一輪
+            # 客戶端沒開是常態,不是錯誤,靜靜等下一輪。
+            # 客戶端關著時完全沒有辦法同步:LCU API 是客戶端行程自己託管的,
+            # 沒有行程就沒有服務,戰績也沒有落地的快取可以讀。
             self.status["clientConnected"] = False
             self.status["phase"] = None
             self.status["lastError"] = str(exc)
+            self._was_connected = False
+            return
+
+        # 客戶端剛開起來就立刻補掃,不要等到下一個五分鐘的整點。
+        # 這段空窗期正是最可能漏資料的時候——尤其追蹤好友只有 20 場的視窗,
+        # 比自己的 100 場容易被擠掉。
+        if not self._was_connected:
+            self._was_connected = True
+            await self._run_ingest("reconnect")
             return
 
         if phase in IN_GAME_PHASES:
