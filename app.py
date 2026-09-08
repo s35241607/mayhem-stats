@@ -25,6 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import collector as collector_module
+import cube_process
 import db
 import lcu
 import query
@@ -36,11 +37,15 @@ collector = collector_module.Collector()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init()
+    # Cube 由這裡一併拉起來：開機自動啟動只有一個排程工作，
+    # 若要另外顧 Cube，重開機後分析頁面會壞掉而使用者不會馬上發現。
+    print(await asyncio.to_thread(cube_process.start))
     task = asyncio.create_task(collector.run_forever())
     try:
         yield
     finally:
         task.cancel()
+        cube_process.stop()
 
 
 app = FastAPI(title="ARAM: Mayhem 戰績 BI", lifespan=lifespan)

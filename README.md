@@ -19,12 +19,29 @@
 所以這個工具的核心不是「查詢」,而是**趁資料還在的時候把它存下來**——只要客戶端開著就自動採集,
 一場一場累積成你自己的歷史資料庫。開始採集得越早,能累積的歷史就越完整。
 
+## 架構
+
+```
+League 客戶端 ──LCU API──> FastAPI（採集器）──> SQLite mayhem.db
+                              │                        ↑
+                              │                   Cube 語意層（Node）
+                              │                        │
+                              └── /api/cube 代理 ───────┘
+                                        ↓
+                            React + shadcn/ui + ECharts
+```
+
+指標定義集中在 Cube 模型（`cube/model/cubes`），前端只送維度與指標名稱，
+所以「勝率」在每一頁的定義都保證一致。Cube 由 FastAPI 在啟動時一併拉起來，
+不需要另外顧。
+
 ## 使用方式
 
-需要先安裝 [uv](https://docs.astral.sh/uv/)。
+需要先安裝 [uv](https://docs.astral.sh/uv/) 與 [Node.js](https://nodejs.org/)。
 
 ```bash
 uv sync
+cd cube && npm install && cd ..
 uv run app.py
 ```
 
@@ -80,6 +97,30 @@ Unregister-ScheduledTask -TaskName MayhemStatsCollector -Confirm:$false   # 完�
 
 點表格任一列可以「下鑽」該項目(例如點某個英雄,再切到增幅分頁,就只看這隻英雄的增幅表現)。
 場次太少的列會標灰——5 場 80% 勝率是雜訊不是洞察。
+
+## 改前端
+
+前端是 React + shadcn/ui + Tailwind + ECharts，原始碼在 `web/`。
+**建置產物 `web/dist` 有一起進版控**，所以平常執行不需要 npm；只有要改 UI 時才需要：
+
+```bash
+cd web && npm install && npm run build
+```
+
+開發時可以跑 `npm run dev`（另一個埠），API 會自動代理到 5057。
+
+## ⚠️ Cube 的網路暴露
+
+Cube 沒有提供繫結位址的設定，它的三個埠（4000 API、3030 Cube Store、15432 SQL）
+一律開在**所有網路介面**上，而開發模式不驗證身分。實測可從區網位址無認證取得資料。
+
+前端已改走 FastAPI 的 `/api/cube` 代理，瀏覽器只需要連 127.0.0.1:5057，
+但 Cube 的埠本身仍然開著。請用管理員身分執行一次以下指令擋掉對外連線
+（不影響本機使用，Windows 防火牆不過濾 loopback）：
+
+```powershell
+New-NetFirewallRule -DisplayName "Mayhem: 封鎖 Cube 對外連線" -Direction Inbound -Protocol TCP -LocalPort 4000,3030,15432 -Action Block
+```
 
 ## 資料存在哪
 
