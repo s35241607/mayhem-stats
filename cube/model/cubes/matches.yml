@@ -1,0 +1,57 @@
+cubes:
+  - name: matches
+    sql_table: matches
+    description: 一場對局的表頭。時間欄位在資料庫裡是 epoch 毫秒(UTC),這裡轉成時間戳給 Cube,時區換算交由查詢端指定。
+
+    dimensions:
+      - name: id
+        sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id"
+        type: string
+        primary_key: true
+
+      - name: game_id
+        sql: game_id
+        type: number
+
+      - name: queue_id
+        sql: queue_id
+        type: number
+        description: 2400 = ARAM Mayhem
+
+      - name: game_mode
+        sql: game_mode
+        type: string
+
+      - name: patch
+        sql: "substr({CUBE}.game_version, 1, instr({CUBE}.game_version, '.') - 1) || '.' || substr(substr({CUBE}.game_version, instr({CUBE}.game_version, '.') + 1), 1, instr(substr({CUBE}.game_version, instr({CUBE}.game_version, '.') + 1), '.') - 1)"
+        type: string
+        description: 只取主版號.次版號,例如 16.17
+
+      - name: played_at
+        sql: "datetime({CUBE}.game_creation / 1000, 'unixepoch')"
+        type: time
+
+      - name: duration_minutes
+        sql: "{CUBE}.game_duration / 60.0"
+        type: number
+
+      - name: duration_bucket
+        sql: >
+          CASE WHEN {CUBE}.game_duration < 900 THEN '< 15 分'
+               WHEN {CUBE}.game_duration < 1200 THEN '15-20 分'
+               WHEN {CUBE}.game_duration < 1500 THEN '20-25 分'
+               ELSE '25 分以上' END
+        type: string
+
+      - name: ended_surrender
+        sql: ended_surrender
+        type: number
+
+    measures:
+      - name: count
+        type: count
+
+      - name: avg_duration
+        sql: "{CUBE}.game_duration / 60.0"
+        type: avg
+        format: number

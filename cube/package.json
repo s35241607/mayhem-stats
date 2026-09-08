@@ -1,0 +1,13 @@
+{
+  "name": "mayhem-cube",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ARAM: Mayhem 戰績的 Cube 語意層",
+  "scripts": {
+    "dev": "cubejs-server"
+  },
+  "dependencies": {
+    "@cubejs-backend/server": "^1.3.0",
+    "@cubejs-backend/sqlite-driver": "^1.3.0"
+  }
+}

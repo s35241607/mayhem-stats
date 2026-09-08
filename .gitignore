@@ -9,3 +9,9 @@ mayhem.db-shm
 # 開機自動啟動的執行記錄
 autostart.log
 autostart.log.old
+
+# Cube 語意層
+cube/node_modules/
+cube/.cubestore/
+cube/cube.log
+cube/.env

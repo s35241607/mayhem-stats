@@ -19,7 +19,7 @@ from typing import Any, Optional
 
 import requests
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
@@ -122,6 +122,39 @@ def recent_matches(limit: int = 20, queue: Optional[int] = None):
         return {"matches": [dict(row) for row in conn.execute(sql, params).fetchall()]}
     finally:
         conn.close()
+
+
+CUBE_BASE = "http://127.0.0.1:4000/cubejs-api/v1"
+
+
+@app.api_route("/api/cube/{path:path}", methods=["GET", "POST"])
+async def cube_proxy(path: str, request: Request):
+    """把 Cube 的查詢 API 代理到本服務底下。
+
+    Cube 沒有提供繫結位址的設定,它的埠一律開在所有網路介面上,而開發模式
+    又不驗證身分。前端改走這裡之後,瀏覽器只需要連 127.0.0.1:5057,
+    Cube 的埠就不必讓任何人碰到(仍建議用防火牆擋掉對外連線)。
+    順帶好處是前端與 API 同源,不必處理 CORS。
+    """
+    if path not in {"load", "meta", "sql"}:
+        return JSONResponse(status_code=404, content={"error": "不支援的 Cube 端點"})
+
+    url = f"{CUBE_BASE}/{path}"
+    try:
+        if request.method == "POST":
+            resp = requests.post(url, json=await request.json(), timeout=60)
+        else:
+            resp = requests.get(url, params=dict(request.query_params), timeout=60)
+    except requests.exceptions.RequestException as exc:
+        return JSONResponse(
+            status_code=503,
+            content={"error": f"連不到 Cube 語意層(是不是沒啟動?): {exc}"},
+        )
+    return Response(
+        content=resp.content,
+        status_code=resp.status_code,
+        media_type=resp.headers.get("Content-Type", "application/json"),
+    )
 
 
 @app.get("/api/icon")

@@ -1,0 +1,150 @@
+cubes:
+  - name: participants
+    sql_table: match_participants
+    description: >
+      主要事實表:每場對局每位玩家一列。以增幅或裝備為維度查詢時一場會展開成多列,
+      因此所有場次類指標一律用 count_distinct(對局鍵),不能用 count。
+
+    joins:
+      - name: matches
+        sql: "{CUBE}.platform_id = {matches}.platform_id AND {CUBE}.game_id = {matches}.game_id"
+        relationship: many_to_one
+
+      - name: champions
+        sql: "{CUBE}.champion_id = {champions}.id"
+        relationship: many_to_one
+
+      - name: augments
+        sql: "{CUBE}.platform_id = {augments}.platform_id AND {CUBE}.game_id = {augments}.game_id AND {CUBE}.participant_id = {augments}.participant_id"
+        relationship: one_to_many
+
+      - name: items
+        sql: "{CUBE}.platform_id = {items}.platform_id AND {CUBE}.game_id = {items}.game_id AND {CUBE}.participant_id = {items}.participant_id"
+        relationship: one_to_many
+
+    dimensions:
+      - name: id
+        sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id || ':' || {CUBE}.participant_id"
+        type: string
+        primary_key: true
+
+      - name: game_key
+        sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id"
+        type: string
+
+      - name: puuid
+        sql: puuid
+        type: string
+
+      - name: riot_id
+        sql: riot_id
+        type: string
+
+      # 刻意用字串而不是數字:Cube 會把篩選值綁成字串,而這是 CASE 運算式、
+      # 沒有欄位型別親和性,SQLite 不會把 '1' 轉成 1,比較永遠為假。
+      # 真欄位(如 queue_id)有 INTEGER 親和性所以不受影響。
+      - name: is_me
+        sql: "CASE WHEN {CUBE}.puuid IN (SELECT puuid FROM accounts WHERE is_me = 1) THEN 'true' ELSE 'false' END"
+        type: string
+        description: 值為 true 代表這一列是本機登入的帳號。個人戰績分析都要套上這個篩選。
+
+      - name: champion_id
+        sql: champion_id
+        type: number
+
+      - name: team_id
+        sql: team_id
+        type: number
+
+      - name: team_side
+        sql: "CASE WHEN {CUBE}.team_id = 100 THEN '藍隊' ELSE '紅隊' END"
+        type: string
+
+      - name: win
+        sql: win
+        type: number
+
+      - name: result
+        sql: "CASE WHEN {CUBE}.win = 1 THEN '勝' ELSE '敗' END"
+        type: string
+
+      - name: champ_level
+        sql: champ_level
+        type: number
+
+    measures:
+      - name: games
+        sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id"
+        type: count_distinct
+        description: 對局數。用 distinct 是因為增幅/裝備維度會讓同一場展開成多列。
+
+      - name: wins
+        sql: "CASE WHEN {CUBE}.win = 1 THEN {CUBE}.platform_id || ':' || {CUBE}.game_id END"
+        type: count_distinct
+
+      - name: losses
+        sql: "CASE WHEN {CUBE}.win = 0 THEN {CUBE}.platform_id || ':' || {CUBE}.game_id END"
+        type: count_distinct
+
+      - name: winrate
+        sql: "100.0 * {wins} / NULLIF({games}, 0)"
+        type: number
+        format: percent
+
+      - name: avg_kills
+        sql: kills
+        type: avg
+
+      - name: avg_deaths
+        sql: deaths
+        type: avg
+
+      - name: avg_assists
+        sql: assists
+        type: avg
+
+      - name: kda
+        sql: "({avg_kills} + {avg_assists}) / NULLIF({avg_deaths}, 0)"
+        type: number
+
+      - name: avg_damage
+        sql: dmg_to_champions
+        type: avg
+
+      - name: avg_taken
+        sql: dmg_taken
+        type: avg
+
+      - name: avg_gold
+        sql: gold_earned
+        type: avg
+
+      - name: avg_cs
+        sql: cs
+        type: avg
+
+      - name: avg_vision
+        sql: vision_score
+        type: avg
+
+      # 對局長度已反正規化到本表(見 db.py 的 _migrate),事實表才能自給自足
+      # 算出自己的指標——Cube 也不允許成員 SQL 去引用其他 cube 的欄位。
+      - name: dpm
+        sql: "{CUBE}.dmg_to_champions * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: avg
+        description: 每分鐘對英雄傷害
+
+      - name: gpm
+        sql: "{CUBE}.gold_earned * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: avg
+        description: 每分鐘經濟
+
+      - name: kill_participation
+        sql: "({CUBE}.kills + {CUBE}.assists) * 100.0 / NULLIF({CUBE}.team_kills, 0)"
+        type: avg
+        format: percent
+
+      - name: damage_share
+        sql: "{CUBE}.dmg_to_champions * 100.0 / NULLIF({CUBE}.team_dmg, 0)"
+        type: avg
+        format: percent

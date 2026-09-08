@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS match_participants (
   perk_primary_style INTEGER, perk_sub_style INTEGER,
   team_kills         INTEGER,
   team_dmg           INTEGER,
+  game_duration      INTEGER,
   PRIMARY KEY (platform_id, game_id, participant_id),
   FOREIGN KEY (platform_id, game_id) REFERENCES matches(platform_id, game_id)
 );
@@ -106,8 +107,36 @@ def connect(path=None):
 
 
 def init(path=None):
-    with connect(path) as conn:
-        conn.executescript(SCHEMA)
+    conn = connect(path)
+    try:
+        with conn:
+            conn.executescript(SCHEMA)
+        _migrate(conn)
+    finally:
+        conn.close()
+
+
+def _migrate(conn):
+    """補上舊資料庫缺少的欄位。
+
+    每分鐘傷害/經濟這類指標需要對局長度,把它反正規化到事實表上,
+    事實表才能自給自足地算出自己的指標(team_kills/team_dmg 也是同樣理由)。
+    對局結束後資料不會再變,所以複製一份沒有一致性風險。
+    """
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(match_participants)")}
+    if "game_duration" not in existing:
+        with conn:
+            conn.execute("ALTER TABLE match_participants ADD COLUMN game_duration INTEGER")
+
+    with conn:
+        conn.execute("""
+            UPDATE match_participants AS mp
+            SET game_duration = (
+                SELECT m.game_duration FROM matches m
+                WHERE m.platform_id = mp.platform_id AND m.game_id = mp.game_id
+            )
+            WHERE mp.game_duration IS NULL
+        """)
 
 
 def _num(stats, key, default=0):
@@ -185,8 +214,8 @@ def store_match(conn, game):
                     dmg_physical, dmg_magic, dmg_true, dmg_taken, dmg_mitigated,
                     total_heal, cs, vision_score, time_ccing_others, largest_multi_kill,
                     spell1_id, spell2_id, perk_primary_style, perk_sub_style,
-                    team_kills, team_dmg)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    team_kills, team_dmg, game_duration)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     platform_id, game_id, pid,
                     player.get("puuid") or "",
@@ -211,6 +240,7 @@ def store_match(conn, game):
                     p.get("spell1Id"), p.get("spell2Id"),
                     _num(stats, "perkPrimaryStyle"), _num(stats, "perkSubStyle"),
                     team_kills.get(team, 0), team_dmg.get(team, 0),
+                    game.get("gameDuration"),
                 ),
             )
 

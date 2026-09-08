@@ -1,0 +1,91 @@
+cubes:
+  - name: champions
+    sql_table: dim_champions
+    description: 英雄名稱與圖示,來自客戶端內建資源檔,會隨版本更新。
+
+    dimensions:
+      - name: id
+        sql: id
+        type: number
+        primary_key: true
+
+      - name: name
+        sql: name
+        type: string
+
+      - name: alias
+        sql: alias
+        type: string
+
+      - name: icon_path
+        sql: icon_path
+        type: string
+
+  # 名稱直接在 sql 裡先 join 好,而不是靠 Cube 的 join 去引用 dim_augments。
+  # Cube 不允許成員的 SQL 引用其他 cube 的欄位,而且這樣也省掉一個中介 cube,
+  # 前端可以直接查 augments.name。
+  - name: augments
+    sql: >
+      SELECT pa.platform_id, pa.game_id, pa.participant_id, pa.slot, pa.augment_id,
+             da.name AS augment_name, da.rarity AS augment_rarity, da.icon_path AS augment_icon
+      FROM participant_augments pa
+      LEFT JOIN dim_augments da ON da.id = pa.augment_id
+    description: >
+      長格式的增幅裝置(一列一個)。以此為維度查詢時同一場對局會展開成多列——
+      這正是 participants 的場次指標必須用 count_distinct 的原因。
+
+    dimensions:
+      - name: id
+        sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id || ':' || {CUBE}.participant_id || ':' || {CUBE}.slot"
+        type: string
+        primary_key: true
+
+      - name: augment_id
+        sql: augment_id
+        type: number
+
+      - name: slot
+        sql: slot
+        type: number
+
+      - name: name
+        sql: augment_name
+        type: string
+
+      - name: rarity
+        sql: augment_rarity
+        type: string
+
+      - name: icon_path
+        sql: augment_icon
+        type: string
+
+  - name: items
+    sql: >
+      SELECT pi.platform_id, pi.game_id, pi.participant_id, pi.slot, pi.item_id,
+             di.name AS item_name, di.icon_path AS item_icon
+      FROM participant_items pi
+      LEFT JOIN dim_items di ON di.id = pi.item_id
+    description: 長格式的裝備(一列一件),同樣會造成對局展開。
+
+    dimensions:
+      - name: id
+        sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id || ':' || {CUBE}.participant_id || ':' || {CUBE}.slot"
+        type: string
+        primary_key: true
+
+      - name: item_id
+        sql: item_id
+        type: number
+
+      - name: slot
+        sql: slot
+        type: number
+
+      - name: name
+        sql: item_name
+        type: string
+
+      - name: icon_path
+        sql: item_icon
+        type: string
