@@ -21,6 +21,7 @@ import requests
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import collector as collector_module
@@ -45,8 +46,22 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="ARAM: Mayhem 戰績 BI", lifespan=lifespan)
 
 
+WEB_DIST = BASE_DIR / "web" / "dist"
+
+if (WEB_DIST / "assets").is_dir():
+    app.mount("/assets", StaticFiles(directory=WEB_DIST / "assets"), name="assets")
+
+
 @app.get("/")
 def index():
+    """優先送 React 的建置產物;沒有建置過就退回舊的單檔前端。
+
+    dist/ 有一起進版控,所以執行期只需要 uv run app.py,不需要裝 npm。
+    只有要改前端時才需要進 web/ 跑 npm run build。
+    """
+    built = WEB_DIST / "index.html"
+    if built.is_file():
+        return FileResponse(built)
     return FileResponse(BASE_DIR / "index.html")
 
 

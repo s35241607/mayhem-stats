@@ -1,0 +1,60 @@
+cubes:
+  # 同場其他玩家的自我 join。Riot 的 API 不提供「誰跟誰一起排隊」的欄位,
+  # 但同隊次數本身就能看出固定車隊。
+  #
+  # 「只看自己」的條件直接寫死在 sql 裡(me.puuid IN accounts),因為這個 cube
+  # 的每一列語意就是「我的某一場 × 同場的某個人」,離開這個前提沒有意義。
+  - name: teammates
+    sql: >
+      SELECT me.platform_id, me.game_id, me.participant_id, me.win,
+             other.puuid   AS other_puuid,
+             other.riot_id AS other_riot_id,
+             other.champion_id AS other_champion_id,
+             CASE WHEN other.team_id = me.team_id THEN 'teammate' ELSE 'opponent' END AS relation
+      FROM match_participants me
+      JOIN match_participants other
+        ON other.platform_id = me.platform_id
+       AND other.game_id     = me.game_id
+       AND other.puuid      <> me.puuid
+      WHERE me.puuid IN (SELECT puuid FROM accounts WHERE is_me = 1)
+
+    joins:
+      - name: matches
+        sql: "{CUBE}.platform_id = {matches}.platform_id AND {CUBE}.game_id = {matches}.game_id"
+        relationship: many_to_one
+
+    dimensions:
+      - name: id
+        sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id || ':' || {CUBE}.other_puuid"
+        type: string
+        primary_key: true
+
+      - name: player
+        sql: other_riot_id
+        type: string
+
+      - name: puuid
+        sql: other_puuid
+        type: string
+
+      - name: relation
+        sql: relation
+        type: string
+        description: teammate = 與我同隊,opponent = 我的對手
+
+    measures:
+      - name: games
+        sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id"
+        type: count_distinct
+        description: 與這個人同場的對局數
+
+      - name: wins
+        sql: "CASE WHEN {CUBE}.win = 1 THEN {CUBE}.platform_id || ':' || {CUBE}.game_id END"
+        type: count_distinct
+        description: 其中我方獲勝的場次
+
+      - name: winrate
+        sql: "100.0 * {wins} / NULLIF({games}, 0)"
+        type: number
+        format: percent
+        description: 和這個人同隊(或對上這個人)時,我的勝率

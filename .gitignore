@@ -15,3 +15,9 @@ cube/node_modules/
 cube/.cubestore/
 cube/cube.log
 cube/.env
+
+# 前端。web/dist 刻意「不」忽略——它有進版控，執行期才不需要裝 npm，
+# 只有要改 UI 時才需要進 web/ 跑 npm install && npm run build。
+web/node_modules/
+web/.vite/
+*.tsbuildinfo

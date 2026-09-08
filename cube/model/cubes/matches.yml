@@ -31,6 +31,19 @@ cubes:
         sql: "datetime({CUBE}.game_creation / 1000, 'unixepoch')"
         type: time
 
+      # 「幾點」「星期幾」是從時間戳抽取出來的，不是 Cube 的時間粒度，所以另外定義。
+      # 型別刻意用字串:這些是運算式、沒有欄位型別親和性,而 Cube 會把篩選值綁成
+      # 字串,若宣告成數字,SQLite 不會把 '15' 轉成 15,篩選會永遠比對不到。
+      # 這裡的 localtime 取本機時區——這個工具本來就跑在使用者自己的電腦上。
+      - name: hour_of_day
+        sql: "strftime('%H', {CUBE}.game_creation / 1000, 'unixepoch', 'localtime')"
+        type: string
+
+      - name: weekday
+        sql: "strftime('%w', {CUBE}.game_creation / 1000, 'unixepoch', 'localtime')"
+        type: string
+        description: 0 = 週日
+
       - name: duration_minutes
         sql: "{CUBE}.game_duration / 60.0"
         type: number
