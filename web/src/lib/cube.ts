@@ -13,7 +13,13 @@ export type CubeFilter = {
 export type CubeQuery = {
   measures?: string[]
   dimensions?: string[]
-  timeDimensions?: { dimension: string; granularity?: string; dateRange?: string[] }[]
+  // dateRange 兩種都收：["2026-09-01","2026-09-08"] 這種絕對區間，
+  // 或 "last 7 days" 這種 Cube 自己解析的相對區間。
+  timeDimensions?: {
+    dimension: string
+    granularity?: string
+    dateRange?: string | string[]
+  }[]
   filters?: CubeFilter[]
   order?: Record<string, "asc" | "desc">
   limit?: number

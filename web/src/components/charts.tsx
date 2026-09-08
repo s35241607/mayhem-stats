@@ -1,5 +1,42 @@
-import { useMemo } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import ReactECharts from "echarts-for-react"
+
+/** 包一層尺寸觀察。
+ *
+ * ECharts 是在掛載當下量容器寬度，而在 grid／flex 版面裡那一刻寬度常常還是 0，
+ * 之後它也不會自己重算——結果就是高度正常、寬度 0 的空白圖。
+ * ResizeObserver 在初次佈局與之後每次容器變動時都會觸發，補上這個缺口。
+ */
+type EChartsInstance = { resize: () => void }
+
+function ResponsiveChart({ option, height }: { option: unknown; height: number }) {
+  const boxRef = useRef<HTMLDivElement>(null)
+  const instance = useRef<EChartsInstance | null>(null)
+
+  useEffect(() => {
+    const box = boxRef.current
+    if (!box) return
+    const observer = new ResizeObserver(() => instance.current?.resize())
+    observer.observe(box)
+    return () => observer.disconnect()
+  }, [])
+
+  return (
+    <div ref={boxRef} className="w-full">
+      <ReactECharts
+        // onChartReady 是取得實例的官方途徑；改用元件 ref 拿 getEchartsInstance
+        // 在這個版本拿不到東西，resize 會被 optional chaining 靜靜吞掉。
+        onChartReady={(chart: EChartsInstance) => {
+          instance.current = chart
+          chart.resize()
+        }}
+        option={option as never}
+        style={{ height, width: "100%" }}
+        notMerge
+      />
+    </div>
+  )
+}
 
 /** 從 CSS 變數讀主題色，讓圖表跟著 shadcn 的主題走，不要另外寫死一組色。 */
 function cssVar(name: string, fallback: string) {
@@ -89,7 +126,7 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
     }
   }, [points, theme])
 
-  return <ReactECharts option={option} style={{ height: 240 }} notMerge />
+  return <ResponsiveChart option={option} height={240} />
 }
 
 // ─────────────────────────────────────────── 星期 × 時段熱力圖
@@ -155,7 +192,7 @@ export function Heatmap({ cells }: { cells: HeatCell[] }) {
     }
   }, [cells, theme])
 
-  return <ReactECharts option={option} style={{ height: 300 }} notMerge />
+  return <ResponsiveChart option={option} height={300} />
 }
 
 // ─────────────────────────────────────────── 橫向長條圖
@@ -222,5 +259,5 @@ export function BarChart({
     }
   }, [data, suffix, colorBy, theme])
 
-  return <ReactECharts option={option} style={{ height: Math.max(180, data.length * 34) }} notMerge />
+  return <ResponsiveChart option={option} height={Math.max(180, data.length * 34)} />
 }

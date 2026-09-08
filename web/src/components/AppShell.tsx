@@ -1,0 +1,280 @@
+import { useState, type ReactNode } from "react"
+import {
+  LayoutDashboard,
+  Swords,
+  Sparkles,
+  Users,
+  CalendarClock,
+  Compass,
+  Zap,
+  RefreshCw,
+  X,
+  Circle,
+} from "lucide-react"
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarTrigger,
+  useSidebar,
+} from "@/components/ui/sidebar"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Separator } from "@/components/ui/separator"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { useCollectorStatus } from "@/hooks/useCube"
+import { DATE_RANGES, useFilters } from "@/lib/filters"
+import { MAYHEM_QUEUE_ID } from "@/lib/cube"
+
+export type PageId =
+  | "dashboard"
+  | "champions"
+  | "augments"
+  | "players"
+  | "time"
+  | "explore"
+
+const NAV: { group: string; items: { id: PageId; label: string; icon: typeof Zap }[] }[] = [
+  {
+    group: "總覽",
+    items: [{ id: "dashboard", label: "儀表板", icon: LayoutDashboard }],
+  },
+  {
+    group: "分析",
+    items: [
+      { id: "champions", label: "英雄", icon: Swords },
+      { id: "augments", label: "增幅裝置", icon: Sparkles },
+      { id: "players", label: "隊友 / 對手", icon: Users },
+      { id: "time", label: "時段", icon: CalendarClock },
+    ],
+  },
+  {
+    group: "工具",
+    items: [{ id: "explore", label: "自由探索", icon: Compass }],
+  },
+]
+
+const PAGE_TITLES: Record<PageId, { title: string; caption: string }> = {
+  dashboard: { title: "儀表板", caption: "整體表現與趨勢的一頁式總覽" },
+  champions: { title: "英雄", caption: "每個英雄的場次、勝率與輸出表現" },
+  augments: { title: "增幅裝置", caption: "各增幅的選取率與勝率——第三方網站拿不到的資料" },
+  players: { title: "隊友 / 對手", caption: "和誰同隊會贏、遇到誰會輸" },
+  time: { title: "時段", caption: "星期與時段的表現分佈" },
+  explore: { title: "自由探索", caption: "自選維度與指標，做任意組合的分析" },
+}
+
+function CollectorPill() {
+  const status = useCollectorStatus()
+  const [ingesting, setIngesting] = useState(false)
+
+  if (!status) return null
+
+  const ingestNow = async () => {
+    setIngesting(true)
+    try {
+      await fetch("/api/ingest", { method: "POST" })
+    } finally {
+      setIngesting(false)
+    }
+  }
+
+  return (
+    <div className="space-y-2 rounded-lg bg-sidebar-accent/60 p-3 text-xs">
+      <div className="flex items-center gap-2 font-medium">
+        <Circle
+          className={
+            status.clientConnected
+              ? "size-2 shrink-0 fill-win text-win"
+              : "size-2 shrink-0 fill-muted-foreground text-muted-foreground"
+          }
+        />
+        {status.clientConnected ? "客戶端已連線" : "客戶端未執行"}
+      </div>
+      <div className="text-muted-foreground">
+        資料庫 <b className="text-foreground">{status.mayhemMatches}</b> 場 Mayhem
+        <br />
+        共 {status.totalMatches} 場對局
+      </div>
+      {status.lastRun && (
+        <div className="text-muted-foreground">
+          上次採集{" "}
+          {new Date(status.lastRun.at * 1000).toLocaleTimeString("zh-TW", {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+        </div>
+      )}
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-7 w-full text-xs"
+        onClick={ingestNow}
+        disabled={ingesting}
+      >
+        <RefreshCw className={ingesting ? "animate-spin" : ""} />
+        {ingesting ? "採集中…" : "立即採集"}
+      </Button>
+    </div>
+  )
+}
+
+function GlobalFilters() {
+  const { queueId, setQueueId, dateRange, setDateRange, drills, removeDrill, clearDrills } =
+    useFilters()
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Select value={queueId ?? "all"} onValueChange={(v) => setQueueId(v === "all" ? null : v)}>
+        <SelectTrigger size="sm" className="w-[136px]">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={MAYHEM_QUEUE_ID}>只看 Mayhem</SelectItem>
+          <SelectItem value="all">全部模式</SelectItem>
+        </SelectContent>
+      </Select>
+
+      <Select value={dateRange} onValueChange={setDateRange}>
+        <SelectTrigger size="sm" className="w-[128px]">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {DATE_RANGES.map((range) => (
+            <SelectItem key={range.value} value={range.value}>
+              {range.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      {drills.map((drill, index) => (
+        <Badge key={index} variant="secondary" className="gap-1.5 py-1 pl-2.5 pr-1.5">
+          {drill.label}
+          <button
+            onClick={() => removeDrill(index)}
+            className="rounded-sm opacity-60 transition hover:opacity-100"
+            aria-label="移除篩選"
+          >
+            <X className="size-3" />
+          </button>
+        </Badge>
+      ))}
+      {drills.length > 0 && (
+        <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={clearDrills}>
+          清除
+        </Button>
+      )}
+    </div>
+  )
+}
+
+function NavSections({
+  page,
+  onNavigate,
+}: {
+  page: PageId
+  onNavigate: (page: PageId) => void
+}) {
+  const { isMobile, setOpenMobile } = useSidebar()
+
+  const go = (id: PageId) => {
+    onNavigate(id)
+    // 窄螢幕時側邊欄是覆蓋式抽屜，選完不關的話遮罩會擋住底下的操作
+    if (isMobile) setOpenMobile(false)
+  }
+
+  return (
+    <>
+      {NAV.map((section) => (
+        <SidebarGroup key={section.group}>
+          <SidebarGroupLabel>{section.group}</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {section.items.map((item) => (
+                <SidebarMenuItem key={item.id}>
+                  <SidebarMenuButton
+                    isActive={page === item.id}
+                    tooltip={item.label}
+                    onClick={() => go(item.id)}
+                  >
+                    <item.icon />
+                    <span>{item.label}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      ))}
+    </>
+  )
+}
+
+export function AppShell({
+  page,
+  onNavigate,
+  children,
+}: {
+  page: PageId
+  onNavigate: (page: PageId) => void
+  children: ReactNode
+}) {
+  const meta = PAGE_TITLES[page]
+
+  return (
+    <SidebarProvider>
+      <Sidebar collapsible="icon">
+        <SidebarHeader>
+          <div className="flex items-center gap-2 px-2 py-1.5">
+            <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/15">
+              <Zap className="size-4 text-primary" />
+            </div>
+            <div className="min-w-0 group-data-[collapsible=icon]:hidden">
+              <div className="truncate text-sm font-semibold leading-tight">Mayhem 戰績</div>
+              <div className="truncate text-[11px] text-muted-foreground">本機 BI</div>
+            </div>
+          </div>
+        </SidebarHeader>
+
+        <SidebarContent>
+          <NavSections page={page} onNavigate={onNavigate} />
+        </SidebarContent>
+
+        <SidebarFooter className="group-data-[collapsible=icon]:hidden">
+          <CollectorPill />
+        </SidebarFooter>
+      </Sidebar>
+
+      <SidebarInset>
+        <header className="sticky top-0 z-20 flex flex-col gap-3 border-b bg-background/85 px-5 py-3 backdrop-blur">
+          <div className="flex flex-wrap items-center gap-3">
+            <SidebarTrigger className="-ml-1" />
+            <Separator orientation="vertical" className="!h-5" />
+            <div className="mr-auto min-w-0">
+              <h1 className="truncate text-base font-semibold leading-tight">{meta.title}</h1>
+              <p className="truncate text-xs text-muted-foreground">{meta.caption}</p>
+            </div>
+            <GlobalFilters />
+          </div>
+        </header>
+
+        <main className="min-w-0 flex-1 p-5">{children}</main>
+      </SidebarInset>
+    </SidebarProvider>
+  )
+}
