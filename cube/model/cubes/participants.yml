@@ -123,10 +123,6 @@ cubes:
         sql: cs
         type: avg
 
-      - name: avg_vision
-        sql: vision_score
-        type: avg
-
       # 對局長度已反正規化到本表(見 db.py 的 _migrate),事實表才能自給自足
       # 算出自己的指標——Cube 也不允許成員 SQL 去引用其他 cube 的欄位。
       - name: dpm
@@ -138,6 +134,15 @@ cubes:
         sql: "{CUBE}.gold_earned * 60.0 / NULLIF({CUBE}.game_duration, 0)"
         type: avg
         description: 每分鐘經濟
+
+      - name: pentas
+        sql: penta_kills
+        type: sum
+
+      - name: multikills
+        sql: "{CUBE}.double_kills + {CUBE}.triple_kills + {CUBE}.quadra_kills + {CUBE}.penta_kills"
+        type: sum
+        description: 雙殺以上的總次數
 
       - name: kill_participation
         sql: "({CUBE}.kills + {CUBE}.assists) * 100.0 / NULLIF({CUBE}.team_kills, 0)"

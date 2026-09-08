@@ -55,7 +55,8 @@ const METRICS = [
   { key: "participants.avg_taken", title: "平均承受", format: round0 },
   { key: "participants.avg_gold", title: "平均經濟", format: round0 },
   { key: "participants.avg_cs", title: "平均補兵", format: round1 },
-  { key: "participants.avg_vision", title: "平均視野", format: round1 },
+  { key: "participants.multikills", title: "多殺次數", format: round0 },
+  { key: "participants.pentas", title: "五殺次數", format: round0 },
   { key: "teammates.games", title: "同場次數", format: round0 },
   { key: "teammates.winrate", title: "同場勝率", format: round1, suffix: "%" },
 ]

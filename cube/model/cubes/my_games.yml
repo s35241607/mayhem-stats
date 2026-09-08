@@ -1,0 +1,81 @@
+cubes:
+  # 我自己的對局序列，帶上「前一場的結果」與「當日第幾場」。
+  #
+  # 這兩個要靠視窗函數，而 Cube 的 measure/dimension 沒辦法表達 LAG，
+  # 所以在 sql: 裡先算好。SQLite 支援 LAG 與 ROW_NUMBER。
+  #
+  # 前一場刻意用 queue_id 分區：使用者通常會把畫面篩到只看 Mayhem，
+  # 若跨模式取前一場，篩選後的「前一場」會指到畫面上根本看不到的對局。
+  - name: my_games
+    sql: >
+      SELECT
+        mp.platform_id, mp.game_id, mp.win, mp.champion_id,
+        m.queue_id, m.game_creation, m.game_duration,
+        LAG(mp.win) OVER (PARTITION BY m.queue_id ORDER BY m.game_creation) AS prev_win,
+        ROW_NUMBER() OVER (
+          PARTITION BY m.queue_id, date(m.game_creation / 1000, 'unixepoch', 'localtime')
+          ORDER BY m.game_creation
+        ) AS game_of_day
+      FROM match_participants mp
+      JOIN matches m
+        ON m.platform_id = mp.platform_id AND m.game_id = mp.game_id
+      WHERE mp.puuid IN (SELECT puuid FROM accounts WHERE is_me = 1)
+
+    dimensions:
+      - name: id
+        sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id"
+        type: string
+        primary_key: true
+
+      - name: queue_id
+        sql: queue_id
+        type: number
+
+      - name: played_at
+        sql: "datetime({CUBE}.game_creation / 1000, 'unixepoch')"
+        type: time
+
+      # 字串型別是刻意的：這是運算式、沒有欄位型別親和性，
+      # 而 Cube 會把篩選值綁成字串，宣告成數字的話比較永遠不成立。
+      - name: prev_result
+        sql: >
+          CASE WHEN {CUBE}.prev_win IS NULL THEN '沒有前一場'
+               WHEN {CUBE}.prev_win = 1 THEN '前一場贏'
+               ELSE '前一場輸' END
+        type: string
+
+      - name: game_of_day
+        sql: "CAST({CUBE}.game_of_day AS TEXT)"
+        type: string
+        description: 當天的第幾場（同一模式內計算）
+
+      - name: session_stage
+        sql: >
+          CASE WHEN {CUBE}.game_of_day <= 2 THEN '第 1-2 場'
+               WHEN {CUBE}.game_of_day <= 5 THEN '第 3-5 場'
+               WHEN {CUBE}.game_of_day <= 9 THEN '第 6-9 場'
+               ELSE '第 10 場以後' END
+        type: string
+        description: 用來看一天打越久是不是表現越差
+
+      - name: result
+        sql: "CASE WHEN {CUBE}.win = 1 THEN '勝' ELSE '敗' END"
+        type: string
+
+    measures:
+      - name: games
+        sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id"
+        type: count_distinct
+
+      - name: wins
+        sql: "CASE WHEN {CUBE}.win = 1 THEN {CUBE}.platform_id || ':' || {CUBE}.game_id END"
+        type: count_distinct
+
+      - name: winrate
+        sql: "100.0 * {wins} / NULLIF({games}, 0)"
+        type: number
+        format: percent
+
+      - name: avg_duration
+        sql: "{CUBE}.game_duration / 60.0"
+        type: avg

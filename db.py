@@ -49,6 +49,10 @@ CREATE TABLE IF NOT EXISTS match_participants (
   team_kills         INTEGER,
   team_dmg           INTEGER,
   game_duration      INTEGER,
+  double_kills       INTEGER, triple_kills INTEGER,
+  quadra_kills       INTEGER, penta_kills INTEGER,
+  first_blood        INTEGER, first_tower INTEGER,
+  dmg_to_objectives  INTEGER, longest_time_living INTEGER,
   PRIMARY KEY (platform_id, game_id, participant_id),
   FOREIGN KEY (platform_id, game_id) REFERENCES matches(platform_id, game_id)
 );
@@ -116,27 +120,66 @@ def init(path=None):
         conn.close()
 
 
-def _migrate(conn):
-    """補上舊資料庫缺少的欄位。
+# 後來才補拆的欄位 -> raw_json 裡 stats 的對應鍵。
+# 舊對局在客戶端早就消失,能補回來完全是因為當初把原始 JSON 一起存了。
+LATE_COLUMNS = {
+    "double_kills": "doubleKills",
+    "triple_kills": "tripleKills",
+    "quadra_kills": "quadraKills",
+    "penta_kills": "pentaKills",
+    "first_blood": "firstBloodKill",
+    "first_tower": "firstTowerKill",
+    "dmg_to_objectives": "damageDealtToObjectives",
+    "longest_time_living": "longestTimeSpentLiving",
+}
 
-    每分鐘傷害/經濟這類指標需要對局長度,把它反正規化到事實表上,
-    事實表才能自給自足地算出自己的指標(team_kills/team_dmg 也是同樣理由)。
-    對局結束後資料不會再變,所以複製一份沒有一致性風險。
-    """
+
+def _migrate(conn):
+    """補上舊資料庫缺少的欄位,並從 raw_json 回填。"""
     existing = {row["name"] for row in conn.execute("PRAGMA table_info(match_participants)")}
+
+    # 對局長度反正規化到事實表,事實表才能自給自足算出每分鐘類的指標
+    # (team_kills / team_dmg 也是同樣理由)。對局結束後資料不再變動,沒有一致性風險。
     if "game_duration" not in existing:
         with conn:
             conn.execute("ALTER TABLE match_participants ADD COLUMN game_duration INTEGER")
+        with conn:
+            conn.execute("""
+                UPDATE match_participants AS mp
+                SET game_duration = (
+                    SELECT m.game_duration FROM matches m
+                    WHERE m.platform_id = mp.platform_id AND m.game_id = mp.game_id
+                )
+                WHERE mp.game_duration IS NULL
+            """)
 
+    missing = [col for col in LATE_COLUMNS if col not in existing]
+    if missing:
+        with conn:
+            for col in missing:
+                conn.execute(f"ALTER TABLE match_participants ADD COLUMN {col} INTEGER")
+        _backfill_from_raw(conn, missing)
+
+
+def _backfill_from_raw(conn, columns):
+    import json as _json
+
+    updates = []
+    for row in conn.execute("SELECT platform_id, game_id, raw_json FROM matches"):
+        game = _json.loads(row["raw_json"])
+        for participant in game.get("participants", []):
+            stats = participant.get("stats", {})
+            values = [int(stats.get(LATE_COLUMNS[col]) or 0) for col in columns]
+            updates.append((*values, row["platform_id"], row["game_id"],
+                            participant.get("participantId")))
+
+    assignments = ", ".join(f"{col} = ?" for col in columns)
     with conn:
-        conn.execute("""
-            UPDATE match_participants AS mp
-            SET game_duration = (
-                SELECT m.game_duration FROM matches m
-                WHERE m.platform_id = mp.platform_id AND m.game_id = mp.game_id
-            )
-            WHERE mp.game_duration IS NULL
-        """)
+        conn.executemany(
+            f"""UPDATE match_participants SET {assignments}
+                WHERE platform_id = ? AND game_id = ? AND participant_id = ?""",
+            updates,
+        )
 
 
 def _num(stats, key, default=0):
@@ -214,8 +257,11 @@ def store_match(conn, game):
                     dmg_physical, dmg_magic, dmg_true, dmg_taken, dmg_mitigated,
                     total_heal, cs, vision_score, time_ccing_others, largest_multi_kill,
                     spell1_id, spell2_id, perk_primary_style, perk_sub_style,
-                    team_kills, team_dmg, game_duration)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    team_kills, team_dmg, game_duration,
+                    double_kills, triple_kills, quadra_kills, penta_kills,
+                    first_blood, first_tower, dmg_to_objectives, longest_time_living)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
+                           ?,?,?,?,?,?,?,?)""",
                 (
                     platform_id, game_id, pid,
                     player.get("puuid") or "",
@@ -241,6 +287,12 @@ def store_match(conn, game):
                     _num(stats, "perkPrimaryStyle"), _num(stats, "perkSubStyle"),
                     team_kills.get(team, 0), team_dmg.get(team, 0),
                     game.get("gameDuration"),
+                    _num(stats, "doubleKills"), _num(stats, "tripleKills"),
+                    _num(stats, "quadraKills"), _num(stats, "pentaKills"),
+                    1 if _num(stats, "firstBloodKill") else 0,
+                    1 if _num(stats, "firstTowerKill") else 0,
+                    _num(stats, "damageDealtToObjectives"),
+                    _num(stats, "longestTimeSpentLiving"),
                 ),
             )
 

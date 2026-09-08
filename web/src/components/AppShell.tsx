@@ -10,6 +10,10 @@ import {
   RefreshCw,
   X,
   Circle,
+  ScrollText,
+  Link2,
+  Activity,
+  UserSearch,
 } from "lucide-react"
 import {
   Sidebar,
@@ -43,24 +47,34 @@ import { MAYHEM_QUEUE_ID } from "@/lib/cube"
 
 export type PageId =
   | "dashboard"
+  | "matches"
   | "champions"
   | "augments"
+  | "synergy"
   | "players"
+  | "profile"
   | "time"
+  | "tilt"
   | "explore"
 
 const NAV: { group: string; items: { id: PageId; label: string; icon: typeof Zap }[] }[] = [
   {
     group: "總覽",
-    items: [{ id: "dashboard", label: "儀表板", icon: LayoutDashboard }],
+    items: [
+      { id: "dashboard", label: "儀表板", icon: LayoutDashboard },
+      { id: "matches", label: "對局紀錄", icon: ScrollText },
+    ],
   },
   {
     group: "分析",
     items: [
       { id: "champions", label: "英雄", icon: Swords },
       { id: "augments", label: "增幅裝置", icon: Sparkles },
+      { id: "synergy", label: "增幅契合度", icon: Link2 },
       { id: "players", label: "隊友 / 對手", icon: Users },
+      { id: "profile", label: "玩家檔案", icon: UserSearch },
       { id: "time", label: "時段", icon: CalendarClock },
+      { id: "tilt", label: "節奏與連敗", icon: Activity },
     ],
   },
   {
@@ -71,6 +85,10 @@ const NAV: { group: string; items: { id: PageId; label: string; icon: typeof Zap
 
 const PAGE_TITLES: Record<PageId, { title: string; caption: string }> = {
   dashboard: { title: "儀表板", caption: "整體表現與趨勢的一頁式總覽" },
+  matches: { title: "對局紀錄", caption: "逐場瀏覽，點進去看完整戰報" },
+  synergy: { title: "增幅契合度", caption: "哪些增幅特別適合哪隻英雄" },
+  profile: { title: "玩家檔案", caption: "同場玩家的英雄表現（僅限有你的對局）" },
+  tilt: { title: "節奏與連敗", caption: "上一場的結果與當日場次，對表現的影響" },
   champions: { title: "英雄", caption: "每個英雄的場次、勝率與輸出表現" },
   augments: { title: "增幅裝置", caption: "各增幅的選取率與勝率——第三方網站拿不到的資料" },
   players: { title: "隊友 / 對手", caption: "和誰同隊會贏、遇到誰會輸" },

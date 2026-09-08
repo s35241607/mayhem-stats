@@ -118,14 +118,20 @@ def run_query(spec: QuerySpec):
 
 
 @app.get("/api/matches")
-def recent_matches(limit: int = 20, queue: Optional[int] = None):
-    """最近幾場的清單,給總覽頁的戰績條用。"""
+def recent_matches(limit: int = 30, offset: int = 0, queue: Optional[int] = None):
+    """我的對局清單。
+
+    列表與單場明細都直接讀 SQLite,不經過 Cube——語意層是為了聚合而存在,
+    逐列的鑽取用它反而綁手綁腳。
+    """
     conn = db.connect()
     try:
         sql = """
             SELECT m.game_id, m.platform_id, m.game_creation, m.game_duration, m.queue_id,
+                   m.game_mode, m.ended_surrender,
                    mp.champion_id, mp.win, mp.kills, mp.deaths, mp.assists,
-                   mp.dmg_to_champions, mp.gold_earned,
+                   mp.dmg_to_champions, mp.gold_earned, mp.cs, mp.team_kills,
+                   mp.penta_kills, mp.quadra_kills, mp.largest_multi_kill,
                    COALESCE(dc.name, '英雄 ' || mp.champion_id) AS champion_name,
                    dc.icon_path AS champion_icon
             FROM match_participants mp
@@ -133,13 +139,88 @@ def recent_matches(limit: int = 20, queue: Optional[int] = None):
             LEFT JOIN dim_champions dc ON dc.id = mp.champion_id
             WHERE mp.puuid IN (SELECT puuid FROM accounts WHERE is_me = 1)
         """
-        params = []
+        params: list = []
         if queue is not None:
             sql += " AND m.queue_id = ?"
             params.append(queue)
-        sql += " ORDER BY m.game_creation DESC LIMIT ?"
-        params.append(min(limit, 200))
-        return {"matches": [dict(row) for row in conn.execute(sql, params).fetchall()]}
+        sql += " ORDER BY m.game_creation DESC LIMIT ? OFFSET ?"
+        params.extend([min(limit, 200), max(offset, 0)])
+
+        matches = [dict(row) for row in conn.execute(sql, params).fetchall()]
+
+        count_sql = """
+            SELECT COUNT(*) AS n FROM match_participants mp
+            JOIN matches m ON m.platform_id = mp.platform_id AND m.game_id = mp.game_id
+            WHERE mp.puuid IN (SELECT puuid FROM accounts WHERE is_me = 1)
+        """
+        count_params: list = []
+        if queue is not None:
+            count_sql += " AND m.queue_id = ?"
+            count_params.append(queue)
+        total = conn.execute(count_sql, count_params).fetchone()["n"]
+
+        return {"matches": matches, "total": total}
+    finally:
+        conn.close()
+
+
+@app.get("/api/match/{platform_id}/{game_id}")
+def match_detail(platform_id: str, game_id: int):
+    """單場完整戰報:10 名玩家的數據、裝備與增幅。"""
+    conn = db.connect()
+    try:
+        header = conn.execute(
+            """SELECT platform_id, game_id, queue_id, game_mode, game_version,
+                      game_creation, game_duration, ended_surrender
+               FROM matches WHERE platform_id = ? AND game_id = ?""",
+            (platform_id, game_id),
+        ).fetchone()
+        if header is None:
+            return JSONResponse(status_code=404, content={"error": "找不到這場對局"})
+
+        players = [
+            dict(row)
+            for row in conn.execute(
+                """SELECT mp.*, COALESCE(dc.name, '英雄 ' || mp.champion_id) AS champion_name,
+                          dc.icon_path AS champion_icon,
+                          (mp.puuid IN (SELECT puuid FROM accounts WHERE is_me = 1)) AS is_me
+                   FROM match_participants mp
+                   LEFT JOIN dim_champions dc ON dc.id = mp.champion_id
+                   WHERE mp.platform_id = ? AND mp.game_id = ?
+                   ORDER BY mp.team_id, mp.participant_id""",
+                (platform_id, game_id),
+            ).fetchall()
+        ]
+
+        def by_participant(sql):
+            grouped: dict[int, list] = {}
+            for row in conn.execute(sql, (platform_id, game_id)).fetchall():
+                grouped.setdefault(row["participant_id"], []).append(dict(row))
+            return grouped
+
+        augments = by_participant(
+            """SELECT pa.participant_id, pa.slot, pa.augment_id,
+                      da.name, da.rarity, da.icon_path
+               FROM participant_augments pa
+               LEFT JOIN dim_augments da ON da.id = pa.augment_id
+               WHERE pa.platform_id = ? AND pa.game_id = ?
+               ORDER BY pa.slot"""
+        )
+        items = by_participant(
+            """SELECT pi.participant_id, pi.slot, pi.item_id, di.name, di.icon_path
+               FROM participant_items pi
+               LEFT JOIN dim_items di ON di.id = pi.item_id
+               WHERE pi.platform_id = ? AND pi.game_id = ?
+               ORDER BY pi.slot"""
+        )
+
+        for player in players:
+            pid = player["participant_id"]
+            player["augments"] = augments.get(pid, [])
+            player["items"] = items.get(pid, [])
+            player.pop("raw_json", None)
+
+        return {"match": dict(header), "players": players}
     finally:
         conn.close()
 
