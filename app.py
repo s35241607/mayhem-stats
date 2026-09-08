@@ -225,6 +225,90 @@ def match_detail(platform_id: str, game_id: int):
         conn.close()
 
 
+@app.get("/api/accounts")
+def list_accounts():
+    """追蹤名單，以及可以加入追蹤的候選人（曾與你同場的玩家）。"""
+    conn = db.connect()
+    try:
+        tracked = [
+            dict(row)
+            for row in conn.execute(
+                """SELECT a.puuid, a.riot_id, a.tracked,
+                          -- 和我同場的場次
+                          (SELECT COUNT(DISTINCT mp.game_id) FROM match_participants mp
+                           WHERE mp.puuid = a.puuid
+                             AND EXISTS (SELECT 1 FROM match_participants me
+                                         WHERE me.platform_id = mp.platform_id
+                                           AND me.game_id = mp.game_id
+                                           AND me.puuid IN (SELECT puuid FROM accounts WHERE is_me = 1))
+                          ) AS shared,
+                          -- 資料庫裡他總共出現幾場（追蹤之後會包含我沒參與的）
+                          (SELECT COUNT(DISTINCT mp.game_id) FROM match_participants mp
+                           WHERE mp.puuid = a.puuid) AS games
+                   FROM accounts a WHERE a.tracked = 1 AND a.is_me = 0
+                   ORDER BY games DESC"""
+            ).fetchall()
+        ]
+        candidates = [
+            dict(row)
+            for row in conn.execute(
+                """SELECT mp.riot_id, mp.puuid, COUNT(DISTINCT mp.game_id) AS games
+                   FROM match_participants mp
+                   WHERE mp.puuid NOT IN (SELECT puuid FROM accounts WHERE is_me = 1)
+                   GROUP BY mp.puuid
+                   ORDER BY games DESC LIMIT 60"""
+            ).fetchall()
+        ]
+        me = conn.execute(
+            "SELECT puuid, riot_id FROM accounts WHERE is_me = 1"
+        ).fetchall()
+        return {
+            "me": [dict(row) for row in me],
+            "tracked": tracked,
+            "candidates": candidates,
+        }
+    finally:
+        conn.close()
+
+
+class TrackRequest(BaseModel):
+    puuid: Optional[str] = None
+    riotId: Optional[str] = None
+    tracked: bool = True
+
+
+@app.post("/api/accounts/track")
+def track_account(body: TrackRequest):
+    """加入或移除追蹤對象。重複送同樣的請求結果一致——冪等。"""
+    conn = db.connect()
+    try:
+        puuid = body.puuid
+        riot_id = body.riotId
+        if not puuid and riot_id:
+            puuid = db.find_puuid_by_riot_id(conn, riot_id)
+        if not puuid:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "找不到這個玩家。只能追蹤曾經和你同場過的人——"
+                                  "客戶端沒有提供公開的名稱查詢。"},
+            )
+        if puuid in {row["puuid"] for row in conn.execute(
+            "SELECT puuid FROM accounts WHERE is_me = 1"
+        )}:
+            return JSONResponse(status_code=400, content={"error": "這是你自己的帳號,本來就會採集。"})
+
+        if not riot_id:
+            row = conn.execute(
+                "SELECT riot_id FROM match_participants WHERE puuid = ? LIMIT 1", (puuid,)
+            ).fetchone()
+            riot_id = row["riot_id"] if row else None
+
+        db.set_tracked(conn, puuid, riot_id, body.tracked)
+        return {"puuid": puuid, "riotId": riot_id, "tracked": body.tracked}
+    finally:
+        conn.close()
+
+
 CUBE_BASE = "http://127.0.0.1:4000/cubejs-api/v1"
 
 

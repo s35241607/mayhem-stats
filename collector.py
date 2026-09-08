@@ -61,22 +61,19 @@ class Collector:
             seen = new = 0
             error = None
             try:
-                games = client.recent_matches()
-                seen = len(games)
-                by_platform = {}
-                for game in games:
-                    by_platform.setdefault(game.get("platformId") or "", []).append(game)
+                seen, new = self._ingest_games(conn, client, client.recent_matches())
 
-                for platform_id, platform_games in by_platform.items():
-                    known = db.existing_game_ids(conn, platform_id)
-                    for game in platform_games:
-                        game_id = game.get("gameId")
-                        if game_id in known:
-                            continue
-                        # 清單只回傳自己一個人,要拿全部 10 人得打明細
-                        detail = client.game_detail(game_id)
-                        if db.store_match(conn, detail):
-                            new += 1
+                # 追蹤中的好友。清單一樣只回傳該玩家一個人,而且別人的紀錄
+                # 只給最新 20 場(自己是 100),所以更容易漏——但漏掉的部分
+                # 若是和你同場的對局,你自己的掃描本來就會收到。
+                for account in db.tracked_accounts(conn):
+                    try:
+                        friend_games = client.matches_by_puuid(account["puuid"])
+                    except Exception:
+                        continue  # 單一好友抓失敗不該中斷整輪採集
+                    friend_seen, friend_new = self._ingest_games(conn, client, friend_games)
+                    seen += friend_seen
+                    new += friend_new
             except Exception as exc:
                 error = str(exc)
                 raise
@@ -86,6 +83,35 @@ class Collector:
             return seen, new
         finally:
             conn.close()
+
+    def _ingest_games(self, conn, client, games):
+        """把一批對局收進資料庫,回傳 (掃到幾場, 新增幾場)。
+
+        冪等性由三層保證,重複執行不會產生重複資料:
+        1. 先查資料庫已有哪些 game_id,已知的連明細都不用抓
+        2. 寫入用 INSERT OR IGNORE,主鍵是 (platform_id, game_id)
+        3. 整場包在單一 transaction 裡
+
+        因此同一場對局不論從你自己還是從好友的清單掃到,都只會存在一份。
+        """
+        seen = new = 0
+        by_platform = {}
+        for game in games:
+            by_platform.setdefault(game.get("platformId") or "", []).append(game)
+
+        for platform_id, platform_games in by_platform.items():
+            known = db.existing_game_ids(conn, platform_id)
+            seen += len(platform_games)
+            for game in platform_games:
+                game_id = game.get("gameId")
+                if game_id in known:
+                    continue
+                # 清單只回傳一名玩家,要拿全部 10 人得打明細
+                detail = client.game_detail(game_id)
+                if db.store_match(conn, detail):
+                    new += 1
+                    known.add(game_id)
+        return seen, new
 
     # ------------------------------------------------------------------ loop
 
@@ -146,6 +172,17 @@ class Collector:
     def snapshot(self):
         conn = db.connect()
         try:
+            # 追蹤好友之後，資料庫會包含「你沒參與的對局」，所以自己的場次
+            # 要跟資料庫總數分開報，否則畫面上的數字會讓人以為自己打了那麼多。
+            mine = conn.execute(
+                """SELECT COUNT(*) AS n FROM matches m
+                   WHERE EXISTS (
+                     SELECT 1 FROM match_participants mp
+                     WHERE mp.platform_id = m.platform_id AND mp.game_id = m.game_id
+                       AND mp.puuid IN (SELECT puuid FROM accounts WHERE is_me = 1)
+                   ) AND m.queue_id = ?""",
+                (lcu.MAYHEM_QUEUE_ID,),
+            ).fetchone()["n"]
             total = conn.execute("SELECT COUNT(*) AS n FROM matches").fetchone()["n"]
             mayhem = conn.execute(
                 "SELECT COUNT(*) AS n FROM matches WHERE queue_id = ?",
@@ -153,12 +190,15 @@ class Collector:
             ).fetchone()["n"]
             oldest = conn.execute("SELECT MIN(game_creation) AS t FROM matches").fetchone()["t"]
             newest = conn.execute("SELECT MAX(game_creation) AS t FROM matches").fetchone()["t"]
+            tracked = db.tracked_accounts(conn)
         finally:
             conn.close()
         return {
             **self.status,
+            "myMayhemMatches": mine,
             "totalMatches": total,
             "mayhemMatches": mayhem,
             "oldestGame": oldest,
             "newestGame": newest,
+            "trackedCount": len(tracked),
         }

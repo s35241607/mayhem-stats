@@ -14,6 +14,7 @@ import {
   Link2,
   Activity,
   UserSearch,
+  Radar,
 } from "lucide-react"
 import {
   Sidebar,
@@ -56,6 +57,7 @@ export type PageId =
   | "time"
   | "tilt"
   | "explore"
+  | "tracked"
 
 const NAV: { group: string; items: { id: PageId; label: string; icon: typeof Zap }[] }[] = [
   {
@@ -79,7 +81,10 @@ const NAV: { group: string; items: { id: PageId; label: string; icon: typeof Zap
   },
   {
     group: "工具",
-    items: [{ id: "explore", label: "自由探索", icon: Compass }],
+    items: [
+      { id: "explore", label: "自由探索", icon: Compass },
+      { id: "tracked", label: "追蹤對象", icon: Radar },
+    ],
   },
 ]
 
@@ -94,6 +99,7 @@ const PAGE_TITLES: Record<PageId, { title: string; caption: string }> = {
   players: { title: "隊友 / 對手", caption: "和誰同隊會贏、遇到誰會輸" },
   time: { title: "時段", caption: "星期與時段的表現分佈" },
   explore: { title: "自由探索", caption: "自選維度與指標，做任意組合的分析" },
+  tracked: { title: "追蹤對象", caption: "除了自己以外，還要一併採集誰的戰績" },
 }
 
 function CollectorPill() {
@@ -124,9 +130,10 @@ function CollectorPill() {
         {status.clientConnected ? "客戶端已連線" : "客戶端未執行"}
       </div>
       <div className="text-muted-foreground">
-        資料庫 <b className="text-foreground">{status.mayhemMatches}</b> 場 Mayhem
+        我的 Mayhem <b className="text-foreground">{status.myMayhemMatches ?? status.mayhemMatches}</b> 場
         <br />
-        共 {status.totalMatches} 場對局
+        資料庫共 {status.totalMatches} 場
+        {status.trackedCount ? `（追蹤 ${status.trackedCount} 人）` : ""}
       </div>
       {status.lastRun && (
         <div className="text-muted-foreground">

@@ -39,6 +39,8 @@ export type CollectorStatus = {
   phase: string | null
   totalMatches: number
   mayhemMatches: number
+  myMayhemMatches?: number
+  trackedCount?: number
   oldestGame: number | null
   newestGame: number | null
   lastRun: { at: number; trigger: string; seen: number; new: number } | null

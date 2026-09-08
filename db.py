@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS accounts (
   puuid    TEXT PRIMARY KEY,
   riot_id  TEXT,
   is_me    INTEGER NOT NULL DEFAULT 1,
+  tracked  INTEGER NOT NULL DEFAULT 0,
   added_at INTEGER NOT NULL
 );
 
@@ -152,6 +153,11 @@ def _migrate(conn):
                 )
                 WHERE mp.game_duration IS NULL
             """)
+
+    account_cols = {row["name"] for row in conn.execute("PRAGMA table_info(accounts)")}
+    if "tracked" not in account_cols:
+        with conn:
+            conn.execute("ALTER TABLE accounts ADD COLUMN tracked INTEGER NOT NULL DEFAULT 0")
 
     missing = [col for col in LATE_COLUMNS if col not in existing]
     if missing:
@@ -320,12 +326,49 @@ def store_match(conn, game):
 
 
 def upsert_account(conn, puuid, riot_id):
+    """記錄本機登入的帳號。名稱可能改，puuid 不會，所以用 puuid 當鍵。"""
     with conn:
         conn.execute(
             """INSERT INTO accounts (puuid, riot_id, is_me, added_at) VALUES (?,?,1,?)
-               ON CONFLICT(puuid) DO UPDATE SET riot_id = excluded.riot_id""",
+               ON CONFLICT(puuid) DO UPDATE SET riot_id = excluded.riot_id, is_me = 1""",
             (puuid, riot_id, int(time.time())),
         )
+
+
+def tracked_accounts(conn):
+    """除了自己以外，還要一併採集戰績的對象。"""
+    return [
+        dict(row)
+        for row in conn.execute(
+            "SELECT puuid, riot_id FROM accounts WHERE tracked = 1 AND is_me = 0"
+            " ORDER BY riot_id"
+        )
+    ]
+
+
+def set_tracked(conn, puuid, riot_id, tracked):
+    """加入或移除追蹤對象。重複呼叫結果相同——冪等。"""
+    with conn:
+        conn.execute(
+            """INSERT INTO accounts (puuid, riot_id, is_me, tracked, added_at)
+               VALUES (?,?,0,?,?)
+               ON CONFLICT(puuid) DO UPDATE SET
+                 tracked = excluded.tracked,
+                 riot_id = COALESCE(excluded.riot_id, accounts.riot_id)""",
+            (puuid, riot_id, 1 if tracked else 0, int(time.time())),
+        )
+
+
+def find_puuid_by_riot_id(conn, riot_id):
+    """從既有對局裡把 Riot ID 換成 puuid。
+
+    只找得到曾經和你同場過的人——客戶端沒有提供公開的名稱查詢，
+    要追蹤完全沒同場過的對象目前做不到。
+    """
+    row = conn.execute(
+        "SELECT puuid FROM match_participants WHERE riot_id = ? LIMIT 1", (riot_id,)
+    ).fetchone()
+    return row["puuid"] if row else None
 
 
 def replace_dimension(conn, table, rows):

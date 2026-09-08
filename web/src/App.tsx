@@ -12,6 +12,7 @@ import { Matches } from "@/pages/Matches"
 import { Synergy } from "@/pages/Synergy"
 import { PlayerProfile } from "@/pages/PlayerProfile"
 import { Tilt } from "@/pages/Tilt"
+import { Tracked } from "@/pages/Tracked"
 
 const PAGES: Record<PageId, () => React.JSX.Element> = {
   dashboard: Dashboard,
@@ -24,6 +25,7 @@ const PAGES: Record<PageId, () => React.JSX.Element> = {
   players: Players,
   time: TimeAnalysis,
   explore: Explore,
+  tracked: Tracked,
 }
 
 export default function App() {

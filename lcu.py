@@ -103,6 +103,15 @@ class LCUClient:
         )
         return data.get("games", {}).get("games", [])
 
+    def matches_by_puuid(self, puuid):
+        """查指定玩家的對戰紀錄。
+
+        實測別人的紀錄只回傳最新 20 場(自己是 100),而且和自己的清單一樣
+        只含該玩家本人;要拿到完整 10 人一樣得再打明細端點。
+        """
+        data = self.get(f"/lol-match-history/v1/products/lol/{puuid}/matches")
+        return data.get("games", {}).get("games", [])
+
     def game_detail(self, game_id):
         """單場完整明細,包含全部 10 名玩家(清單 API 只給自己一個人)。"""
         return self.get(f"/lol-match-history/v1/games/{game_id}")
