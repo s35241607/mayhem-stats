@@ -40,8 +40,10 @@ type FilterState = {
   addDrill: (drill: Drill) => void
   removeDrill: (index: number) => void
   clearDrills: () => void
-  /** 把全域條件套進 Cube 查詢：看誰、哪個模式、哪段期間、下鑽了什麼。 */
-  apply: (query: CubeQuery) => CubeQuery
+  /** 把全域條件套進 Cube 查詢：看誰、哪個模式、哪段期間、下鑽了什麼。
+   *  scope 為 "all" 時不鎖定帳號——自由探索需要跨玩家聚合，
+   *  否則「玩家」這個維度永遠只會回傳一列。 */
+  apply: (query: CubeQuery, scope?: "account" | "all") => CubeQuery
   /** 以 participants 以外的 cube 查詢時，用這個取得「主角」的篩選條件。 */
   subjectFilter: (member: string) => CubeFilter[]
 }
@@ -104,11 +106,12 @@ export function FilterProvider({ children }: { children: ReactNode }) {
       subjectFilter: (member) =>
         account ? [{ member, operator: "equals", values: [account.puuid] }] : [],
 
-      apply: (query) => {
+      apply: (query, scope = "account") => {
+        const scoped = scope === "all" ? baseline.filter((f) => f.member !== "participants.puuid") : baseline
         const merged: CubeQuery = {
           ...query,
           filters: [
-            ...baseline,
+            ...scoped,
             ...drills.map(({ member, operator, values }) => ({ member, operator, values })),
             ...(query.filters ?? []),
           ],

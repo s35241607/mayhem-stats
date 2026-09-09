@@ -10,6 +10,8 @@ import {
   Save,
   Trash2,
   ArrowUpDown,
+  User,
+  Users,
 } from "lucide-react"
 import { motion, AnimatePresence } from "motion/react"
 import { Badge } from "@/components/ui/badge"
@@ -142,7 +144,10 @@ function MemberPicker({
 }
 
 export function Explore() {
-  const { apply } = useFilters()
+  const { apply, account } = useFilters()
+  // 自由探索預設看目前帳號，但可以放開成跨玩家聚合。
+  // 鎖死的話「玩家」這個維度永遠只會回傳一列，等於給了不能用的控制項。
+  const [scope, setScope] = useState<"account" | "all">("account")
   const { meta, loading: metaLoading, error: metaError } = useCubeMeta()
 
   const [dims, setDims] = useState<string[]>(["champions.name"])
@@ -183,7 +188,7 @@ export function Explore() {
       : {}),
     order: { [orderKey]: sortDir },
     limit: Number(limit),
-  })
+  }, scope)
 
   const { rows, loading, error } = useCube(dims.length || byDay ? query : null)
 
@@ -314,6 +319,38 @@ export function Explore() {
   return (
     <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
       <div className="space-y-4">
+        <Panel
+          title="分析對象"
+          caption={
+            scope === "account"
+              ? "只算這個帳號的表現"
+              : "把資料庫裡所有玩家一起算。樣本大很多，但答的是「這個東西普遍好不好」，不是「我用得好不好」"
+          }
+        >
+          <ToggleGroup
+            type="single"
+            size="sm"
+            variant="outline"
+            value={scope}
+            onValueChange={(v) => v && setScope(v as "account" | "all")}
+            className="w-full"
+          >
+            <ToggleGroupItem value="account" className="flex-1">
+              <User className="size-3.5" />
+              {account?.riot_id ?? "目前帳號"}
+            </ToggleGroupItem>
+            <ToggleGroupItem value="all" className="flex-1">
+              <Users className="size-3.5" />
+              全部玩家
+            </ToggleGroupItem>
+          </ToggleGroup>
+          {scope === "all" && (
+            <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+              涵蓋的是「出現在你對局裡的人」，不是全服資料——你沒打過的對局本來就不在資料庫裡。
+            </p>
+          )}
+        </Panel>
+
         <Panel title="分組維度" caption="選越多切得越細">
           {metaLoading ? (
             <Skeleton className="h-24 w-full" />
@@ -453,7 +490,11 @@ export function Explore() {
       <div className="min-w-0 space-y-4">
         <Panel
           title="結果"
-          caption={loading ? "查詢中…" : `${rows.length} 列`}
+          caption={
+            loading
+              ? "查詢中…"
+              : `${rows.length} 列 · ${scope === "account" ? (account?.riot_id ?? "目前帳號") : "全部玩家"}`
+          }
           action={
             <div className="flex items-center gap-2">
               <ToggleGroup
