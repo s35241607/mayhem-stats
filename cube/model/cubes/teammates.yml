@@ -35,31 +35,50 @@ cubes:
         description: 以誰的視角看。不指定的話所有人的視角會混在一起。
 
       - name: player
+        title: 同場玩家
         sql: other_riot_id
         type: string
+        meta:
+          group: 玩家
 
       - name: puuid
         sql: other_puuid
         type: string
 
       - name: relation
+        title: 隊友或對手
         sql: relation
         type: string
+        meta:
+          group: 玩家
         description: teammate = 與我同隊,opponent = 我的對手
 
     measures:
       - name: games
+        title: 同場次數
         sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id"
         type: count_distinct
         description: 與這個人同場的對局數
+        meta:
+          group: 玩家
+          decimals: 0
 
       - name: wins
+        title: 同場勝場
         sql: "CASE WHEN {CUBE}.win = 1 THEN {CUBE}.platform_id || ':' || {CUBE}.game_id END"
         type: count_distinct
         description: 其中我方獲勝的場次
+        meta:
+          group: 玩家
+          decimals: 0
 
       - name: winrate
+        title: 同場勝率
         sql: "100.0 * {wins} / NULLIF({games}, 0)"
         type: number
         format: percent
         description: 和這個人同隊(或對上這個人)時,我的勝率
+        meta:
+          group: 玩家
+          unit: "%"
+          decimals: 1

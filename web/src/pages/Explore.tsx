@@ -1,7 +1,20 @@
-import { useState } from "react"
-import { Table2, BarChart3, LineChart, Grid3x3, Code2 } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import {
+  Table2,
+  BarChart3,
+  LineChart,
+  Grid3x3,
+  Code2,
+  Plus,
+  X,
+  Save,
+  Trash2,
+  ArrowUpDown,
+} from "lucide-react"
+import { motion, AnimatePresence } from "motion/react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
@@ -16,50 +29,10 @@ import { Panel, EmptyState } from "@/components/primitives"
 import { DataTable, type Column } from "@/components/DataTable"
 import { BarChart, Heatmap, TrendChart, type HeatCell } from "@/components/charts"
 import { useCube } from "@/hooks/useCube"
-import { num } from "@/lib/cube"
+import { useCubeMeta, groupBy, label, type Member } from "@/hooks/useCubeMeta"
+import { num, type CubeFilter, type CubeQuery } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 import { cn } from "@/lib/utils"
-import { round0, round1, round2 } from "./shared"
-
-/** 可選項目直接對應 Cube 模型的成員名稱；前端不自己拼 SQL。 */
-const DIMENSIONS = [
-  { key: "champions.name", title: "英雄", icon: "champions.icon_path" },
-  { key: "augments.name", title: "增幅裝置", icon: "augments.icon_path", rarity: "augments.rarity" },
-  { key: "augments.rarity", title: "增幅稀有度" },
-  { key: "items.name", title: "裝備", icon: "items.icon_path" },
-  { key: "matches.patch", title: "遊戲版本" },
-  { key: "matches.weekday", title: "星期" },
-  { key: "matches.hour_of_day", title: "時段" },
-  { key: "matches.duration_bucket", title: "對局長度" },
-  { key: "matches.game_mode", title: "遊戲模式" },
-  { key: "participants.result", title: "勝負" },
-  { key: "participants.team_side", title: "隊伍" },
-  { key: "teammates.player", title: "同場玩家" },
-  { key: "teammates.relation", title: "隊友或對手" },
-]
-
-const METRICS = [
-  { key: "participants.games", title: "場次", format: round0 },
-  { key: "participants.wins", title: "勝場", format: round0 },
-  { key: "participants.losses", title: "敗場", format: round0 },
-  { key: "participants.winrate", title: "勝率", format: round1, suffix: "%" },
-  { key: "participants.kda", title: "KDA", format: round2 },
-  { key: "participants.avg_kills", title: "平均擊殺", format: round1 },
-  { key: "participants.avg_deaths", title: "平均死亡", format: round1 },
-  { key: "participants.avg_assists", title: "平均助攻", format: round1 },
-  { key: "participants.dpm", title: "每分鐘傷害", format: round0 },
-  { key: "participants.gpm", title: "每分鐘經濟", format: round0 },
-  { key: "participants.damage_share", title: "傷害佔比", format: round1, suffix: "%" },
-  { key: "participants.kill_participation", title: "參團率", format: round1, suffix: "%" },
-  { key: "participants.avg_damage", title: "平均傷害", format: round0 },
-  { key: "participants.avg_taken", title: "平均承受", format: round0 },
-  { key: "participants.avg_gold", title: "平均經濟", format: round0 },
-  { key: "participants.avg_cs", title: "平均補兵", format: round1 },
-  { key: "participants.multikills", title: "多殺次數", format: round0 },
-  { key: "participants.pentas", title: "五殺次數", format: round0 },
-  { key: "teammates.games", title: "同場次數", format: round0 },
-  { key: "teammates.winrate", title: "同場勝率", format: round1, suffix: "%" },
-]
 
 const VIZ = [
   { value: "table", label: "表格", icon: Table2 },
@@ -67,102 +40,222 @@ const VIZ = [
   { value: "line", label: "折線", icon: LineChart },
   { value: "heatmap", label: "熱力圖", icon: Grid3x3 },
 ] as const
-
 type Viz = (typeof VIZ)[number]["value"]
 
-function PickerList<T extends { key: string; title: string }>({
-  items,
+const OPERATORS = [
+  { value: "equals", label: "等於" },
+  { value: "notEquals", label: "不等於" },
+  { value: "contains", label: "包含" },
+  { value: "gt", label: "大於" },
+  { value: "lt", label: "小於" },
+  { value: "set", label: "有值" },
+]
+
+/** 帶圖示或稀有度的維度，查詢時要順便把對應欄位撈回來才顯示得出來。 */
+const COMPANION: Record<string, { icon?: string; rarity?: string }> = {
+  "champions.name": { icon: "champions.icon_path" },
+  "augments.name": { icon: "augments.icon_path", rarity: "augments.rarity" },
+  "items.name": { icon: "items.icon_path" },
+}
+
+type SavedView = {
+  id: string
+  name: string
+  dims: string[]
+  measures: string[]
+  segments: string[]
+  filters: CubeFilter[]
+  viz: Viz
+  byDay: boolean
+}
+
+const STORAGE_KEY = "mayhem.explore.views"
+
+function loadViews(): SavedView[] {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]")
+  } catch {
+    return []
+  }
+}
+
+function Chip({
+  active,
+  onClick,
+  children,
+  title,
+}: {
+  active: boolean
+  onClick: () => void
+  children: React.ReactNode
+  title?: string
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className={cn(
+        "rounded-md border px-2 py-1 text-xs font-medium transition-all duration-150",
+        active
+          ? "border-primary/50 bg-primary/15 text-primary shadow-[0_0_12px_-2px_var(--primary)]"
+          : "border-border text-muted-foreground hover:border-border hover:bg-accent hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+function MemberPicker({
+  members,
   selected,
   onToggle,
 }: {
-  items: T[]
+  members: Member[]
   selected: string[]
-  onToggle: (key: string) => void
+  onToggle: (name: string) => void
 }) {
+  const groups = groupBy(members)
   return (
-    <div className="flex flex-wrap gap-1.5">
-      {items.map((item) => {
-        const on = selected.includes(item.key)
-        return (
-          <button
-            key={item.key}
-            onClick={() => onToggle(item.key)}
-            className={cn(
-              "rounded-md border px-2 py-1 text-xs font-medium transition",
-              on
-                ? "border-primary/40 bg-primary/15 text-primary"
-                : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
-            )}
-          >
-            {item.title}
-          </button>
-        )
-      })}
+    <div className="space-y-2.5">
+      {[...groups.entries()].map(([group, items]) => (
+        <div key={group}>
+          <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
+            {group}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {items.map((m) => (
+              <Chip
+                key={m.name}
+                active={selected.includes(m.name)}
+                onClick={() => onToggle(m.name)}
+                title={m.description}
+              >
+                {label(m, m.name)}
+              </Chip>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
 
 export function Explore() {
   const { apply } = useFilters()
+  const { meta, loading: metaLoading, error: metaError } = useCubeMeta()
+
   const [dims, setDims] = useState<string[]>(["champions.name"])
-  const [metrics, setMetrics] = useState<string[]>([
+  const [measures, setMeasures] = useState<string[]>([
     "participants.games",
     "participants.winrate",
   ])
+  const [segments, setSegments] = useState<string[]>([])
+  const [extraFilters, setExtraFilters] = useState<CubeFilter[]>([])
   const [viz, setViz] = useState<Viz>("table")
   const [byDay, setByDay] = useState(false)
   const [limit, setLimit] = useState("100")
+  const [sortBy, setSortBy] = useState<string>("")
+  const [sortDir, setSortDir] = useState<"desc" | "asc">("desc")
   const [showQuery, setShowQuery] = useState(false)
+  const [views, setViews] = useState<SavedView[]>([])
+  const [viewName, setViewName] = useState("")
 
-  const toggle = (list: string[], set: (v: string[]) => void) => (key: string) =>
-    set(list.includes(key) ? list.filter((k) => k !== key) : [...list, key])
+  useEffect(() => setViews(loadViews()), [])
 
-  const activeMetrics = metrics.length ? metrics : ["participants.games"]
+  const toggle = (list: string[], set: (v: string[]) => void) => (name: string) =>
+    set(list.includes(name) ? list.filter((k) => k !== name) : [...list, name])
 
-  // 帶圖示或稀有度的維度要一併取回對應欄位，表格才顯示得出來
-  const extraDims = dims.flatMap((key) => {
-    const dim = DIMENSIONS.find((d) => d.key === key)
-    return [dim?.icon, dim?.rarity].filter(Boolean) as string[]
-  })
+  const activeMeasures = measures.length ? measures : ["participants.games"]
+  const orderKey = sortBy || activeMeasures[0]
 
-  const query = apply({
-    measures: activeMetrics,
-    dimensions: [...dims, ...extraDims],
+  const companions = dims.flatMap((d) =>
+    [COMPANION[d]?.icon, COMPANION[d]?.rarity].filter(Boolean) as string[],
+  )
+
+  const query: CubeQuery = apply({
+    measures: activeMeasures,
+    dimensions: [...dims, ...companions],
+    ...(segments.length ? { segments } : {}),
+    ...(extraFilters.length ? { filters: extraFilters } : {}),
     ...(byDay
       ? { timeDimensions: [{ dimension: "matches.played_at", granularity: "day" }] }
       : {}),
-    order: { [activeMetrics[0]]: "desc" },
+    order: { [orderKey]: sortDir },
     limit: Number(limit),
   })
 
-  const { rows, loading, error } = useCube(query)
+  const { rows, loading, error } = useCube(dims.length || byDay ? query : null)
 
-  const columns: Column[] = [
-    ...(byDay
-      ? [{ key: "matches.played_at.day", title: "日期", kind: "dimension" as const }]
-      : []),
-    ...dims.map((key) => {
-      const dim = DIMENSIONS.find((d) => d.key === key)!
-      return {
+  const columns: Column[] = useMemo(
+    () => [
+      ...(byDay
+        ? [{ key: "matches.played_at.day", title: "日期", kind: "dimension" as const }]
+        : []),
+      ...dims.map((key) => ({
         key,
-        title: dim.title,
+        title: label(meta.byName.get(key), key),
         kind: "dimension" as const,
-        iconKey: dim.icon,
-        rarityKey: dim.rarity,
-      }
-    }),
-    ...activeMetrics.map((key) => {
-      const m = METRICS.find((x) => x.key === key)!
-      return { key, title: m.title, kind: "metric" as const, format: m.format, suffix: m.suffix }
-    }),
-  ]
+        iconKey: COMPANION[key]?.icon,
+        rarityKey: COMPANION[key]?.rarity,
+      })),
+      ...activeMeasures.map((key) => {
+        const m = meta.byName.get(key)
+        return {
+          key,
+          title: label(m, key),
+          kind: "metric" as const,
+          format: (n: number) =>
+            (m?.meta?.decimals ?? 1) === 0
+              ? Math.round(n).toLocaleString()
+              : n.toFixed(m?.meta?.decimals ?? 1),
+          suffix: m?.meta?.unit,
+        }
+      }),
+    ],
+    [dims, activeMeasures, byDay, meta],
+  )
 
-  const firstMetric = METRICS.find((m) => m.key === activeMetrics[0])!
+  const saveView = () => {
+    if (!viewName.trim()) return
+    const view: SavedView = {
+      id: String(Date.now()),
+      name: viewName.trim(),
+      dims,
+      measures: activeMeasures,
+      segments,
+      filters: extraFilters,
+      viz,
+      byDay,
+    }
+    const next = [...views.filter((v) => v.name !== view.name), view]
+    setViews(next)
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+    setViewName("")
+  }
+
+  const applyView = (v: SavedView) => {
+    setDims(v.dims)
+    setMeasures(v.measures)
+    setSegments(v.segments ?? [])
+    setExtraFilters(v.filters ?? [])
+    setViz(v.viz)
+    setByDay(v.byDay)
+  }
+
+  const removeView = (id: string) => {
+    const next = views.filter((v) => v.id !== id)
+    setViews(next)
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+  }
 
   function renderViz() {
-    if (loading) return <Skeleton className="h-[320px] w-full" />
+    if (loading) return <Skeleton className="h-[340px] w-full" />
     if (error) return <div className="text-sm text-destructive">{error}</div>
     if (!rows.length) return <EmptyState>這個條件下沒有資料。</EmptyState>
+
+    const firstMeasure = meta.byName.get(activeMeasures[0])
+    const suffix = firstMeasure?.meta?.unit ?? ""
 
     if (viz === "bar") {
       if (dims.length !== 1) {
@@ -170,42 +263,39 @@ export function Explore() {
       }
       return (
         <BarChart
-          data={rows.slice(0, 20).map((r) => ({
+          data={rows.slice(0, 24).map((r) => ({
             label: String(r[dims[0]] ?? "—"),
-            value: num(r[activeMetrics[0]]) ?? 0,
+            value: num(r[activeMeasures[0]]) ?? 0,
             games: num(r["participants.games"]) ?? num(r["teammates.games"]) ?? 0,
           }))}
-          suffix={firstMetric.suffix ?? ""}
-          colorBy={activeMetrics[0].endsWith("winrate") ? "value" : "flat"}
+          suffix={suffix}
+          colorBy={activeMeasures[0].endsWith("winrate") ? "value" : "flat"}
         />
       )
     }
 
     if (viz === "line") {
-      if (!byDay) {
-        return <EmptyState>折線圖需要開啟「按日期分組」。</EmptyState>
-      }
+      if (!byDay) return <EmptyState>折線圖需要開啟「按日期分組」。</EmptyState>
       return (
         <TrendChart
           points={rows.map((r) => ({
             date: String(r["matches.played_at.day"] ?? "").slice(0, 10),
             games: num(r["participants.games"]) ?? 0,
-            winrate: num(r[activeMetrics[0]]),
+            winrate: num(r[activeMeasures[0]]),
           }))}
         />
       )
     }
 
     if (viz === "heatmap") {
-      const ok = dims.includes("matches.weekday") && dims.includes("matches.hour_of_day")
-      if (!ok) {
+      if (!dims.includes("matches.weekday") || !dims.includes("matches.hour_of_day")) {
         return <EmptyState>熱力圖需要同時選「星期」和「時段」兩個維度。</EmptyState>
       }
       const cells: HeatCell[] = rows.map((r) => ({
         weekday: Number(r["matches.weekday"]),
         hour: Number(r["matches.hour_of_day"]),
         games: num(r["participants.games"]) ?? 0,
-        winrate: num(r[activeMetrics[0]]),
+        winrate: num(r[activeMeasures[0]]),
       }))
       return <Heatmap cells={cells} />
     }
@@ -213,11 +303,27 @@ export function Explore() {
     return <DataTable columns={columns} rows={rows} />
   }
 
+  if (metaError) {
+    return (
+      <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+        讀不到語意層模型：{metaError}
+      </div>
+    )
+  }
+
   return (
-    <div className="grid gap-4 lg:grid-cols-[290px_minmax(0,1fr)]">
+    <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
       <div className="space-y-4">
         <Panel title="分組維度" caption="選越多切得越細">
-          <PickerList items={DIMENSIONS} selected={dims} onToggle={toggle(dims, setDims)} />
+          {metaLoading ? (
+            <Skeleton className="h-24 w-full" />
+          ) : (
+            <MemberPicker
+              members={meta.dimensions}
+              selected={dims}
+              onToggle={toggle(dims, setDims)}
+            />
+          )}
           <label className="mt-3 flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
             <input
               type="checkbox"
@@ -229,25 +335,118 @@ export function Explore() {
           </label>
         </Panel>
 
-        <Panel title="指標" caption="第一個指標會用來排序與畫圖">
-          <ScrollArea className="max-h-[280px]">
-            <PickerList items={METRICS} selected={metrics} onToggle={toggle(metrics, setMetrics)} />
-          </ScrollArea>
+        <Panel title="指標" caption="第一個指標用來排序與畫圖">
+          {metaLoading ? (
+            <Skeleton className="h-40 w-full" />
+          ) : (
+            <ScrollArea className="max-h-[320px] pr-2">
+              <MemberPicker
+                members={meta.measures}
+                selected={measures}
+                onToggle={toggle(measures, setMeasures)}
+              />
+            </ScrollArea>
+          )}
         </Panel>
 
-        <Panel title="筆數上限">
-          <Select value={limit} onValueChange={setLimit}>
-            <SelectTrigger size="sm" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {["20", "50", "100", "500", "2000"].map((n) => (
-                <SelectItem key={n} value={n}>
-                  {n} 筆
-                </SelectItem>
+        {meta.segments.length > 0 && (
+          <Panel title="條件片段" caption="模型裡定義好的可重用篩選">
+            <div className="flex flex-wrap gap-1.5">
+              {meta.segments.map((s) => (
+                <Chip
+                  key={s.name}
+                  active={segments.includes(s.name)}
+                  onClick={() => toggle(segments, setSegments)(s.name)}
+                >
+                  {s.shortTitle ?? s.title}
+                </Chip>
               ))}
-            </SelectContent>
-          </Select>
+            </div>
+          </Panel>
+        )}
+
+        <FilterBuilder
+          meta={meta}
+          filters={extraFilters}
+          onChange={setExtraFilters}
+        />
+
+        <Panel title="排序與筆數">
+          <div className="space-y-2">
+            <div className="flex gap-2">
+              <Select value={sortBy || activeMeasures[0]} onValueChange={setSortBy}>
+                <SelectTrigger size="sm" className="flex-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {activeMeasures.map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {label(meta.byName.get(m), m)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setSortDir(sortDir === "desc" ? "asc" : "desc")}
+                title={sortDir === "desc" ? "由大到小" : "由小到大"}
+              >
+                <ArrowUpDown className="size-3.5" />
+                {sortDir === "desc" ? "降冪" : "升冪"}
+              </Button>
+            </div>
+            <Select value={limit} onValueChange={setLimit}>
+              <SelectTrigger size="sm" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {["20", "50", "100", "500", "2000"].map((n) => (
+                  <SelectItem key={n} value={n}>
+                    {n} 筆
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </Panel>
+
+        <Panel title="儲存的檢視" caption="存在瀏覽器裡，隨時叫回同一組設定">
+          <div className="mb-2 flex gap-2">
+            <Input
+              value={viewName}
+              onChange={(e) => setViewName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && saveView()}
+              placeholder="命名這組設定…"
+              className="h-8 text-xs"
+            />
+            <Button size="sm" variant="outline" onClick={saveView} disabled={!viewName.trim()}>
+              <Save className="size-3.5" />
+            </Button>
+          </div>
+          {views.length === 0 ? (
+            <p className="text-xs text-muted-foreground">還沒有儲存任何檢視。</p>
+          ) : (
+            <div className="space-y-1">
+              {views.map((v) => (
+                <div key={v.id} className="flex items-center gap-1">
+                  <button
+                    onClick={() => applyView(v)}
+                    className="min-w-0 flex-1 truncate rounded-md px-2 py-1 text-left text-xs transition hover:bg-accent"
+                  >
+                    {v.name}
+                  </button>
+                  <button
+                    onClick={() => removeView(v.id)}
+                    className="rounded-sm p-1 text-muted-foreground opacity-60 transition hover:text-destructive hover:opacity-100"
+                    aria-label="刪除"
+                  >
+                    <Trash2 className="size-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </Panel>
       </div>
 
@@ -271,12 +470,7 @@ export function Explore() {
                   </ToggleGroupItem>
                 ))}
               </ToggleGroup>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setShowQuery((v) => !v)}
-                title="看送給 Cube 的查詢"
-              >
+              <Button size="sm" variant="ghost" onClick={() => setShowQuery((v) => !v)}>
                 <Code2 className="size-3.5" />
               </Button>
             </div>
@@ -285,28 +479,131 @@ export function Explore() {
           {!dims.length && !byDay ? (
             <EmptyState>至少選一個分組維度，或開啟「按日期分組」。</EmptyState>
           ) : (
-            renderViz()
+            <motion.div
+              key={`${viz}-${dims.join()}-${activeMeasures.join()}`}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.22, ease: "easeOut" }}
+            >
+              {renderViz()}
+            </motion.div>
           )}
         </Panel>
 
-        {showQuery && (
-          <Panel
-            title="送給 Cube 的查詢"
-            caption="前端只送維度與指標名稱，SQL 由 Cube 依模型產生"
-          >
-            <pre className="overflow-x-auto rounded-md bg-secondary/60 p-3 text-[11px] leading-relaxed text-muted-foreground">
-              {JSON.stringify(query, null, 2)}
-            </pre>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {activeMetrics.map((m) => (
-                <Badge key={m} variant="secondary" className="font-mono text-[10px]">
-                  {m}
-                </Badge>
-              ))}
-            </div>
-          </Panel>
-        )}
+        <AnimatePresence>
+          {showQuery && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden"
+            >
+              <Panel
+                title="送給 Cube 的查詢"
+                caption="前端只送成員名稱，SQL 由 Cube 依模型產生"
+              >
+                <pre className="overflow-x-auto rounded-md bg-secondary/60 p-3 text-[11px] leading-relaxed text-muted-foreground">
+                  {JSON.stringify(query, null, 2)}
+                </pre>
+              </Panel>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
+  )
+}
+
+function FilterBuilder({
+  meta,
+  filters,
+  onChange,
+}: {
+  meta: ReturnType<typeof useCubeMeta>["meta"]
+  filters: CubeFilter[]
+  onChange: (f: CubeFilter[]) => void
+}) {
+  const [member, setMember] = useState("")
+  const [operator, setOperator] = useState("equals")
+  const [value, setValue] = useState("")
+
+  const add = () => {
+    if (!member) return
+    if (operator !== "set" && !value.trim()) return
+    onChange([...filters, { member, operator, values: operator === "set" ? [] : [value.trim()] }])
+    setValue("")
+  }
+
+  const all = [...meta.dimensions, ...meta.measures]
+
+  return (
+    <Panel title="自訂篩選" caption="任何維度或指標都能當條件">
+      <div className="space-y-2">
+        <Select value={member} onValueChange={setMember}>
+          <SelectTrigger size="sm" className="w-full">
+            <SelectValue placeholder="選擇欄位…" />
+          </SelectTrigger>
+          <SelectContent className="max-h-72">
+            {[...groupBy(all).entries()].map(([group, items]) => (
+              <div key={group}>
+                <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  {group}
+                </div>
+                {items.map((m) => (
+                  <SelectItem key={m.name} value={m.name}>
+                    {label(m, m.name)}
+                  </SelectItem>
+                ))}
+              </div>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <div className="flex gap-2">
+          <Select value={operator} onValueChange={setOperator}>
+            <SelectTrigger size="sm" className="w-[104px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {OPERATORS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && add()}
+            placeholder={operator === "set" ? "（不需要值）" : "值…"}
+            disabled={operator === "set"}
+            className="h-8 flex-1 text-xs"
+          />
+          <Button size="sm" variant="outline" onClick={add} disabled={!member}>
+            <Plus className="size-3.5" />
+          </Button>
+        </div>
+
+        {filters.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {filters.map((f, i) => (
+              <Badge key={i} variant="secondary" className="gap-1.5 py-1 pl-2.5 pr-1.5 text-[11px]">
+                {label(meta.byName.get(f.member), f.member)}{" "}
+                {OPERATORS.find((o) => o.value === f.operator)?.label} {f.values.join(", ")}
+                <button
+                  onClick={() => onChange(filters.filter((_, j) => j !== i))}
+                  className="opacity-60 transition hover:opacity-100"
+                  aria-label="移除"
+                >
+                  <X className="size-3" />
+                </button>
+              </Badge>
+            ))}
+          </div>
+        )}
+      </div>
+    </Panel>
   )
 }

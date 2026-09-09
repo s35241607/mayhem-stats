@@ -10,8 +10,11 @@ cubes:
         primary_key: true
 
       - name: name
+        title: 英雄
         sql: name
         type: string
+        meta:
+          group: 英雄
 
       - name: alias
         sql: alias
@@ -49,12 +52,18 @@ cubes:
         type: number
 
       - name: name
+        title: 增幅裝置
         sql: augment_name
         type: string
+        meta:
+          group: 增幅
 
       - name: rarity
+        title: 增幅稀有度
         sql: augment_rarity
         type: string
+        meta:
+          group: 增幅
 
       - name: icon_path
         sql: augment_icon
@@ -83,8 +92,11 @@ cubes:
         type: number
 
       - name: name
+        title: 裝備
         sql: item_name
         type: string
+        meta:
+          group: 裝備
 
       - name: icon_path
         sql: item_icon

@@ -37,6 +37,7 @@ cubes:
       - name: player
         sql: riot_id
         type: string
+        public: false
 
       - name: queue_id
         sql: queue_id
@@ -49,6 +50,9 @@ cubes:
       # 字串型別是刻意的：這是運算式、沒有欄位型別親和性，
       # 而 Cube 會把篩選值綁成字串，宣告成數字的話比較永遠不成立。
       - name: prev_result
+        title: 前一場結果
+        meta:
+          group: 節奏
         sql: >
           CASE WHEN {CUBE}.prev_win IS NULL THEN '沒有前一場'
                WHEN {CUBE}.prev_win = 1 THEN '前一場贏'
@@ -56,11 +60,17 @@ cubes:
         type: string
 
       - name: game_of_day
+        title: 當日第幾場
         sql: "CAST({CUBE}.game_of_day AS TEXT)"
         type: string
+        meta:
+          group: 節奏
         description: 當天的第幾場（同一模式內計算）
 
       - name: session_stage
+        title: 當日階段
+        meta:
+          group: 節奏
         sql: >
           CASE WHEN {CUBE}.game_of_day <= 2 THEN '第 1-2 場'
                WHEN {CUBE}.game_of_day <= 5 THEN '第 3-5 場'
@@ -72,21 +82,40 @@ cubes:
       - name: result
         sql: "CASE WHEN {CUBE}.win = 1 THEN '勝' ELSE '敗' END"
         type: string
+        public: false
 
     measures:
       - name: games
+        title: 場次
         sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id"
         type: count_distinct
+        meta:
+          group: 節奏
+          decimals: 0
 
       - name: wins
+        title: 勝場
         sql: "CASE WHEN {CUBE}.win = 1 THEN {CUBE}.platform_id || ':' || {CUBE}.game_id END"
         type: count_distinct
+        meta:
+          group: 節奏
+          decimals: 0
 
       - name: winrate
+        title: 勝率
         sql: "100.0 * {wins} / NULLIF({games}, 0)"
         type: number
         format: percent
+        meta:
+          group: 節奏
+          unit: "%"
+          decimals: 1
 
       - name: avg_duration
+        title: 平均時長
         sql: "{CUBE}.game_duration / 60.0"
         type: avg
+        meta:
+          group: 節奏
+          unit: 分
+          decimals: 1

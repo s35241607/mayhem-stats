@@ -14,41 +14,62 @@ cubes:
         type: number
 
       - name: queue_id
+        title: 模式代號
         sql: queue_id
         type: number
         description: 2400 = ARAM Mayhem
+        meta:
+          group: 對局
 
       - name: game_mode
+        title: 遊戲模式
         sql: game_mode
         type: string
+        meta:
+          group: 對局
 
       - name: patch
         sql: "substr({CUBE}.game_version, 1, instr({CUBE}.game_version, '.') - 1) || '.' || substr(substr({CUBE}.game_version, instr({CUBE}.game_version, '.') + 1), 1, instr(substr({CUBE}.game_version, instr({CUBE}.game_version, '.') + 1), '.') - 1)"
         type: string
+        title: 遊戲版本
         description: 只取主版號.次版號,例如 16.17
+        meta:
+          group: 時間
 
       - name: played_at
+        title: 對局時間
         sql: "datetime({CUBE}.game_creation / 1000, 'unixepoch')"
         type: time
+        meta:
+          group: 時間
 
       # 「幾點」「星期幾」是從時間戳抽取出來的，不是 Cube 的時間粒度，所以另外定義。
       # 型別刻意用字串:這些是運算式、沒有欄位型別親和性,而 Cube 會把篩選值綁成
       # 字串,若宣告成數字,SQLite 不會把 '15' 轉成 15,篩選會永遠比對不到。
       # 這裡的 localtime 取本機時區——這個工具本來就跑在使用者自己的電腦上。
       - name: hour_of_day
+        title: 時段
         sql: "strftime('%H', {CUBE}.game_creation / 1000, 'unixepoch', 'localtime')"
         type: string
+        meta:
+          group: 時間
 
       - name: weekday
+        title: 星期
         sql: "strftime('%w', {CUBE}.game_creation / 1000, 'unixepoch', 'localtime')"
         type: string
         description: 0 = 週日
+        meta:
+          group: 時間
 
       - name: duration_minutes
         sql: "{CUBE}.game_duration / 60.0"
         type: number
 
       - name: duration_bucket
+        title: 對局長度
+        meta:
+          group: 對局
         sql: >
           CASE WHEN {CUBE}.game_duration < 900 THEN '< 15 分'
                WHEN {CUBE}.game_duration < 1200 THEN '15-20 分'
@@ -63,8 +84,13 @@ cubes:
     measures:
       - name: count
         type: count
+        public: false
 
       - name: avg_duration
+        title: 平均對局時長
         sql: "{CUBE}.game_duration / 60.0"
         type: avg
-        format: number
+        meta:
+          group: 對局
+          unit: 分
+          decimals: 1

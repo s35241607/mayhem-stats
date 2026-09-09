@@ -1,5 +1,6 @@
 cubes:
   - name: participants
+    title: 對局表現
     sql_table: match_participants
     description: >
       主要事實表:每場對局每位玩家一列。以增幅或裝備為維度查詢時一場會展開成多列,
@@ -22,134 +23,372 @@ cubes:
         sql: "{CUBE}.platform_id = {items}.platform_id AND {CUBE}.game_id = {items}.game_id AND {CUBE}.participant_id = {items}.participant_id"
         relationship: one_to_many
 
+    # 具名的可重用篩選。定義一次，前端只要送 segment 名稱，
+    # 不必自己拼條件——條件的正確性留在模型裡。
+    segments:
+      - name: wins_only
+        title: 只看勝場
+        sql: "{CUBE}.win = 1"
+
+      - name: losses_only
+        title: 只看敗場
+        sql: "{CUBE}.win = 0"
+
+      - name: carried
+        title: 我是輸出核心
+        sql: "{CUBE}.dmg_to_champions * 1.0 / NULLIF({CUBE}.team_dmg, 0) >= 0.28"
+
+      - name: tanked
+        title: 我在扛傷害
+        sql: "{CUBE}.dmg_taken * 1.0 / NULLIF({CUBE}.game_duration, 0) >= 45"
+
+      - name: fed
+        title: 死超過十次
+        sql: "{CUBE}.deaths > 10"
+
+      - name: had_multikill
+        title: 有拿到多殺
+        sql: "{CUBE}.double_kills + {CUBE}.triple_kills + {CUBE}.quadra_kills + {CUBE}.penta_kills > 0"
+
     dimensions:
       - name: id
         sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id || ':' || {CUBE}.participant_id"
         type: string
         primary_key: true
+        public: false
 
       - name: game_key
+        title: 對局鍵
         sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id"
         type: string
+        public: false
 
       - name: puuid
+        title: 玩家 ID
         sql: puuid
         type: string
+        public: false
 
       - name: riot_id
+        title: 玩家
         sql: riot_id
         type: string
+        meta:
+          group: 玩家
 
       # 刻意用字串而不是數字:Cube 會把篩選值綁成字串,而這是 CASE 運算式、
       # 沒有欄位型別親和性,SQLite 不會把 '1' 轉成 1,比較永遠為假。
       # 真欄位(如 queue_id)有 INTEGER 親和性所以不受影響。
       - name: is_me
+        title: 是否為本機帳號
         sql: "CASE WHEN {CUBE}.puuid IN (SELECT puuid FROM accounts WHERE is_me = 1) THEN 'true' ELSE 'false' END"
         type: string
-        description: 值為 true 代表這一列是本機登入的帳號。個人戰績分析都要套上這個篩選。
+        public: false
 
       - name: champion_id
         sql: champion_id
         type: number
+        public: false
 
       - name: team_id
         sql: team_id
         type: number
+        public: false
 
       - name: team_side
+        title: 隊伍
         sql: "CASE WHEN {CUBE}.team_id = 100 THEN '藍隊' ELSE '紅隊' END"
         type: string
+        meta:
+          group: 對局
 
       - name: win
         sql: win
         type: number
+        public: false
 
       - name: result
+        title: 勝負
         sql: "CASE WHEN {CUBE}.win = 1 THEN '勝' ELSE '敗' END"
         type: string
+        meta:
+          group: 對局
 
       - name: champ_level
+        title: 結束等級
         sql: champ_level
         type: number
+        meta:
+          group: 對局
+
+      - name: death_bucket
+        title: 死亡數級距
+        sql: >
+          CASE WHEN {CUBE}.deaths <= 5 THEN '0-5 次'
+               WHEN {CUBE}.deaths <= 10 THEN '6-10 次'
+               WHEN {CUBE}.deaths <= 15 THEN '11-15 次'
+               ELSE '16 次以上' END
+        type: string
+        meta:
+          group: 對局
 
     measures:
       - name: games
+        title: 場次
         sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id"
         type: count_distinct
         description: 對局數。用 distinct 是因為增幅/裝備維度會讓同一場展開成多列。
+        meta:
+          group: 基本
+          decimals: 0
 
       - name: wins
+        title: 勝場
         sql: "CASE WHEN {CUBE}.win = 1 THEN {CUBE}.platform_id || ':' || {CUBE}.game_id END"
         type: count_distinct
+        meta:
+          group: 基本
+          decimals: 0
 
       - name: losses
+        title: 敗場
         sql: "CASE WHEN {CUBE}.win = 0 THEN {CUBE}.platform_id || ':' || {CUBE}.game_id END"
         type: count_distinct
+        meta:
+          group: 基本
+          decimals: 0
 
       - name: winrate
+        title: 勝率
         sql: "100.0 * {wins} / NULLIF({games}, 0)"
         type: number
         format: percent
+        meta:
+          group: 基本
+          unit: "%"
+          decimals: 1
+          higherIsBetter: true
 
       - name: avg_kills
+        title: 平均擊殺
         sql: kills
         type: avg
+        meta:
+          group: 戰鬥
+          decimals: 1
 
       - name: avg_deaths
+        title: 平均死亡
         sql: deaths
         type: avg
+        meta:
+          group: 戰鬥
+          decimals: 1
+          higherIsBetter: false
 
       - name: avg_assists
+        title: 平均助攻
         sql: assists
         type: avg
+        meta:
+          group: 戰鬥
+          decimals: 1
 
       - name: kda
+        title: KDA
         sql: "({avg_kills} + {avg_assists}) / NULLIF({avg_deaths}, 0)"
         type: number
-
-      - name: avg_damage
-        sql: dmg_to_champions
-        type: avg
-
-      - name: avg_taken
-        sql: dmg_taken
-        type: avg
-
-      - name: avg_gold
-        sql: gold_earned
-        type: avg
-
-      - name: avg_cs
-        sql: cs
-        type: avg
-
-      # 對局長度已反正規化到本表(見 db.py 的 _migrate),事實表才能自給自足
-      # 算出自己的指標——Cube 也不允許成員 SQL 去引用其他 cube 的欄位。
-      - name: dpm
-        sql: "{CUBE}.dmg_to_champions * 60.0 / NULLIF({CUBE}.game_duration, 0)"
-        type: avg
-        description: 每分鐘對英雄傷害
-
-      - name: gpm
-        sql: "{CUBE}.gold_earned * 60.0 / NULLIF({CUBE}.game_duration, 0)"
-        type: avg
-        description: 每分鐘經濟
-
-      - name: pentas
-        sql: penta_kills
-        type: sum
-
-      - name: multikills
-        sql: "{CUBE}.double_kills + {CUBE}.triple_kills + {CUBE}.quadra_kills + {CUBE}.penta_kills"
-        type: sum
-        description: 雙殺以上的總次數
+        meta:
+          group: 戰鬥
+          decimals: 2
+          higherIsBetter: true
 
       - name: kill_participation
+        title: 參團率
         sql: "({CUBE}.kills + {CUBE}.assists) * 100.0 / NULLIF({CUBE}.team_kills, 0)"
         type: avg
         format: percent
+        meta:
+          group: 戰鬥
+          unit: "%"
+          decimals: 1
+          higherIsBetter: true
+
+      - name: multikills
+        title: 多殺次數
+        sql: "{CUBE}.double_kills + {CUBE}.triple_kills + {CUBE}.quadra_kills + {CUBE}.penta_kills"
+        type: sum
+        description: 雙殺以上的總次數
+        meta:
+          group: 戰鬥
+          decimals: 0
+
+      - name: pentas
+        title: 五殺次數
+        sql: penta_kills
+        type: sum
+        meta:
+          group: 戰鬥
+          decimals: 0
+
+      - name: multikill_rate
+        title: 多殺場次率
+        sql: >
+          100.0 * COUNT(DISTINCT CASE
+            WHEN {CUBE}.double_kills + {CUBE}.triple_kills
+               + {CUBE}.quadra_kills + {CUBE}.penta_kills > 0
+            THEN {CUBE}.platform_id || ':' || {CUBE}.game_id END)
+          / NULLIF({games}, 0)
+        type: number
+        format: percent
+        description: 有拿到多殺的場次佔比
+        meta:
+          group: 戰鬥
+          unit: "%"
+          decimals: 1
+          higherIsBetter: true
+
+      - name: first_blood_rate
+        title: 首殺率
+        sql: >
+          100.0 * COUNT(DISTINCT CASE WHEN {CUBE}.first_blood = 1
+            THEN {CUBE}.platform_id || ':' || {CUBE}.game_id END)
+          / NULLIF({games}, 0)
+        type: number
+        format: percent
+        meta:
+          group: 戰鬥
+          unit: "%"
+          decimals: 1
+
+      - name: avg_damage
+        title: 平均對英雄傷害
+        sql: dmg_to_champions
+        type: avg
+        meta:
+          group: 輸出
+          decimals: 0
+
+      - name: dpm
+        title: 每分鐘傷害
+        sql: "{CUBE}.dmg_to_champions * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: avg
+        description: 每分鐘對英雄傷害
+        meta:
+          group: 輸出
+          decimals: 0
+          higherIsBetter: true
 
       - name: damage_share
+        title: 傷害佔比
         sql: "{CUBE}.dmg_to_champions * 100.0 / NULLIF({CUBE}.team_dmg, 0)"
         type: avg
         format: percent
+        meta:
+          group: 輸出
+          unit: "%"
+          decimals: 1
+          higherIsBetter: true
+
+      - name: damage_per_gold
+        title: 每塊錢傷害
+        sql: "{CUBE}.dmg_to_champions * 1.0 / NULLIF({CUBE}.gold_earned, 0)"
+        type: avg
+        description: 經濟轉換成輸出的效率，看得出誰是把錢花在刀口上
+        meta:
+          group: 輸出
+          decimals: 2
+          higherIsBetter: true
+
+      - name: avg_objective_damage
+        title: 平均建築傷害
+        sql: dmg_to_objectives
+        type: avg
+        meta:
+          group: 輸出
+          decimals: 0
+
+      - name: avg_taken
+        title: 平均承受傷害
+        sql: dmg_taken
+        type: avg
+        meta:
+          group: 生存
+          decimals: 0
+
+      - name: tank_share
+        title: 承受佔比
+        sql: >
+          {CUBE}.dmg_taken * 100.0 / NULLIF(
+            (SELECT SUM(t.dmg_taken) FROM match_participants t
+             WHERE t.platform_id = {CUBE}.platform_id
+               AND t.game_id = {CUBE}.game_id
+               AND t.team_id = {CUBE}.team_id), 0)
+        type: avg
+        format: percent
+        description: 承受傷害佔隊伍的比例，和傷害佔比對照可看出定位
+        meta:
+          group: 生存
+          unit: "%"
+          decimals: 1
+
+      - name: avg_mitigated
+        title: 平均減免傷害
+        sql: dmg_mitigated
+        type: avg
+        meta:
+          group: 生存
+          decimals: 0
+
+      - name: avg_heal
+        title: 平均治療量
+        sql: total_heal
+        type: avg
+        meta:
+          group: 生存
+          decimals: 0
+
+      - name: avg_survival
+        title: 平均最久存活
+        sql: longest_time_living
+        type: avg
+        description: 單場中最長一次沒有死亡的時間（秒）
+        meta:
+          group: 生存
+          unit: 秒
+          decimals: 0
+
+      - name: avg_gold
+        title: 平均經濟
+        sql: gold_earned
+        type: avg
+        meta:
+          group: 資源
+          decimals: 0
+
+      - name: gpm
+        title: 每分鐘經濟
+        sql: "{CUBE}.gold_earned * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: avg
+        meta:
+          group: 資源
+          decimals: 0
+          higherIsBetter: true
+
+      - name: avg_cs
+        title: 平均補兵
+        sql: cs
+        type: avg
+        meta:
+          group: 資源
+          decimals: 1
+
+      - name: unspent_gold
+        title: 平均剩餘金錢
+        sql: "{CUBE}.gold_earned - {CUBE}.gold_spent"
+        type: avg
+        description: 沒花掉的錢。偏高代表死亡時身上留太多，或回城買裝不夠積極
+        meta:
+          group: 資源
+          decimals: 0
+          higherIsBetter: false

@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { AnimatePresence, motion } from "motion/react"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { AppShell, type PageId } from "@/components/AppShell"
 import { FilterProvider } from "@/lib/filters"
@@ -35,7 +36,18 @@ export default function App() {
     <TooltipProvider delayDuration={200}>
       <FilterProvider>
         <AppShell page={page} onNavigate={setPage}>
-          <Page />
+          {/* 換頁時淡入，避免內容瞬間替換造成的跳動感 */}
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={page}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+            >
+              <Page />
+            </motion.div>
+          </AnimatePresence>
         </AppShell>
       </FilterProvider>
     </TooltipProvider>

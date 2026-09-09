@@ -100,23 +100,23 @@ export function Dashboard() {
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-        <Kpi label="總場次" value={metric("participants.games", round0)} loading={totals.loading} />
-        <Kpi
+        <Kpi index={0} label="總場次" value={metric("participants.games", round0)} loading={totals.loading} />
+        <Kpi index={1}
           label="勝率"
           value={metric("participants.winrate", round1, "%")}
           tone={winrate === null ? undefined : winrate >= 50 ? "win" : "loss"}
           hint={`${metric("participants.wins", round0)} 勝 ${metric("participants.losses", round0)} 敗`}
           loading={totals.loading}
         />
-        <Kpi label="KDA" value={metric("participants.kda", round2)} loading={totals.loading} />
-        <Kpi label="每分鐘傷害" value={metric("participants.dpm", round0)} loading={totals.loading} />
-        <Kpi label="每分鐘經濟" value={metric("participants.gpm", round0)} loading={totals.loading} />
-        <Kpi
+        <Kpi index={2} label="KDA" value={metric("participants.kda", round2)} loading={totals.loading} />
+        <Kpi index={3} label="每分鐘傷害" value={metric("participants.dpm", round0)} loading={totals.loading} />
+        <Kpi index={4} label="每分鐘經濟" value={metric("participants.gpm", round0)} loading={totals.loading} />
+        <Kpi index={5}
           label="參團率"
           value={metric("participants.kill_participation", round1, "%")}
           loading={totals.loading}
         />
-        <Kpi
+        <Kpi index={6}
           label="用過的英雄"
           value={champions.loading ? "—" : String(champions.rows.length)}
           hint={`共 ${games} 場`}

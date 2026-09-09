@@ -13,6 +13,8 @@ export type CubeFilter = {
 export type CubeQuery = {
   measures?: string[]
   dimensions?: string[]
+  /** 模型裡定義好的具名篩選，前端只送名稱。 */
+  segments?: string[]
   // dateRange 兩種都收：["2026-09-01","2026-09-08"] 這種絕對區間，
   // 或 "last 7 days" 這種 Cube 自己解析的相對區間。
   timeDimensions?: {
