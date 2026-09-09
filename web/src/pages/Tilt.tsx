@@ -8,11 +8,11 @@ import { useFilters } from "@/lib/filters"
 const STAGE_ORDER = ["第 1-2 場", "第 3-5 場", "第 6-9 場", "第 10 場以後"]
 
 export function Tilt() {
-  const { queueId, dateRange } = useFilters()
+  const { queueId, dateRange, subjectFilter } = useFilters()
 
-  // my_games 這個 cube 已經把「只看自己」寫死在 sql 裡，
-  // 所以不套 apply()——participants.is_me 在這個 cube 上不存在。
-  const filters: CubeFilter[] = []
+  // my_games 是自己的 cube，沒有 participants.is_me，所以不套 apply()，
+  // 改用 subjectFilter 指定要看誰的對局序列。
+  const filters: CubeFilter[] = subjectFilter("my_games.puuid")
   if (queueId) {
     filters.push({ member: "my_games.queue_id", operator: "equals", values: [queueId] })
   }

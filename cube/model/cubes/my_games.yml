@@ -1,31 +1,42 @@
 cubes:
-  # 我自己的對局序列，帶上「前一場的結果」與「當日第幾場」。
+  # 對局序列，帶上「前一場的結果」與「當日第幾場」。查詢時用 puuid 指定對象。
   #
   # 這兩個要靠視窗函數，而 Cube 的 measure/dimension 沒辦法表達 LAG，
   # 所以在 sql: 裡先算好。SQLite 支援 LAG 與 ROW_NUMBER。
   #
-  # 前一場刻意用 queue_id 分區：使用者通常會把畫面篩到只看 Mayhem，
-  # 若跨模式取前一場，篩選後的「前一場」會指到畫面上根本看不到的對局。
+  # 視窗函數以 puuid 分區，否則不同玩家的對局會混在一起算「前一場」。
+  # 同時以 queue_id 分區：畫面通常篩到只看 Mayhem，若跨模式取前一場，
+  # 「前一場」會指到畫面上根本看不到的對局。
   - name: my_games
     sql: >
       SELECT
-        mp.platform_id, mp.game_id, mp.win, mp.champion_id,
+        mp.platform_id, mp.game_id, mp.puuid, mp.riot_id, mp.win, mp.champion_id,
         m.queue_id, m.game_creation, m.game_duration,
-        LAG(mp.win) OVER (PARTITION BY m.queue_id ORDER BY m.game_creation) AS prev_win,
+        LAG(mp.win) OVER (
+          PARTITION BY mp.puuid, m.queue_id ORDER BY m.game_creation
+        ) AS prev_win,
         ROW_NUMBER() OVER (
-          PARTITION BY m.queue_id, date(m.game_creation / 1000, 'unixepoch', 'localtime')
+          PARTITION BY mp.puuid, m.queue_id,
+                       date(m.game_creation / 1000, 'unixepoch', 'localtime')
           ORDER BY m.game_creation
         ) AS game_of_day
       FROM match_participants mp
       JOIN matches m
         ON m.platform_id = mp.platform_id AND m.game_id = mp.game_id
-      WHERE mp.puuid IN (SELECT puuid FROM accounts WHERE is_me = 1)
 
     dimensions:
       - name: id
-        sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id"
+        sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id || ':' || {CUBE}.puuid"
         type: string
         primary_key: true
+
+      - name: puuid
+        sql: puuid
+        type: string
+
+      - name: player
+        sql: riot_id
+        type: string
 
       - name: queue_id
         sql: queue_id

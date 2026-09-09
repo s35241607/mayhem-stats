@@ -1,7 +1,22 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react"
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react"
 import { MAYHEM_QUEUE_ID, type CubeFilter, type CubeQuery } from "@/lib/cube"
 
 export type Drill = CubeFilter & { label: string }
+
+export type Player = {
+  puuid: string
+  riot_id: string | null
+  games: number
+  is_me: number
+  tracked: number
+}
 
 export const DATE_RANGES = [
   { value: "all", label: "全部期間" },
@@ -12,6 +27,11 @@ export const DATE_RANGES = [
 ] as const
 
 type FilterState = {
+  /** 目前在看誰的數據。預設是本機帳號，可切換成任何出現過的玩家。 */
+  account: Player | null
+  setAccount: (player: Player) => void
+  players: Player[]
+  isMe: boolean
   queueId: string | null
   setQueueId: (id: string | null) => void
   dateRange: string
@@ -20,26 +40,53 @@ type FilterState = {
   addDrill: (drill: Drill) => void
   removeDrill: (index: number) => void
   clearDrills: () => void
-  /** 把全域條件套進一個 Cube 查詢。頁面只描述自己要什麼，不必重覆組篩選。 */
+  /** 把全域條件套進 Cube 查詢：看誰、哪個模式、哪段期間、下鑽了什麼。 */
   apply: (query: CubeQuery) => CubeQuery
+  /** 以 participants 以外的 cube 查詢時，用這個取得「主角」的篩選條件。 */
+  subjectFilter: (member: string) => CubeFilter[]
 }
 
 const FilterContext = createContext<FilterState | null>(null)
 
 export function FilterProvider({ children }: { children: ReactNode }) {
+  const [players, setPlayers] = useState<Player[]>([])
+  const [account, setAccount] = useState<Player | null>(null)
   const [queueId, setQueueId] = useState<string | null>(MAYHEM_QUEUE_ID)
   const [dateRange, setDateRange] = useState<string>("all")
   const [drills, setDrills] = useState<Drill[]>([])
 
+  useEffect(() => {
+    fetch("/api/players")
+      .then((r) => r.json())
+      .then((d: { players: Player[] }) => {
+        setPlayers(d.players)
+        // 預設看自己
+        setAccount((current) => current ?? d.players.find((p) => p.is_me) ?? d.players[0] ?? null)
+      })
+      .catch(() => undefined)
+  }, [])
+
   const value = useMemo<FilterState>(() => {
-    const baseline: CubeFilter[] = [
-      { member: "participants.is_me", operator: "equals", values: ["true"] },
-    ]
+    const baseline: CubeFilter[] = []
+    if (account) {
+      baseline.push({
+        member: "participants.puuid",
+        operator: "equals",
+        values: [account.puuid],
+      })
+    }
     if (queueId) {
       baseline.push({ member: "matches.queue_id", operator: "equals", values: [queueId] })
     }
 
     return {
+      account,
+      setAccount: (player) => {
+        setAccount(player)
+        setDrills([]) // 換人看的時候，前一個人的下鑽條件留著只會造成誤解
+      },
+      players,
+      isMe: !!account?.is_me,
       queueId,
       setQueueId,
       dateRange,
@@ -53,6 +100,9 @@ export function FilterProvider({ children }: { children: ReactNode }) {
         ),
       removeDrill: (index) => setDrills((prev) => prev.filter((_, i) => i !== index)),
       clearDrills: () => setDrills([]),
+
+      subjectFilter: (member) =>
+        account ? [{ member, operator: "equals", values: [account.puuid] }] : [],
 
       apply: (query) => {
         const merged: CubeQuery = {
@@ -75,7 +125,7 @@ export function FilterProvider({ children }: { children: ReactNode }) {
         return merged
       },
     }
-  }, [queueId, dateRange, drills])
+  }, [account, players, queueId, dateRange, drills])
 
   return <FilterContext.Provider value={value}>{children}</FilterContext.Provider>
 }

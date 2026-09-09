@@ -2,11 +2,12 @@ cubes:
   # 同場其他玩家的自我 join。Riot 的 API 不提供「誰跟誰一起排隊」的欄位,
   # 但同隊次數本身就能看出固定車隊。
   #
-  # 「只看自己」的條件直接寫死在 sql 裡(me.puuid IN accounts),因為這個 cube
-  # 的每一列語意就是「我的某一場 × 同場的某個人」,離開這個前提沒有意義。
+  # 每一列的語意是「某人的某一場 × 同場的另一個人」。查詢時務必用
+  # subject_puuid 指定要以誰為視角,否則會把所有人的視角混在一起。
   - name: teammates
     sql: >
       SELECT me.platform_id, me.game_id, me.participant_id, me.win,
+             me.puuid      AS subject_puuid,
              other.puuid   AS other_puuid,
              other.riot_id AS other_riot_id,
              other.champion_id AS other_champion_id,
@@ -16,7 +17,6 @@ cubes:
         ON other.platform_id = me.platform_id
        AND other.game_id     = me.game_id
        AND other.puuid      <> me.puuid
-      WHERE me.puuid IN (SELECT puuid FROM accounts WHERE is_me = 1)
 
     joins:
       - name: matches
@@ -25,9 +25,14 @@ cubes:
 
     dimensions:
       - name: id
-        sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id || ':' || {CUBE}.other_puuid"
+        sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id || ':' || {CUBE}.subject_puuid || ':' || {CUBE}.other_puuid"
         type: string
         primary_key: true
+
+      - name: subject_puuid
+        sql: subject_puuid
+        type: string
+        description: 以誰的視角看。不指定的話所有人的視角會混在一起。
 
       - name: player
         sql: other_riot_id

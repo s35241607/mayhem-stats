@@ -18,16 +18,19 @@ function PlayerTable({
   queueId,
   dateRange,
   relation,
+  subject,
 }: {
   title: string
   caption: string
   queueId: string | null
   dateRange: string
   relation: string
+  subject: CubeFilter[]
 }) {
-  // teammates cube 已把「只看自己」寫死在它的 sql 裡，所以這裡不套 apply()，
-  // 只補上模式與期間；participants.is_me 在這個 cube 上不存在。
+  // teammates 是自己的 cube，沒有 participants.is_me，所以不套 apply()。
+  // subject 指定要以誰為視角——少了它，所有人的視角會混在一起。
   const filters: CubeFilter[] = [
+    ...subject,
     { member: "teammates.relation", operator: "equals", values: [relation] },
   ]
   if (queueId) {
@@ -61,24 +64,28 @@ function PlayerTable({
 }
 
 export function Players() {
-  const { queueId, dateRange } = useFilters()
+  const { queueId, dateRange, subjectFilter, isMe, account } = useFilters()
   const queue = queueId ?? MAYHEM_QUEUE_ID
+  const subject = subjectFilter("teammates.subject_puuid")
+  const who = isMe ? "你" : (account?.riot_id ?? "他")
 
   return (
     <div className="grid gap-4 xl:grid-cols-2">
       <PlayerTable
         title="同隊隊友"
-        caption="勝率 = 和這個人同隊時你的勝率。同隊次數特別高的就是固定車隊。"
+        caption={`勝率 = 和這個人同隊時${who}的勝率。同隊次數特別高的就是固定車隊。`}
         queueId={queue}
         dateRange={dateRange}
         relation="teammate"
+        subject={subject}
       />
       <PlayerTable
         title="對手"
-        caption="勝率 = 對上這個人時你的勝率。Riot 不提供組隊欄位，這是從同場紀錄推出來的。"
+        caption={`勝率 = 對上這個人時${who}的勝率。Riot 不提供組隊欄位，這是從同場紀錄推出來的。`}
         queueId={queue}
         dateRange={dateRange}
         relation="opponent"
+        subject={subject}
       />
     </div>
   )

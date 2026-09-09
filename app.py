@@ -117,29 +117,62 @@ def run_query(spec: QuerySpec):
         conn.close()
 
 
+@app.get("/api/players")
+def list_players():
+    """資料庫裡出現過的所有玩家，給帳號快速切換用。本機帳號排最前面。"""
+    conn = db.connect()
+    try:
+        rows = conn.execute(
+            """SELECT mp.puuid, mp.riot_id, COUNT(DISTINCT mp.game_id) AS games,
+                      COALESCE(a.is_me, 0) AS is_me, COALESCE(a.tracked, 0) AS tracked
+               FROM match_participants mp
+               LEFT JOIN accounts a ON a.puuid = mp.puuid
+               GROUP BY mp.puuid
+               ORDER BY is_me DESC, tracked DESC, games DESC"""
+        ).fetchall()
+        return {"players": [dict(row) for row in rows]}
+    finally:
+        conn.close()
+
+
+def _resolve_puuid(conn, puuid: Optional[str]) -> Optional[str]:
+    """沒指定就用本機帳號。所有頁面預設看自己，但可以切換到別人。"""
+    if puuid:
+        return puuid
+    row = conn.execute("SELECT puuid FROM accounts WHERE is_me = 1 LIMIT 1").fetchone()
+    return row["puuid"] if row else None
+
+
 @app.get("/api/matches")
-def recent_matches(limit: int = 30, offset: int = 0, queue: Optional[int] = None):
-    """我的對局清單。
+def recent_matches(
+    limit: int = 30,
+    offset: int = 0,
+    queue: Optional[int] = None,
+    puuid: Optional[str] = None,
+):
+    """指定帳號的對局清單，預設是本機帳號。
 
     列表與單場明細都直接讀 SQLite,不經過 Cube——語意層是為了聚合而存在,
     逐列的鑽取用它反而綁手綁腳。
     """
     conn = db.connect()
     try:
+        subject = _resolve_puuid(conn, puuid)
         sql = """
             SELECT m.game_id, m.platform_id, m.game_creation, m.game_duration, m.queue_id,
                    m.game_mode, m.ended_surrender,
-                   mp.champion_id, mp.win, mp.kills, mp.deaths, mp.assists,
-                   mp.dmg_to_champions, mp.gold_earned, mp.cs, mp.team_kills,
+                   mp.participant_id, mp.champion_id, mp.win, mp.kills, mp.deaths, mp.assists,
+                   mp.dmg_to_champions, mp.gold_earned, mp.cs, mp.team_kills, mp.champ_level,
+                   mp.spell1_id, mp.spell2_id,
                    mp.penta_kills, mp.quadra_kills, mp.largest_multi_kill,
                    COALESCE(dc.name, '英雄 ' || mp.champion_id) AS champion_name,
                    dc.icon_path AS champion_icon
             FROM match_participants mp
             JOIN matches m ON m.platform_id = mp.platform_id AND m.game_id = mp.game_id
             LEFT JOIN dim_champions dc ON dc.id = mp.champion_id
-            WHERE mp.puuid IN (SELECT puuid FROM accounts WHERE is_me = 1)
+            WHERE mp.puuid = ?
         """
-        params: list = []
+        params: list = [subject]
         if queue is not None:
             sql += " AND m.queue_id = ?"
             params.append(queue)
@@ -147,13 +180,36 @@ def recent_matches(limit: int = 30, offset: int = 0, queue: Optional[int] = None
         params.extend([min(limit, 200), max(offset, 0)])
 
         matches = [dict(row) for row in conn.execute(sql, params).fetchall()]
+        # 清單每列要顯示裝備，另外一次撈完再併回去，避免 N+1 查詢
+        keys = [(m["platform_id"], m["game_id"], m["participant_id"]) for m in matches]
+        if keys:
+            placeholders = ",".join("(?,?,?)" for _ in keys)
+            flat = [value for key in keys for value in key]
+            item_rows = conn.execute(
+                f"""SELECT pi.platform_id, pi.game_id, pi.participant_id, pi.slot,
+                           pi.item_id, di.name, di.icon_path
+                    FROM participant_items pi
+                    LEFT JOIN dim_items di ON di.id = pi.item_id
+                    WHERE (pi.platform_id, pi.game_id, pi.participant_id) IN ({placeholders})
+                    ORDER BY pi.slot""",
+                flat,
+            ).fetchall()
+            grouped: dict = {}
+            for row in item_rows:
+                grouped.setdefault(
+                    (row["platform_id"], row["game_id"], row["participant_id"]), []
+                ).append(dict(row))
+            for match in matches:
+                match["items"] = grouped.get(
+                    (match["platform_id"], match["game_id"], match["participant_id"]), []
+                )
 
         count_sql = """
             SELECT COUNT(*) AS n FROM match_participants mp
             JOIN matches m ON m.platform_id = mp.platform_id AND m.game_id = mp.game_id
-            WHERE mp.puuid IN (SELECT puuid FROM accounts WHERE is_me = 1)
+            WHERE mp.puuid = ?
         """
-        count_params: list = []
+        count_params: list = [subject]
         if queue is not None:
             count_sql += " AND m.queue_id = ?"
             count_params.append(queue)
@@ -165,7 +221,7 @@ def recent_matches(limit: int = 30, offset: int = 0, queue: Optional[int] = None
 
 
 @app.get("/api/match/{platform_id}/{game_id}")
-def match_detail(platform_id: str, game_id: int):
+def match_detail(platform_id: str, game_id: int, puuid: Optional[str] = None):
     """單場完整戰報:10 名玩家的數據、裝備與增幅。"""
     conn = db.connect()
     try:
@@ -183,12 +239,12 @@ def match_detail(platform_id: str, game_id: int):
             for row in conn.execute(
                 """SELECT mp.*, COALESCE(dc.name, '英雄 ' || mp.champion_id) AS champion_name,
                           dc.icon_path AS champion_icon,
-                          (mp.puuid IN (SELECT puuid FROM accounts WHERE is_me = 1)) AS is_me
+                          (mp.puuid = ?) AS is_me
                    FROM match_participants mp
                    LEFT JOIN dim_champions dc ON dc.id = mp.champion_id
                    WHERE mp.platform_id = ? AND mp.game_id = ?
                    ORDER BY mp.team_id, mp.participant_id""",
-                (platform_id, game_id),
+                (_resolve_puuid(conn, puuid), platform_id, game_id),
             ).fetchall()
         ]
 

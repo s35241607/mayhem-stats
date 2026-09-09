@@ -10,7 +10,6 @@ import { TimeAnalysis } from "@/pages/TimeAnalysis"
 import { Explore } from "@/pages/Explore"
 import { Matches } from "@/pages/Matches"
 import { Synergy } from "@/pages/Synergy"
-import { PlayerProfile } from "@/pages/PlayerProfile"
 import { Tilt } from "@/pages/Tilt"
 import { Tracked } from "@/pages/Tracked"
 
@@ -18,7 +17,6 @@ const PAGES: Record<PageId, () => React.JSX.Element> = {
   dashboard: Dashboard,
   matches: Matches,
   synergy: Synergy,
-  profile: PlayerProfile,
   tilt: Tilt,
   champions: Champions,
   augments: Augments,
