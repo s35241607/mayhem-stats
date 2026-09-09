@@ -27,6 +27,7 @@ from pydantic import BaseModel
 import collector as collector_module
 import cube_process
 import db
+import icons
 import lcu
 import query
 
@@ -40,11 +41,33 @@ async def lifespan(app: FastAPI):
     # Cube 由這裡一併拉起來：開機自動啟動只有一個排程工作，
     # 若要另外顧 Cube，重開機後分析頁面會壞掉而使用者不會馬上發現。
     print(await asyncio.to_thread(cube_process.start))
+
+    async def warm_icons():
+        # 背景暖快取，不擋啟動；客戶端沒開就直接跳過。
+        # 連線必須開在工作執行緒裡——SQLite 預設不允許跨執行緒使用同一條連線。
+        def run():
+            conn = db.connect()
+            try:
+                return icons.warm(conn)
+            finally:
+                conn.close()
+
+        try:
+            warmed = await asyncio.to_thread(run)
+            print(f"圖示快取已補 {warmed} 張" if warmed else "圖示快取已是最新")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            # 不要靜默失敗：暖快取壞掉會讓人以為「圖就是很慢」而查不到原因
+            print(f"圖示暖快取失敗: {type(exc).__name__}: {exc}")
+
+    warm_task = asyncio.create_task(warm_icons())
     task = asyncio.create_task(collector.run_forever())
     try:
         yield
     finally:
         task.cancel()
+        warm_task.cancel()
         cube_process.stop()
 
 
@@ -72,7 +95,7 @@ def index():
 
 @app.get("/api/status")
 def status():
-    return collector.snapshot()
+    return {**collector.snapshot(), "iconCache": icons.stats()}
 
 
 @app.post("/api/ingest")
@@ -400,27 +423,21 @@ async def cube_proxy(path: str, request: Request):
 
 @app.get("/api/icon")
 def icon(path: str):
-    """代理客戶端的圖示資源。
+    """客戶端圖示，經磁碟快取。
 
-    瀏覽器沒有 LCU 的認證憑證,所以圖示得由後端帶著 Basic Auth 取回。
-    限制只能取 /lol-game-data/assets/ 底下的路徑,避免這個代理被拿來
-    存取其他需要授權的客戶端端點。
+    抓過的圖示不再問客戶端，所以第二次之後幾乎是零成本，客戶端關著時也還在。
+    圖示內容不會變，因此標成 immutable，瀏覽器連問都不用問。
     """
-    if not path.startswith("/lol-game-data/assets/"):
+    cached, status = icons.fetch(path)
+    if status == "rejected":
         return JSONResponse(status_code=400, content={"error": "不允許的資源路徑"})
-    try:
-        client = lcu.LCUClient.connect()
-        resp = requests.get(
-            client.base + path, headers=client.headers, verify=False, timeout=10
-        )
-    except (lcu.LCUUnavailable, requests.exceptions.RequestException):
+    if cached is None:
+        # 客戶端沒開又沒快取過：回 204 讓版面留白，不要讓整頁卡住
         return Response(status_code=204)
-    if resp.status_code != 200:
-        return Response(status_code=204)
-    return Response(
-        content=resp.content,
-        media_type=resp.headers.get("Content-Type", "image/png"),
-        headers={"Cache-Control": "public, max-age=86400"},
+    return FileResponse(
+        cached,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
     )
 
 

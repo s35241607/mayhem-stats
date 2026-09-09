@@ -463,8 +463,12 @@ export function Matches() {
                   key={`${m.platform_id}:${m.game_id}`}
                   onClick={() => setSelected({ platformId: m.platform_id, gameId: m.game_id })}
                   className={cn(
-                    "flex w-full flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border-l-[3px] px-3 py-2.5 text-left transition hover:bg-accent",
-                    m.win ? "border-l-win bg-win/5" : "border-l-loss bg-loss/5",
+                    // 勝敗靠底色與文字傳達就夠了。先前用高彩度的左側粗邊，
+                    // 二十列疊起來像斑馬紋，反而蓋過內容。
+                    "flex w-full flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border px-3 py-2.5 text-left transition",
+                    m.win
+                      ? "border-win/20 bg-win/[0.06] hover:bg-win/[0.11]"
+                      : "border-loss/20 bg-loss/[0.06] hover:bg-loss/[0.11]",
                   )}
                 >
                   <div className="relative shrink-0">

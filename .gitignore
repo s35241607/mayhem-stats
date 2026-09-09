@@ -21,3 +21,6 @@ cube/.env
 web/node_modules/
 web/.vite/
 *.tsbuildinfo
+
+# 圖示快取（抓過就不必再問客戶端，可安全刪除）
+icon_cache/
