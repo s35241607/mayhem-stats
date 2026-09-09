@@ -358,6 +358,80 @@ cubes:
           unit: 秒
           decimals: 0
 
+      - name: taken_physical_share
+        title: 承受物理佔比
+        sql: "{CUBE}.taken_physical * 100.0 / NULLIF({CUBE}.taken_physical + {CUBE}.taken_magic + {CUBE}.taken_true, 0)"
+        type: avg
+        format: percent
+        description: 承受的傷害裡有多少是物理。偏高代表死在 AD 手上，可考慮補護甲
+        meta:
+          group: 生存
+          unit: "%"
+          decimals: 1
+
+      - name: taken_magic_share
+        title: 承受魔法佔比
+        sql: "{CUBE}.taken_magic * 100.0 / NULLIF({CUBE}.taken_physical + {CUBE}.taken_magic + {CUBE}.taken_true, 0)"
+        type: avg
+        format: percent
+        meta:
+          group: 生存
+          unit: "%"
+          decimals: 1
+
+      - name: champion_damage_focus
+        title: 對英雄傷害佔比
+        sql: "{CUBE}.dmg_to_champions * 100.0 / NULLIF({CUBE}.total_damage, 0)"
+        type: avg
+        format: percent
+        description: 總輸出裡有多少打在英雄身上。偏低代表花很多時間在清兵
+        meta:
+          group: 輸出
+          unit: "%"
+          decimals: 1
+
+      - name: avg_cc
+        title: 平均控場時間
+        sql: cc_duration
+        type: avg
+        meta:
+          group: 戰鬥
+          unit: 秒
+          decimals: 0
+
+      - name: avg_largest_spree
+        title: 平均最高連殺
+        sql: largest_spree
+        type: avg
+        meta:
+          group: 戰鬥
+          decimals: 1
+
+      - name: avg_turret_kills
+        title: 平均推塔數
+        sql: turret_kills
+        type: avg
+        meta:
+          group: 輸出
+          decimals: 2
+
+      - name: best_crit
+        title: 最高單次暴擊
+        sql: largest_crit
+        type: max
+        meta:
+          group: 戰鬥
+          decimals: 0
+
+      - name: avg_units_healed
+        title: 平均治療目標數
+        sql: units_healed
+        type: avg
+        description: 治療影響到幾個單位，輔助型玩法會明顯偏高
+        meta:
+          group: 生存
+          decimals: 1
+
       - name: avg_gold
         title: 平均經濟
         sql: gold_earned

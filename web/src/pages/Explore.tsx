@@ -4,6 +4,8 @@ import {
   BarChart3,
   LineChart,
   Grid3x3,
+  ScatterChart as ScatterIcon,
+  LayoutGrid,
   Code2,
   Plus,
   X,
@@ -18,7 +20,6 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Select,
   SelectContent,
@@ -28,10 +29,19 @@ import {
 } from "@/components/ui/select"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Panel, EmptyState } from "@/components/primitives"
-import { DataTable, type Column } from "@/components/DataTable"
-import { BarChart, Heatmap, TrendChart, type HeatCell } from "@/components/charts"
+import { DataGrid, type GridColumn } from "@/components/DataGrid"
+import { FieldBuilder } from "@/components/FieldBuilder"
+import {
+  BarChart,
+  Heatmap,
+  TrendChart,
+  ScatterChart,
+  TreemapChart,
+  type HeatCell,
+  type ScatterPoint,
+} from "@/components/charts"
 import { useCube } from "@/hooks/useCube"
-import { useCubeMeta, groupBy, label, type Member } from "@/hooks/useCubeMeta"
+import { useCubeMeta, groupBy, label } from "@/hooks/useCubeMeta"
 import { num, type CubeFilter, type CubeQuery } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 import { cn } from "@/lib/utils"
@@ -40,6 +50,8 @@ const VIZ = [
   { value: "table", label: "表格", icon: Table2 },
   { value: "bar", label: "長條", icon: BarChart3 },
   { value: "line", label: "折線", icon: LineChart },
+  { value: "scatter", label: "散布", icon: ScatterIcon },
+  { value: "treemap", label: "佔比", icon: LayoutGrid },
   { value: "heatmap", label: "熱力圖", icon: Grid3x3 },
 ] as const
 type Viz = (typeof VIZ)[number]["value"]
@@ -108,41 +120,6 @@ function Chip({
   )
 }
 
-function MemberPicker({
-  members,
-  selected,
-  onToggle,
-}: {
-  members: Member[]
-  selected: string[]
-  onToggle: (name: string) => void
-}) {
-  const groups = groupBy(members)
-  return (
-    <div className="space-y-2.5">
-      {[...groups.entries()].map(([group, items]) => (
-        <div key={group}>
-          <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
-            {group}
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {items.map((m) => (
-              <Chip
-                key={m.name}
-                active={selected.includes(m.name)}
-                onClick={() => onToggle(m.name)}
-                title={m.description}
-              >
-                {label(m, m.name)}
-              </Chip>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
 export function Explore() {
   const { apply, account } = useFilters()
   // 自由探索預設看目前帳號，但可以放開成跨玩家聚合。
@@ -192,7 +169,7 @@ export function Explore() {
 
   const { rows, loading, error } = useCube(dims.length || byDay ? query : null)
 
-  const columns: Column[] = useMemo(
+  const columns: GridColumn[] = useMemo(
     () => [
       ...(byDay
         ? [{ key: "matches.played_at.day", title: "日期", kind: "dimension" as const }]
@@ -220,6 +197,15 @@ export function Explore() {
     ],
     [dims, activeMeasures, byDay, meta],
   )
+
+  /** 圖表或表格點下去就把該項目變成篩選，跟儀表板的下鑽一致。 */
+  const drillInto = (member: string, value: string) => {
+    setExtraFilters((prev) =>
+      prev.some((f) => f.member === member && f.values[0] === value)
+        ? prev
+        : [...prev, { member, operator: "equals", values: [value] }],
+    )
+  }
 
   const saveView = () => {
     if (!viewName.trim()) return
@@ -275,6 +261,54 @@ export function Explore() {
           }))}
           suffix={suffix}
           colorBy={activeMeasures[0].endsWith("winrate") ? "value" : "flat"}
+          onPick={(v) => drillInto(dims[0], v)}
+        />
+      )
+    }
+
+    if (viz === "scatter") {
+      if (dims.length !== 1 || activeMeasures.length < 2) {
+        return (
+          <EmptyState>
+            散布圖需要一個分組維度和兩個指標（目前 {dims.length} 個維度、
+            {activeMeasures.length} 個指標）。
+          </EmptyState>
+        )
+      }
+      const [mx, my] = activeMeasures
+      const sizeKey = activeMeasures.find((m) => m.endsWith("games")) ?? mx
+      const pts: ScatterPoint[] = rows.map((r) => ({
+        label: String(r[dims[0]] ?? "—"),
+        x: num(r[mx]) ?? 0,
+        y: num(r[my]) ?? 0,
+        size: num(r[sizeKey]) ?? 1,
+      }))
+      return (
+        <ScatterChart
+          points={pts}
+          xName={label(meta.byName.get(mx), mx)}
+          yName={label(meta.byName.get(my), my)}
+          xSuffix={meta.byName.get(mx)?.meta?.unit ?? ""}
+          ySuffix={meta.byName.get(my)?.meta?.unit ?? ""}
+          onPick={(v) => drillInto(dims[0], v)}
+        />
+      )
+    }
+
+    if (viz === "treemap") {
+      if (dims.length !== 1) {
+        return <EmptyState>佔比圖需要剛好一個分組維度。</EmptyState>
+      }
+      const sizeKey = activeMeasures.find((m) => m.endsWith("games")) ?? activeMeasures[0]
+      const wrKey = activeMeasures.find((m) => m.endsWith("winrate"))
+      return (
+        <TreemapChart
+          items={rows.slice(0, 60).map((r) => ({
+            label: String(r[dims[0]] ?? "—"),
+            value: num(r[sizeKey]) ?? 0,
+            winrate: wrKey ? num(r[wrKey]) : null,
+          }))}
+          onPick={(v) => drillInto(dims[0], v)}
         />
       )
     }
@@ -305,7 +339,7 @@ export function Explore() {
       return <Heatmap cells={cells} />
     }
 
-    return <DataTable columns={columns} rows={rows} />
+    return <DataGrid columns={columns} rows={rows} onDrill={(col, value) => drillInto(col.key, value)} />
   }
 
   if (metaError) {
@@ -351,14 +385,19 @@ export function Explore() {
           )}
         </Panel>
 
-        <Panel title="分組維度" caption="選越多切得越細">
+        <Panel title="欄位配置" caption="拖進區塊即可加入，雙擊也行">
           {metaLoading ? (
-            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-64 w-full" />
           ) : (
-            <MemberPicker
-              members={meta.dimensions}
-              selected={dims}
-              onToggle={toggle(dims, setDims)}
+            <FieldBuilder
+              dimensions={meta.dimensions}
+              measures={meta.measures}
+              selectedDims={dims}
+              selectedMeasures={measures}
+              onChange={(d, m) => {
+                setDims(d)
+                setMeasures(m)
+              }}
             />
           )}
           <label className="mt-3 flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
@@ -370,20 +409,6 @@ export function Explore() {
             />
             另外按日期分組（折線圖需要）
           </label>
-        </Panel>
-
-        <Panel title="指標" caption="第一個指標用來排序與畫圖">
-          {metaLoading ? (
-            <Skeleton className="h-40 w-full" />
-          ) : (
-            <ScrollArea className="max-h-[320px] pr-2">
-              <MemberPicker
-                members={meta.measures}
-                selected={measures}
-                onToggle={toggle(measures, setMeasures)}
-              />
-            </ScrollArea>
-          )}
         </Panel>
 
         {meta.segments.length > 0 && (

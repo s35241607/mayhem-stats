@@ -53,6 +53,10 @@ CREATE TABLE IF NOT EXISTS match_participants (
   quadra_kills       INTEGER, penta_kills INTEGER,
   first_blood        INTEGER, first_tower INTEGER,
   dmg_to_objectives  INTEGER, longest_time_living INTEGER,
+  taken_physical     INTEGER, taken_magic INTEGER, taken_true INTEGER,
+  total_damage       INTEGER, cc_duration INTEGER,
+  largest_spree      INTEGER, killing_sprees INTEGER,
+  turret_kills       INTEGER, largest_crit INTEGER, units_healed INTEGER,
   PRIMARY KEY (platform_id, game_id, participant_id),
   FOREIGN KEY (platform_id, game_id) REFERENCES matches(platform_id, game_id)
 );
@@ -132,6 +136,18 @@ LATE_COLUMNS = {
     "first_tower": "firstTowerKill",
     "dmg_to_objectives": "damageDealtToObjectives",
     "longest_time_living": "longestTimeSpentLiving",
+    # 承受傷害的三種類型：能回答「我是被 AP 還是 AD 打死的」
+    "taken_physical": "physicalDamageTaken",
+    "taken_magic": "magicalDamageTaken",
+    "taken_true": "trueDamageTaken",
+    # 總輸出（含小兵與建築）。和對英雄傷害相比可看出清兵 vs 團戰取向
+    "total_damage": "totalDamageDealt",
+    "cc_duration": "totalTimeCrowdControlDealt",
+    "largest_spree": "largestKillingSpree",
+    "killing_sprees": "killingSprees",
+    "turret_kills": "turretKills",
+    "largest_crit": "largestCriticalStrike",
+    "units_healed": "totalUnitsHealed",
 }
 
 
@@ -265,9 +281,11 @@ def store_match(conn, game):
                     spell1_id, spell2_id, perk_primary_style, perk_sub_style,
                     team_kills, team_dmg, game_duration,
                     double_kills, triple_kills, quadra_kills, penta_kills,
-                    first_blood, first_tower, dmg_to_objectives, longest_time_living)
+                    first_blood, first_tower, dmg_to_objectives, longest_time_living,
+                    taken_physical, taken_magic, taken_true, total_damage, cc_duration,
+                    largest_spree, killing_sprees, turret_kills, largest_crit, units_healed)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
-                           ?,?,?,?,?,?,?,?)""",
+                           ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     platform_id, game_id, pid,
                     player.get("puuid") or "",
@@ -299,6 +317,12 @@ def store_match(conn, game):
                     1 if _num(stats, "firstTowerKill") else 0,
                     _num(stats, "damageDealtToObjectives"),
                     _num(stats, "longestTimeSpentLiving"),
+                    _num(stats, "physicalDamageTaken"), _num(stats, "magicalDamageTaken"),
+                    _num(stats, "trueDamageTaken"), _num(stats, "totalDamageDealt"),
+                    _num(stats, "totalTimeCrowdControlDealt"),
+                    _num(stats, "largestKillingSpree"), _num(stats, "killingSprees"),
+                    _num(stats, "turretKills"), _num(stats, "largestCriticalStrike"),
+                    _num(stats, "totalUnitsHealed"),
                 ),
             )
 

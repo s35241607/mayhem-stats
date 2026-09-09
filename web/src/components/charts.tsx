@@ -9,7 +9,16 @@ import ReactECharts from "echarts-for-react"
  */
 type EChartsInstance = { resize: () => void }
 
-function ResponsiveChart({ option, height }: { option: unknown; height: number }) {
+function ResponsiveChart({
+  option,
+  height,
+  onEvent,
+}: {
+  option: unknown
+  height: number
+  /** 圖表事件，主要用來做下鑽（點一個點就把它加成篩選）。 */
+  onEvent?: Record<string, (params: never) => void>
+}) {
   const boxRef = useRef<HTMLDivElement>(null)
   const instance = useRef<EChartsInstance | null>(null)
 
@@ -31,6 +40,7 @@ function ResponsiveChart({ option, height }: { option: unknown; height: number }
           chart.resize()
         }}
         option={option as never}
+        onEvents={onEvent as never}
         style={{ height, width: "100%" }}
         notMerge
       />
@@ -203,10 +213,12 @@ export function BarChart({
   data,
   suffix = "",
   colorBy = "value",
+  onPick,
 }: {
   data: BarDatum[]
   suffix?: string
   colorBy?: "value" | "flat"
+  onPick?: (label: string) => void
 }) {
   const theme = useTheme()
 
@@ -259,5 +271,153 @@ export function BarChart({
     }
   }, [data, suffix, colorBy, theme])
 
-  return <ResponsiveChart option={option} height={Math.max(180, data.length * 34)} />
+  return (
+    <ResponsiveChart
+      option={option}
+      height={Math.max(180, data.length * 34)}
+      onEvent={onPick ? { click: (p: { name?: string }) => p.name && onPick(p.name) } : undefined}
+    />
+  )
+}
+
+
+// ─────────────────────────────────────────── 散布圖（找離群值）
+
+export type ScatterPoint = {
+  label: string
+  x: number
+  y: number
+  size: number
+}
+
+/** 兩個指標交叉看，泡泡大小是場次。用來找「輸出高但贏不了」這種矛盾組合。 */
+export function ScatterChart({
+  points,
+  xName,
+  yName,
+  xSuffix = "",
+  ySuffix = "",
+  onPick,
+}: {
+  points: ScatterPoint[]
+  xName: string
+  yName: string
+  xSuffix?: string
+  ySuffix?: string
+  onPick?: (label: string) => void
+}) {
+  const theme = useTheme()
+
+  const option = useMemo(() => {
+    const maxSize = Math.max(1, ...points.map((p) => p.size))
+    return {
+      grid: { left: 56, right: 28, top: 24, bottom: 44 },
+      tooltip: {
+        ...baseTooltip(theme),
+        formatter: (p: { data: { value: number[]; name: string } }) =>
+          `${p.data.name}<br/>${xName} ${p.data.value[0].toFixed(1)}${xSuffix}` +
+          `<br/>${yName} ${p.data.value[1].toFixed(1)}${ySuffix}` +
+          `<br/>${p.data.value[2]} 場`,
+      },
+      xAxis: {
+        type: "value",
+        name: xName,
+        nameLocation: "middle",
+        nameGap: 28,
+        nameTextStyle: { color: theme.muted, fontSize: 11 },
+        axisLabel: { color: theme.muted, fontSize: 11 },
+        splitLine: { lineStyle: { color: theme.border } },
+      },
+      yAxis: {
+        type: "value",
+        name: yName,
+        nameTextStyle: { color: theme.muted, fontSize: 11 },
+        axisLabel: { color: theme.muted, fontSize: 11 },
+        splitLine: { lineStyle: { color: theme.border } },
+      },
+      series: [
+        {
+          type: "scatter",
+          data: points.map((p) => ({ name: p.label, value: [p.x, p.y, p.size] })),
+          symbolSize: (v: number[]) => 8 + 26 * Math.sqrt(v[2] / maxSize),
+          itemStyle: { color: theme.accent2, opacity: 0.75, borderColor: theme.card },
+          emphasis: { itemStyle: { color: theme.primary, opacity: 1 } },
+          label: {
+            show: true,
+            position: "top",
+            color: theme.muted,
+            fontSize: 10,
+            formatter: (p: { data: { name: string; value: number[] } }) =>
+              // 只標樣本較大的點，否則標籤會糊成一團
+              p.data.value[2] >= Math.max(3, maxSize * 0.4) ? p.data.name : "",
+          },
+        },
+      ],
+    }
+  }, [points, xName, yName, xSuffix, ySuffix, theme])
+
+  return (
+    <ResponsiveChart
+      option={option}
+      height={380}
+      onEvent={onPick ? { click: (p: { data?: { name?: string } }) => p.data?.name && onPick(p.data.name) } : undefined}
+    />
+  )
+}
+
+// ─────────────────────────────────────────── 佔比樹狀圖
+
+export function TreemapChart({
+  items,
+  onPick,
+}: {
+  items: { label: string; value: number; winrate: number | null }[]
+  onPick?: (label: string) => void
+}) {
+  const theme = useTheme()
+
+  const option = useMemo(
+    () => ({
+      tooltip: {
+        ...baseTooltip(theme),
+        formatter: (p: { name: string; value: number; data: { winrate: number | null } }) =>
+          `${p.name}<br/>${p.value} 次` +
+          (p.data.winrate === null ? "" : `<br/>勝率 ${p.data.winrate.toFixed(1)}%`),
+      },
+      series: [
+        {
+          type: "treemap",
+          roam: false,
+          nodeClick: false,
+          breadcrumb: { show: false },
+          label: { color: theme.text, fontSize: 11, overflow: "truncate" },
+          itemStyle: { borderColor: theme.card, borderWidth: 2, gapWidth: 2 },
+          data: items.map((i) => ({
+            name: i.label,
+            value: i.value,
+            winrate: i.winrate,
+            // 用勝率上色，面積是使用次數：一眼看出「常用但不太贏」的組合
+            itemStyle: {
+              color:
+                i.winrate === null
+                  ? theme.muted
+                  : i.winrate >= 50
+                    ? theme.win
+                    : theme.loss,
+              opacity: 0.35 + Math.min(Math.abs((i.winrate ?? 50) - 50) / 50, 1) * 0.5,
+            },
+          })),
+        },
+      ],
+    }),
+    [items, theme],
+  )
+
+  return (
+    <ResponsiveChart
+      option={option}
+      height={380}
+      onEvent={onPick ? { click: (p: { name?: string }) => p.name && onPick(p.name) } : undefined}
+    />
+  )
 }
