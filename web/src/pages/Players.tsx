@@ -1,11 +1,12 @@
+import { Skeleton } from "@/components/ui/skeleton"
 import { Panel } from "@/components/primitives"
-import { DataTable, type Column } from "@/components/DataTable"
+import { AgTable, type GridColumn } from "@/components/AgTable"
 import { useCube } from "@/hooks/useCube"
 import { MAYHEM_QUEUE_ID, type CubeFilter } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 import { round0, round1 } from "./shared"
 
-const COLUMNS: Column[] = [
+const COLUMNS: GridColumn[] = [
   { key: "teammates.player", title: "玩家", kind: "dimension" },
   { key: "teammates.games", title: "同場次數", kind: "metric", format: round0 },
   { key: "teammates.wins", title: "我方勝場", kind: "metric", format: round0 },
@@ -52,13 +53,19 @@ function PlayerTable({
 
   return (
     <Panel title={title} caption={caption}>
-      <DataTable
-        columns={COLUMNS}
-        rows={meaningful}
-        loading={loading}
-        error={error}
-        emptyHint="還沒有同場 2 次以上的對象。"
-      />
+      {loading ? (
+        <Skeleton className="h-[380px] w-full" />
+      ) : error ? (
+        <div className="text-sm text-destructive">{error}</div>
+      ) : (
+        <AgTable
+          columns={COLUMNS}
+          rows={meaningful}
+          height={420}
+          fileName={`players-${relation}`}
+          emptyHint="還沒有同場 2 次以上的對象。"
+        />
+      )}
     </Panel>
   )
 }

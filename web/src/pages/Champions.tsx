@@ -1,10 +1,11 @@
+import { Skeleton } from "@/components/ui/skeleton"
 import { Panel } from "@/components/primitives"
-import { DataTable, type Column } from "@/components/DataTable"
+import { AgTable, type GridColumn } from "@/components/AgTable"
 import { useCube } from "@/hooks/useCube"
 import { useFilters } from "@/lib/filters"
 import { round0, round1, round2 } from "./shared"
 
-const COLUMNS: Column[] = [
+const COLUMNS: GridColumn[] = [
   { key: "champions.name", title: "英雄", kind: "dimension", iconKey: "champions.icon_path" },
   { key: "participants.games", title: "場次", kind: "metric", format: round0 },
   { key: "participants.wins", title: "勝場", kind: "metric", format: round0 },
@@ -33,20 +34,26 @@ export function Champions() {
       title="英雄表現"
       caption="點任一列可下鑽該英雄，再到其他頁就只看這隻英雄；場次低於 5 的列會淡化，樣本太小的勝率是雜訊"
     >
-      <DataTable
-        columns={COLUMNS}
-        rows={rows}
-        loading={loading}
-        error={error}
-        onRowClick={(row) =>
-          addDrill({
-            member: "champions.name",
-            operator: "equals",
-            values: [String(row["champions.name"])],
-            label: `英雄：${row["champions.name"]}`,
-          })
-        }
-      />
+      {loading ? (
+        <Skeleton className="h-[520px] w-full" />
+      ) : error ? (
+        <div className="text-sm text-destructive">{error}</div>
+      ) : (
+        <AgTable
+          columns={COLUMNS}
+          rows={rows}
+          height={560}
+          fileName="champions"
+          onDrill={(_col, value) =>
+            addDrill({
+              member: "champions.name",
+              operator: "equals",
+              values: [value],
+              label: `英雄：${value}`,
+            })
+          }
+        />
+      )}
     </Panel>
   )
 }

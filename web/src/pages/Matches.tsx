@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { Fragment, useEffect, useState } from "react"
 import { ChevronLeft, Coins, Swords } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -282,8 +282,9 @@ function StatTable({ players }: { players: Player[] }) {
         </thead>
         <tbody>
           {STAT_SECTIONS.map((section) => (
-            <>
-              <tr key={section.title} className="bg-secondary/40">
+            // key 要掛在 Fragment 上，掛在裡面的 tr 是無效的
+            <Fragment key={section.title}>
+              <tr className="bg-secondary/40">
                 <td
                   colSpan={players.length + 1}
                   className="px-3 py-1.5 text-xs font-semibold text-muted-foreground"
@@ -315,7 +316,7 @@ function StatTable({ players }: { players: Player[] }) {
                   </tr>
                 )
               })}
-            </>
+            </Fragment>
           ))}
         </tbody>
       </table>

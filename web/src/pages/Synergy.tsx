@@ -1,5 +1,4 @@
 import { useState } from "react"
-import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Select,
@@ -8,27 +7,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+import { AgTable, type GridColumn } from "@/components/AgTable"
 import { Panel, EmptyState } from "@/components/primitives"
 import { useCube } from "@/hooks/useCube"
-import { iconUrl, num } from "@/lib/cube"
+import { num } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
-import { cn } from "@/lib/utils"
 
 const MIN_ON_CHAMPION = 2
 
-const RARITY: Record<string, string> = {
-  kPrismatic: "bg-prismatic/15 text-prismatic border-prismatic/30",
-  kGold: "bg-gold/15 text-gold border-gold/30",
-  kSilver: "bg-silver/15 text-silver border-silver/30",
-}
+const SYNERGY_COLUMNS: GridColumn[] = [
+  { key: "name", title: "增幅裝置", kind: "dimension", iconKey: "icon", rarityKey: "rarity" },
+  { key: "games", title: "這隻英雄場次", kind: "metric", format: (n) => String(Math.round(n)) },
+  { key: "wins", title: "勝場", kind: "metric", format: (n) => String(Math.round(n)) },
+  { key: "wr", title: "該英雄勝率", kind: "metric", format: (n) => n.toFixed(1), suffix: "%" },
+  { key: "baseWr", title: "整體勝率", kind: "metric", format: (n) => n.toFixed(1), suffix: "%" },
+  { key: "baseGames", title: "整體樣本", kind: "metric", format: (n) => String(Math.round(n)) },
+  { key: "lift", title: "加成", kind: "metric", format: (n) => `${n > 0 ? "+" : ""}${n.toFixed(1)}` },
+]
 
 export function Synergy() {
   const { apply } = useFilters()
@@ -132,68 +127,12 @@ export function Synergy() {
           </EmptyState>
         ) : (
           <>
-            <div className="overflow-x-auto rounded-lg border">
-              <Table>
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent">
-                    <TableHead className="text-xs uppercase">增幅裝置</TableHead>
-                    <TableHead className="text-right text-xs uppercase">這隻英雄</TableHead>
-                    <TableHead className="text-right text-xs uppercase">該英雄勝率</TableHead>
-                    <TableHead className="text-right text-xs uppercase">整體勝率</TableHead>
-                    <TableHead className="text-right text-xs uppercase">加成</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((r) => (
-                    <TableRow key={r.name} className={cn(r.games < 3 && "opacity-60")}>
-                      <TableCell>
-                        <div className="flex items-center gap-2.5">
-                          <img
-                            src={iconUrl(r.icon)}
-                            alt=""
-                            className="size-7 shrink-0 rounded-md bg-secondary"
-                          />
-                          <span className="font-medium">{r.name}</span>
-                          {r.rarity && (
-                            <Badge
-                              variant="outline"
-                              className={cn("text-[10px]", RARITY[r.rarity])}
-                            >
-                              {r.rarity.replace("k", "")}
-                            </Badge>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {r.wins} / {r.games}
-                      </TableCell>
-                      <TableCell
-                        className={cn(
-                          "text-right font-semibold tabular-nums",
-                          r.wr >= 50 ? "text-win" : "text-loss",
-                        )}
-                      >
-                        {r.wr.toFixed(1)}%
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums text-muted-foreground">
-                        {r.baseWr === null ? "—" : `${r.baseWr.toFixed(1)}%`}
-                        <span className="ml-1 text-[11px]">({r.baseGames})</span>
-                      </TableCell>
-                      <TableCell
-                        className={cn(
-                          "text-right font-bold tabular-nums",
-                          r.lift === null ? "" : r.lift > 0 ? "text-win" : "text-loss",
-                        )}
-                      >
-                        {r.lift === null
-                          ? "—"
-                          : `${r.lift > 0 ? "+" : ""}${r.lift.toFixed(1)}`}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+            <AgTable
+              columns={SYNERGY_COLUMNS}
+              rows={rows as unknown as Record<string, unknown>[]}
+              height={460}
+              fileName={`synergy-${champion}`}
+            />
             <p className="mt-2 text-xs text-muted-foreground">
               用「加成」而不是絕對勝率，是因為有些增幅本來就強、在誰身上都好——
               加成才看得出「特別適合這隻英雄」。不過在目前的資料量下，

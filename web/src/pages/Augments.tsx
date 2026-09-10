@@ -1,13 +1,15 @@
 import { Skeleton } from "@/components/ui/skeleton"
 import { Panel, EmptyState } from "@/components/primitives"
-import { DataTable, SHAKY_SAMPLE, type Column } from "@/components/DataTable"
+import { AgTable, type GridColumn } from "@/components/AgTable"
 import { BarChart, type BarDatum } from "@/components/charts"
 import { useCube } from "@/hooks/useCube"
 import { num } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 import { round0, round1, round2 } from "./shared"
 
-const COLUMNS: Column[] = [
+const SHAKY_SAMPLE = 5
+
+const COLUMNS: GridColumn[] = [
   {
     key: "augments.name",
     title: "增幅裝置",
@@ -66,20 +68,26 @@ export function Augments() {
         title="全部增幅"
         caption="這份資料只有你自己拿得到——Riot 對 Mayhem 封鎖了公開 API，任何第三方網站都算不出增幅勝率"
       >
-        <DataTable
-          columns={COLUMNS}
-          rows={rows}
-          loading={loading}
-          error={error}
-          onRowClick={(row) =>
-            addDrill({
-              member: "augments.name",
-              operator: "equals",
-              values: [String(row["augments.name"])],
-              label: `增幅：${row["augments.name"]}`,
-            })
-          }
-        />
+        {loading ? (
+          <Skeleton className="h-[480px] w-full" />
+        ) : error ? (
+          <div className="text-sm text-destructive">{error}</div>
+        ) : (
+          <AgTable
+            columns={COLUMNS}
+            rows={rows}
+            height={520}
+            fileName="augments"
+            onDrill={(_col, value) =>
+              addDrill({
+                member: "augments.name",
+                operator: "equals",
+                values: [value],
+                label: `增幅：${value}`,
+              })
+            }
+          />
+        )}
       </Panel>
     </div>
   )

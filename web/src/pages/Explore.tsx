@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/select"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Panel, EmptyState } from "@/components/primitives"
-import { DataGrid, type GridColumn } from "@/components/DataGrid"
+import { AgTable, type GridColumn } from "@/components/AgTable"
 import { FieldBuilder } from "@/components/FieldBuilder"
 import {
   BarChart,
@@ -120,6 +120,8 @@ function Chip({
   )
 }
 
+const FALLBACK_MEASURES = ["participants.games"]
+
 export function Explore() {
   const { apply, account } = useFilters()
   // 自由探索預設看目前帳號，但可以放開成跨玩家聚合。
@@ -148,7 +150,9 @@ export function Explore() {
   const toggle = (list: string[], set: (v: string[]) => void) => (name: string) =>
     set(list.includes(name) ? list.filter((k) => k !== name) : [...list, name])
 
-  const activeMeasures = measures.length ? measures : ["participants.games"]
+  // 後備值要是模組層的常數。寫成行內陣列的話每次 render 都是新的參照，
+  // 下面依賴它的 useMemo 就每次都重算，等於沒有 memo。
+  const activeMeasures = measures.length ? measures : FALLBACK_MEASURES
   const orderKey = sortBy || activeMeasures[0]
 
   const companions = dims.flatMap((d) =>
@@ -339,7 +343,15 @@ export function Explore() {
       return <Heatmap cells={cells} />
     }
 
-    return <DataGrid columns={columns} rows={rows} onDrill={(col, value) => drillInto(col.key, value)} />
+    return (
+      <AgTable
+        columns={columns}
+        rows={rows}
+        height={520}
+        fileName="explore"
+        onDrill={(col, value) => drillInto(col.key, value)}
+      />
+    )
   }
 
   if (metaError) {
