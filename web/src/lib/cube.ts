@@ -32,16 +32,36 @@ export type CubeRow = Record<string, string | number | null>
 
 const TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Taipei"
 
-export async function cubeQuery(query: CubeQuery): Promise<CubeRow[]> {
+// Cube 對「還沒算完」的查詢會回 HTTP 200 加上這個字串、而且沒有 data 欄位。
+// 它不是失敗，語意是「再問一次」——Cube 官方客戶端就是這樣輪詢的。
+const CONTINUE_WAIT = "Continue wait"
+// 每次輪詢 Cube 自己會先在伺服器端等大約十秒才回覆，所以這裡不必再自己 sleep。
+const MAX_WAIT_MS = 90_000
+
+export async function cubeQuery(query: CubeQuery, signal?: AbortSignal): Promise<CubeRow[]> {
   const params = new URLSearchParams({
     query: JSON.stringify({ timezone: TIMEZONE, ...query }),
   })
-  const res = await fetch(`/api/cube/load?${params}`)
-  const payload = await res.json()
-  if (!res.ok || payload.error) {
-    throw new Error(typeof payload.error === "string" ? payload.error : "查詢失敗")
+  const deadline = Date.now() + MAX_WAIT_MS
+
+  for (;;) {
+    const res = await fetch(`/api/cube/load?${params}`, { signal })
+    const payload = await res.json()
+
+    if (res.ok && payload.error === CONTINUE_WAIT) {
+      // 這裡若直接當錯誤丟出去，畫面會冒出「Continue wait」這串英文，
+      // 而查詢其實還在跑；再問一次就會拿到結果。
+      if (Date.now() > deadline) {
+        throw new Error("查詢時間過長，請縮小範圍或減少維度。")
+      }
+      continue
+    }
+
+    if (!res.ok || payload.error) {
+      throw new Error(typeof payload.error === "string" ? payload.error : "查詢失敗")
+    }
+    return payload.data ?? []
   }
-  return payload.data ?? []
 }
 
 /** 客戶端圖示要經過後端帶認證代理，瀏覽器本身沒有 LCU 的憑證。 */

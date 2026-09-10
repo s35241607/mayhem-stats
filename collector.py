@@ -32,6 +32,7 @@ class Collector:
             "dimensionsLoaded": False,
         }
         self._saw_in_game = False
+        self._skipped = set()   # 抓明細失敗的對局,只記錄不重試到天荒地老
         self._dimensions_loaded = False
         self._was_connected = False
 
@@ -48,8 +49,10 @@ class Collector:
                         db.replace_dimension(conn, table, rows)
                     self._dimensions_loaded = True
                     self.status["dimensionsLoaded"] = True
-                except Exception:
-                    pass  # 維度表抓不到不該擋住對局採集,下輪再試
+                except Exception as exc:
+                    # 維度表抓不到不該擋住對局採集,下輪再試——但要留下痕跡,
+                    # 不然英雄/增幅名稱一片空白時完全查不到原因。
+                    self.status["lastError"] = f"維度表載入失敗: {type(exc).__name__}: {exc}"
 
             summoner = client.current_summoner()
             puuid = summoner.get("puuid")
@@ -107,11 +110,18 @@ class Collector:
                 game_id = game.get("gameId")
                 if game_id in known:
                     continue
-                # 清單只回傳一名玩家,要拿全部 10 人得打明細
-                detail = client.game_detail(game_id)
-                if db.store_match(conn, detail):
-                    new += 1
-                    known.add(game_id)
+                try:
+                    # 清單只回傳一名玩家,要拿全部 10 人得打明細
+                    detail = client.game_detail(game_id)
+                    if db.store_match(conn, detail):
+                        new += 1
+                        known.add(game_id)
+                except lcu.LCUUnavailable:
+                    raise  # 客戶端關掉了,整輪停下來,下次再說
+                except Exception as exc:
+                    # 單一場抓不到就跳過。這裡若讓例外往上拋,那場之後的對局
+                    # 全部不會被處理,而且每輪都會在同一場再死一次——等於永久卡住。
+                    self.status["lastError"] = f"對局 {game_id} 略過: {type(exc).__name__}: {exc}"
         return seen, new
 
     # ------------------------------------------------------------------ loop

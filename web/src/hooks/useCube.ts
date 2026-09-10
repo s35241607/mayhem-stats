@@ -13,21 +13,31 @@ export function useCube(query: CubeQuery | null): State {
   const key = query ? JSON.stringify(query) : null
 
   useEffect(() => {
-    if (!key) return
+    if (!key) {
+      // 條件還沒備妥。這裡若直接 return，state 會永遠停在初始的 loading:true，
+      // 呼叫端就會看到一個永遠轉不完的骨架或「查詢中…」。
+      setState({ rows: [], loading: false, error: null })
+      return
+    }
     let cancelled = false
+    // 重查詢可能要輪詢好幾輪，離開頁面時要真的把請求中止，
+    // 不然使用者已經切走了，背景還在替一個沒人要看的查詢輪詢。
+    const controller = new AbortController()
     setState((prev) => ({ ...prev, loading: true, error: null }))
 
-    cubeQuery(JSON.parse(key) as CubeQuery)
+    cubeQuery(JSON.parse(key) as CubeQuery, controller.signal)
       .then((rows) => {
         // 條件在請求途中被改掉時，丟棄這次的結果，避免舊資料蓋掉新資料
         if (!cancelled) setState({ rows, loading: false, error: null })
       })
       .catch((err: Error) => {
-        if (!cancelled) setState({ rows: [], loading: false, error: err.message })
+        if (cancelled || err.name === "AbortError") return
+        setState({ rows: [], loading: false, error: err.message })
       })
 
     return () => {
       cancelled = true
+      controller.abort()
     }
   }, [key])
 

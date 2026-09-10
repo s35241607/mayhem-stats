@@ -15,7 +15,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 import requests
 import uvicorn
@@ -28,8 +28,6 @@ import collector as collector_module
 import cube_process
 import db
 import icons
-import lcu
-import query
 
 BASE_DIR = Path(__file__).parent
 collector = collector_module.Collector()
@@ -61,13 +59,26 @@ async def lifespan(app: FastAPI):
             # 不要靜默失敗：暖快取壞掉會讓人以為「圖就是很慢」而查不到原因
             print(f"圖示暖快取失敗: {type(exc).__name__}: {exc}")
 
+    async def warm_cube():
+        # 和圖示暖快取同樣的用意：把第一次查詢的成本挪到啟動時，
+        # 使用者開頁面時就不必等 Cube 編譯 join 路徑。
+        try:
+            ok, total = await asyncio.to_thread(cube_process.warm)
+            print(f"Cube 暖機完成 {ok}/{total} 條查詢路徑")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            print(f"Cube 暖機失敗: {type(exc).__name__}: {exc}")
+
     warm_task = asyncio.create_task(warm_icons())
+    cube_warm_task = asyncio.create_task(warm_cube())
     task = asyncio.create_task(collector.run_forever())
     try:
         yield
     finally:
         task.cancel()
         warm_task.cancel()
+        cube_warm_task.cancel()
         cube_process.stop()
 
 
@@ -102,42 +113,6 @@ def status():
 async def ingest_now():
     new = await collector._run_ingest("manual")
     return {"new": new, **collector.snapshot()}
-
-
-@app.get("/api/meta")
-def meta():
-    """給前端組查詢介面用的維度/指標清單。"""
-    return {
-        "dimensions": [
-            {"name": name, "title": dim["title"]} for name, dim in query.DIMENSIONS.items()
-        ],
-        "metrics": [
-            {"name": name, "title": metric["title"], "unit": metric.get("unit")}
-            for name, metric in query.METRICS.items()
-        ],
-        "filters": list(query.FILTERS.keys()),
-        "mayhemQueueId": lcu.MAYHEM_QUEUE_ID,
-    }
-
-
-class QuerySpec(BaseModel):
-    dimensions: list[str] = []
-    metrics: list[str] = ["games", "winrate"]
-    filters: list[dict[str, Any]] = []
-    sort: Optional[dict[str, Any]] = None
-    minGames: Optional[int] = None
-    limit: Optional[int] = 200
-
-
-@app.post("/api/query")
-def run_query(spec: QuerySpec):
-    conn = db.connect()
-    try:
-        return query.run(conn, spec.model_dump())
-    except query.QueryError as exc:
-        return JSONResponse(status_code=400, content={"error": str(exc)})
-    finally:
-        conn.close()
 
 
 @app.get("/api/players")
@@ -405,10 +380,19 @@ async def cube_proxy(path: str, request: Request):
 
     url = f"{CUBE_BASE}/{path}"
     try:
+        # requests 是同步的，直接在 async handler 裡呼叫會佔住 event loop：
+        # 一個要跑兩秒的 Cube 查詢會讓其他查詢、甚至背景採集迴圈全部排隊等它。
+        # 儀表板一次會發好幾個查詢，這條路徑一定要放到執行緒裡。
         if request.method == "POST":
-            resp = requests.post(url, json=await request.json(), timeout=60)
+            body = await request.json()
+            resp = await asyncio.to_thread(
+                lambda: requests.post(url, json=body, timeout=60)
+            )
         else:
-            resp = requests.get(url, params=dict(request.query_params), timeout=60)
+            params = dict(request.query_params)
+            resp = await asyncio.to_thread(
+                lambda: requests.get(url, params=params, timeout=60)
+            )
     except requests.exceptions.RequestException as exc:
         return JSONResponse(
             status_code=503,

@@ -1,30 +1,26 @@
-import { useState } from "react"
+import { lazy, Suspense, useState, type ComponentType } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { AppShell, type PageId } from "@/components/AppShell"
+import { Skeleton } from "@/components/ui/skeleton"
 import { FilterProvider } from "@/lib/filters"
-import { Dashboard } from "@/pages/Dashboard"
-import { Champions } from "@/pages/Champions"
-import { Augments } from "@/pages/Augments"
-import { Players } from "@/pages/Players"
-import { TimeAnalysis } from "@/pages/TimeAnalysis"
-import { Explore } from "@/pages/Explore"
-import { Matches } from "@/pages/Matches"
-import { Synergy } from "@/pages/Synergy"
-import { Tilt } from "@/pages/Tilt"
-import { Tracked } from "@/pages/Tracked"
 
-const PAGES: Record<PageId, () => React.JSX.Element> = {
-  dashboard: Dashboard,
-  matches: Matches,
-  synergy: Synergy,
-  tilt: Tilt,
-  champions: Champions,
-  augments: Augments,
-  players: Players,
-  time: TimeAnalysis,
-  explore: Explore,
-  tracked: Tracked,
+// 每頁各自成為一個 chunk。表格頁才會載入 AG Grid、圖表頁才會載入 ECharts，
+// 全部打包在一起的話首屏要先扛下兩套函式庫（壓縮後將近 900KB）。
+const named = <K extends string>(key: K, load: () => Promise<Record<K, ComponentType>>) =>
+  lazy(() => load().then((m) => ({ default: m[key] })))
+
+const PAGES: Record<PageId, ComponentType> = {
+  dashboard: named("Dashboard", () => import("@/pages/Dashboard")),
+  matches: named("Matches", () => import("@/pages/Matches")),
+  synergy: named("Synergy", () => import("@/pages/Synergy")),
+  tilt: named("Tilt", () => import("@/pages/Tilt")),
+  champions: named("Champions", () => import("@/pages/Champions")),
+  augments: named("Augments", () => import("@/pages/Augments")),
+  players: named("Players", () => import("@/pages/Players")),
+  time: named("TimeAnalysis", () => import("@/pages/TimeAnalysis")),
+  explore: named("Explore", () => import("@/pages/Explore")),
+  tracked: named("Tracked", () => import("@/pages/Tracked")),
 }
 
 export default function App() {
@@ -45,7 +41,9 @@ export default function App() {
               exit={{ opacity: 0, y: -4 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
             >
-              <Page />
+              <Suspense fallback={<Skeleton className="h-[420px] w-full" />}>
+                <Page />
+              </Suspense>
             </motion.div>
           </AnimatePresence>
         </AppShell>

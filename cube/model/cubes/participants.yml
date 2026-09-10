@@ -51,9 +51,15 @@ cubes:
         sql: "{CUBE}.double_kills + {CUBE}.triple_kills + {CUBE}.quadra_kills + {CUBE}.penta_kills > 0"
 
     dimensions:
+      # 用 SQLite 內建的 rowid,不要用三個欄位串接的字串。
+      # 以增幅或裝備為維度、又同時要兩個以上指標時,Cube 會產生一段
+      # 「把主鍵撈出來再 join 回本表」的 SQL;主鍵若是字串運算式,
+      # 那個 join 就用不到任何索引,實測 4156 x 1101 筆要跑 605 毫秒,
+      # 換成 rowid 之後是 11 毫秒。rowid 只在單次查詢內用來把列對回自己,
+      # 不會被寫進任何地方,所以 VACUUM 之後改變也沒有影響。
       - name: id
-        sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id || ':' || {CUBE}.participant_id"
-        type: string
+        sql: "{CUBE}.rowid"
+        type: number
         primary_key: true
         public: false
 
