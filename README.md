@@ -1,43 +1,16 @@
-# ARAM: Mayhem 戰績採集 + BI 分析
+# Mayhem 戰績
 
-在**你自己的電腦**上執行,持續把 League of Legends 客戶端的對戰紀錄收進本機資料庫,
-再對「你自己」在 ARAM: Mayhem 模式的資料做多維度分析——英雄、增幅裝置、隊友、時段都能拆開看。
+在自己的電腦上，把 ARAM: Mayhem 的對戰紀錄自動存下來並做分析。
 
-## 為什麼需要「持續採集」而不是查一次就好
+**為什麼要自己存？** Riot 官方 API 對 Mayhem 直接回 403（[官方說這是刻意的](https://github.com/RiotGames/developer-relations/issues/1109)），
+所以 op.gg、u.gg 都查不到任何人的 Mayhem 戰績。而遊戲客戶端只留最新 100 場——
+**被擠出去的對局就永遠消失了**。這個工具就是趁資料還在的時候把它接住。
 
-兩個限制疊在一起,逼出了這個設計:
+![儀表板](docs/screenshots/dashboard.png)
 
-1. **Riot 官方 API 完全封鎖 Mayhem。** 查詢 Mayhem 對局會直接回 403,而且這是刻意的——
-   官方在 [developer-relations#1109](https://github.com/RiotGames/developer-relations/issues/1109)
-   以「Expected behavior. Mayhem matches are private.」結案,2026/03 的最新回覆仍是「沒有計畫要開放」。
-   所以 op.gg、u.gg 等任何第三方網站都查不到**任何人**的 Mayhem 戰績,包含你自己。
+## 快速開始
 
-2. **客戶端本機 API 只給最新 100 場。** 這支 API 的 `begIndex`/`endIndex` 參數在目前的客戶端版本
-   會被完全忽略(不管送 0、500 還是 5000,永遠回傳同一批最新 100 場),沒有已知的繞法。
-
-兩者合起來的結論是:**對局一旦被擠出「最新 100 場」的視窗,資料就永遠消失了。**
-所以這個工具的核心不是「查詢」,而是**趁資料還在的時候把它存下來**——只要客戶端開著就自動採集,
-一場一場累積成你自己的歷史資料庫。開始採集得越早,能累積的歷史就越完整。
-
-## 架構
-
-```
-League 客戶端 ──LCU API──> FastAPI（採集器）──> SQLite mayhem.db
-                              │                        ↑
-                              │                   Cube 語意層（Node）
-                              │                        │
-                              └── /api/cube 代理 ───────┘
-                                        ↓
-                            React + shadcn/ui + ECharts
-```
-
-指標定義集中在 Cube 模型（`cube/model/cubes`），前端只送維度與指標名稱，
-所以「勝率」在每一頁的定義都保證一致。Cube 由 FastAPI 在啟動時一併拉起來，
-不需要另外顧。
-
-## 使用方式
-
-需要先安裝 [uv](https://docs.astral.sh/uv/) 與 [Node.js](https://nodejs.org/)。
+需要 [uv](https://docs.astral.sh/uv/) 和 [Node.js](https://nodejs.org/)。
 
 ```bash
 uv sync
@@ -45,100 +18,154 @@ cd cube && npm install && cd ..
 uv run app.py
 ```
 
-打開 <http://127.0.0.1:5057>。只要 League 客戶端在背景開著(登入大廳即可,不用在遊玩中),
-工具就會自動採集,不需要手動按任何按鈕。
+打開 <http://127.0.0.1:5057>。League 客戶端開著（停在大廳就行）它就會自動採集，不用按任何按鈕。
 
-建議讓它跟著客戶端一起開著。關掉也不會馬上掉資料——只要在對局被擠出 100 場視窗之前重開,
-補漏掃描就會把中間漏掉的收回來。
+<details>
+<summary>建議再做一件事：擋掉 Cube 的對外連線</summary>
 
-客戶端沒開的時候工具也能正常執行:採集器會靜靜跳過,分析頁面照常可用(資料讀的是本機資料庫)。
-唯一差別是英雄和增幅的圖示會空白,因為那些圖檔是即時跟客戶端要的。
-
-## 開機自動啟動
-
-已註冊為 Windows 排程工作 `MayhemStatsCollector`,登入後 30 秒自動以隱藏視窗啟動,
-不需要手動執行任何東西。它跑的是 [autostart.pyw](autostart.pyw)(用 `pythonw.exe`,所以沒有主控台視窗),
-執行記錄會寫到 `autostart.log`。
-
-```powershell
-Get-ScheduledTaskInfo -TaskName MayhemStatsCollector   # 看上次執行狀況
-Stop-ScheduledTask   -TaskName MayhemStatsCollector    # 停掉這次
-Disable-ScheduledTask -TaskName MayhemStatsCollector   # 暫時停用(不再開機啟動)
-Enable-ScheduledTask  -TaskName MayhemStatsCollector   # 恢復
-Unregister-ScheduledTask -TaskName MayhemStatsCollector -Confirm:$false   # 完全移除
-```
-
-服務已經在跑的時候再手動執行一次不會出事——`autostart.pyw` 會偵測到 port 5057 已被佔用,
-記一行 log 就自己退出,不會撞埠或產生第二份採集器。
-
-## 採集怎麼運作
-
-兩層保險:
-
-- **即時層(每 30 秒)** — 監看客戶端的遊戲狀態,偵測到「剛打完一場」就立刻採集。
-- **補漏層(每 5 分鐘)** — 固定掃一次最新 100 場清單補缺,兜住工具沒開、當機、客戶端重啟等意外。
-
-去重靠 `(platform_id, game_id)` 主鍵加 `INSERT OR IGNORE`,重複掃描不會產生重複資料。
-採集前會先查資料庫哪些對局已經有了,只對新的打明細 API——所以沒有新對局時,一次掃描幾乎是零成本。
-
-每場對局的**原始 JSON 也會完整存下來**。因為舊資料無法重抓,將來想分析目前沒解析的欄位時,
-只能靠這份原始備份。
-
-## 分析頁面
-
-| 分頁 | 內容 |
-|---|---|
-| 總覽 | 總場次、勝率、KDA、每分鐘傷害/經濟,以及每日勝率趨勢 |
-| 英雄 | 每個英雄的場次、勝率、KDA、傷害佔比、參團率 |
-| 增幅裝置 | 各增幅的選取次數與勝率(含稀有度)——第三方網站給不了的資料 |
-| 隊友 / 對手 | 和某人同隊時的勝率、對上某人時的勝率 |
-| 時段 | 星期 × 時段的勝率熱力圖 |
-| 自由樞紐 | 維度與指標自選的通用查詢台,可看產生的 SQL |
-
-點表格任一列可以「下鑽」該項目(例如點某個英雄,再切到增幅分頁,就只看這隻英雄的增幅表現)。
-場次太少的列會標灰——5 場 80% 勝率是雜訊不是洞察。
-
-## 改前端
-
-前端是 React + shadcn/ui + Tailwind + ECharts，原始碼在 `web/`。
-**建置產物 `web/dist` 有一起進版控**，所以平常執行不需要 npm；只有要改 UI 時才需要：
-
-```bash
-cd web && npm install && npm run build
-```
-
-開發時可以跑 `npm run dev`（另一個埠），API 會自動代理到 5057。
-
-## ⚠️ Cube 的網路暴露
-
-Cube 沒有提供繫結位址的設定，它的三個埠（4000 API、3030 Cube Store、15432 SQL）
-一律開在**所有網路介面**上，而開發模式不驗證身分。實測可從區網位址無認證取得資料。
-
-前端已改走 FastAPI 的 `/api/cube` 代理，瀏覽器只需要連 127.0.0.1:5057，
-但 Cube 的埠本身仍然開著。請用管理員身分執行一次以下指令擋掉對外連線
-（不影響本機使用，Windows 防火牆不過濾 loopback）：
+Cube 沒有繫結位址的設定，它的三個埠一律開在所有網路介面上，而開發模式不驗證身分。
+前端已經改走 FastAPI 代理，但那些埠本身仍然開著。用**系統管理員**執行一次：
 
 ```powershell
 New-NetFirewallRule -DisplayName "Mayhem: 封鎖 Cube 對外連線" -Direction Inbound -Protocol TCP -LocalPort 4000,3030,15432 -Action Block
 ```
 
-## 資料存在哪
+不影響本機使用，Windows 防火牆不過濾 loopback。
+</details>
 
-專案目錄下的 `mayhem.db`(SQLite)。**這個檔案裡的舊資料是無法重建的**,建議偶爾備份。
+## 畫面
 
-主要資料表:`matches`(對局表頭 + 原始 JSON)、`match_participants`(每場 10 人的完整數據)、
-`participant_augments` / `participant_items`(長格式,方便統計)、`dim_*`(名稱對照表)、
-`ingest_runs`(採集稽核紀錄)。
+### 敗因分析——輸的時候，哪些數字和贏的時候不一樣
 
-## 找不到客戶端 / 連線失敗
+![敗因分析](docs/screenshots/losses.png)
 
-- 確認 League of Legends 客戶端**正在執行**(登入大廳就可以)。
-- 工具會自動嘗試 Windows / Mac 常見安裝路徑。
-- 剛重開過客戶端的話 lockfile 內容會變,採集器下一輪會自動重讀,不用手動處理。
+比較一律用每分鐘，不用總量：敗局平均 17.0 分、勝局 15.1 分，光時間差就會讓敗局的雙方總傷害都變高。
+除完之後才看得出「我方輸出掉 9%、敵方多 23%」——被打爆的成分大於打不動。
+
+### 時段——什麼時候打、什麼時候贏
+
+![時段](docs/screenshots/time.png)
+
+熱力圖的顏色錨在你自己的平均勝率，而且會依樣本多寡收斂：一場 100% 的格子顏色很淡，
+場次夠多才會真的往兩端跑。點任一天或任一格，就列出那一塊的每一場，再點進去看完整戰報。
+
+### 增幅裝置——第三方網站給不了的資料
+
+![增幅裝置](docs/screenshots/augments.png)
+
+### 自由探索——自己組維度和指標
+
+![自由探索](docs/screenshots/explore.png)
+
+指標定義集中在語意層，這頁的選單直接由模型產生——模型裡加一個指標，這裡就多一個選項。
+
+## 全部分頁
+
+| 分頁 | 看什麼 |
+|---|---|
+| 儀表板 | 場次、勝率、KDA、每分鐘傷害與經濟、每日趨勢 |
+| 對局紀錄 | 逐場瀏覽，點進去看 10 人完整戰報（出裝、增幅、數據） |
+| 英雄 | 每隻英雄的場次、勝率、KDA、傷害佔比、參團率 |
+| 增幅裝置 | 各增幅的選取次數與勝率 |
+| 增幅契合度 | 哪些增幅特別適合哪隻英雄 |
+| 隊友 / 對手 | 和誰同隊會贏、遇到誰會輸；點進去看和某人同場時的英雄與定位拆解 |
+| 時段 | 每天的場次與勝率、星期 × 時段熱力圖 |
+| 節奏與連敗 | 上一場的結果、當日第幾場對表現的影響 |
+| 敗因分析 | 勝局與敗局的數字對照、同隊朋友數與勝率 |
+| 自由探索 | 維度與指標自選，可拖曳配置、可看產生的 SQL |
+| 追蹤對象 | 除了自己以外，還要一併採集誰的戰績 |
+
+表格都可以排序、逐欄篩選、匯出 CSV。雙擊維度可以下鑽——例如點某隻英雄，
+再切到其他分頁就只看這隻英雄。
+
+## 架構
+
+```
+League 客戶端 ──LCU API──> FastAPI（採集器 + 靜態站台）──> SQLite mayhem.db
+                              │                                    ↑
+                              └── /api/cube 代理 ──> Cube 語意層 ───┘
+                                        ↓
+                            React + shadcn/ui + AG Grid + ECharts
+```
+
+只有一個行程要顧：`uv run app.py` 會一併把 Cube 拉起來。
+指標定義集中在 `cube/model/cubes/`，所以「勝率」在每一頁的算法保證一致。
+
+<details>
+<summary>採集怎麼運作（含冪等性）</summary>
+
+兩層保險：
+
+- **即時層（每 30 秒）**——監看客戶端狀態，偵測到「剛打完一場」就立刻採集。
+- **補漏層（每 5 分鐘）**——固定掃最新 100 場清單補缺，兜住工具沒開、當機、客戶端重啟。
+
+去重靠三層，重複執行不會產生重複資料：
+
+1. 先查資料庫已有哪些 `game_id`，已知的連明細都不用抓
+2. 寫入用 `INSERT OR IGNORE`，主鍵是 `(platform_id, game_id)`
+3. 整場包在單一 transaction 裡
+
+每場的**原始 JSON 也會完整存下來**。舊資料無法重抓，將來想分析目前沒解析的欄位時只能靠它——
+目前資料庫裡有 20 幾個欄位就是後來靠這份備份補回去的。
+</details>
+
+<details>
+<summary>開機自動啟動（Windows）</summary>
+
+已註冊排程工作 `MayhemStatsCollector`，登入後 30 秒以隱藏視窗啟動，執行 [autostart.pyw](autostart.pyw)。
+
+```powershell
+Get-ScheduledTaskInfo -TaskName MayhemStatsCollector   # 看上次執行狀況
+Disable-ScheduledTask -TaskName MayhemStatsCollector   # 暫時停用
+Enable-ScheduledTask  -TaskName MayhemStatsCollector   # 恢復
+Unregister-ScheduledTask -TaskName MayhemStatsCollector -Confirm:$false   # 移除
+```
+
+服務已經在跑時再手動執行一次不會出事——`autostart.pyw` 偵測到 port 5057 被佔用就自己退出。
+</details>
+
+<details>
+<summary>資料存在哪</summary>
+
+專案目錄下的 `mayhem.db`（SQLite）。**裡面的舊資料無法重建，建議偶爾備份。**
+
+| 表 | 內容 |
+|---|---|
+| `matches` | 對局表頭 + 原始 JSON + 本地時間欄位 |
+| `match_participants` | 每場 10 人的完整數據 |
+| `participant_augments` / `participant_items` | 長格式，方便統計 |
+| `dim_*` | 英雄／增幅／裝備的名稱與圖示對照 |
+| `ingest_runs` | 採集稽核紀錄 |
+
+時間欄位（`local_date` / `local_weekday` / `local_hour`）是採集時就用本地時區算好存進去的。
+不能留給查詢層算——Cube 的 server 行程跑在 UTC 下，SQLite 的 `'localtime'` 在那裡等於 UTC，
+時段分析會整個偏移。
+</details>
+
+<details>
+<summary>改前端</summary>
+
+原始碼在 `web/`。**建置產物 `web/dist` 有一起進版控**，所以平常執行不需要 npm：
+
+```bash
+cd web && npm install && npm run build
+```
+
+開發時可以 `npm run dev`（另一個埠），API 會自動代理到 5057。
+</details>
+
+<details>
+<summary>找不到客戶端 / 連線失敗</summary>
+
+- 確認 League 客戶端**正在執行**（登入大廳就可以）。
+- 工具會自動嘗試 Windows / Mac 的常見安裝路徑。
+- 剛重開過客戶端的話 lockfile 會變，採集器下一輪自動重讀，不用手動處理。
+- 客戶端沒開時工具照常可用，只是英雄和增幅的圖示會空白——那些圖檔是即時跟客戶端要的。
+</details>
 
 ## 隱私
 
-所有運算和儲存都在你自己的電腦上,不會把任何資料送到任何伺服器。
-英雄、增幅、裝備的名稱和圖示取自客戶端內建的資源檔,也是本機讀取。
+所有運算和儲存都在你自己的電腦上，不會把任何資料送到任何伺服器。
 
-資料庫裡會包含同場其他玩家的名稱(這是做隊友/對手分析的必要資料),同樣只留在本機。
+資料庫裡會有同場其他玩家的名稱（做隊友分析的必要資料），一樣只留在本機。
+**上面的截圖裡所有玩家名稱都是假的**，是截圖時就在 API 層換掉的。
