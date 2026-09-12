@@ -30,6 +30,10 @@ cubes:
         sql: "{CUBE}.champion_id = {champions}.id"
         relationship: many_to_one
 
+      - name: champion_roles
+        sql: "{CUBE}.champion_id = {champion_roles}.champion_id"
+        relationship: one_to_many
+
       - name: augments
         sql: "{CUBE}.platform_id = {augments}.platform_id AND {CUBE}.game_id = {augments}.game_id AND {CUBE}.participant_id = {augments}.participant_id"
         relationship: one_to_many

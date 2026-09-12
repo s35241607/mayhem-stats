@@ -7,16 +7,22 @@ cubes:
   - name: teammates
     sql: >
       SELECT me.platform_id, me.game_id, me.participant_id, me.win,
+             me.champion_id AS subject_champion_id,
              me.puuid      AS subject_puuid,
              other.puuid   AS other_puuid,
              other.riot_id AS other_riot_id,
-             other.champion_id AS other_champion_id,
+             mine_champ.name  AS subject_champion,
+             mine_champ.icon_path AS subject_champion_icon,
+             other_champ.name AS other_champion,
+             other_champ.icon_path AS other_champion_icon,
              CASE WHEN other.team_id = me.team_id THEN 'teammate' ELSE 'opponent' END AS relation
       FROM match_participants me
       JOIN match_participants other
         ON other.platform_id = me.platform_id
        AND other.game_id     = me.game_id
        AND other.puuid      <> me.puuid
+      LEFT JOIN dim_champions mine_champ  ON mine_champ.id  = me.champion_id
+      LEFT JOIN dim_champions other_champ ON other_champ.id = other.champion_id
 
     # 與 participants.yml 相同的 refresh key,理由寫在那裡。SQL 必須一字不差才會被合併。
     refresh_key:
@@ -24,6 +30,10 @@ cubes:
         SELECT (SELECT COALESCE(MAX(ingested_at), 0) FROM matches) || ':' || (SELECT COUNT(*) FROM dim_augments) || ':' || (SELECT group_concat(puuid || is_me || tracked) FROM accounts)
 
     joins:
+      - name: champion_roles
+        sql: "{CUBE}.subject_champion_id = {champion_roles}.champion_id"
+        relationship: one_to_many
+
       - name: matches
         sql: "{CUBE}.platform_id = {matches}.platform_id AND {CUBE}.game_id = {matches}.game_id"
         relationship: many_to_one
@@ -48,6 +58,30 @@ cubes:
 
       - name: puuid
         sql: other_puuid
+        type: string
+
+      # 兩邊的英雄都放進來，才能問「和這個人一起時，我用哪隻比較會贏」。
+      # 注意樣本：和最常同隊的人 95 場，卻攤在 57 個英雄上，多數只有 1 場。
+      - name: my_champion
+        title: 我的英雄
+        sql: subject_champion
+        type: string
+        meta:
+          group: 玩家
+
+      - name: my_champion_icon
+        sql: subject_champion_icon
+        type: string
+
+      - name: other_champion
+        title: 對方的英雄
+        sql: other_champion
+        type: string
+        meta:
+          group: 玩家
+
+      - name: other_champion_icon
+        sql: other_champion_icon
         type: string
 
       - name: relation

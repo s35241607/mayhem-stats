@@ -131,7 +131,10 @@ def fetch_dimensions(client):
     """抓英雄/增幅/裝備/符文/召喚師技能的名稱對照表。"""
     champions = [
         {"id": c["id"], "name": c.get("name"), "alias": c.get("alias"),
-         "icon_path": _icon(c, "squarePortraitPath")}
+         "icon_path": _icon(c, "squarePortraitPath"),
+         # 一隻英雄可能同時是 mage 和 support,存成長格式(一列一個定位)。
+         # 英雄層級的樣本太薄(57 隻攤 108 場),用定位分組才看得出差異。
+         "roles": [r for r in (c.get("roles") or []) if r]}
         for c in client.asset("champion-summary") if c.get("id", -1) > 0
     ]
     augments = [

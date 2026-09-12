@@ -1,0 +1,46 @@
+cubes:
+  # 英雄定位(法師/鬥士/坦克/輔助/刺客/射手),來自客戶端的 champion-summary。
+  #
+  # 為什麼要有這一層:英雄層級的樣本太薄——108 場攤在 57 個英雄上,多數只有
+  # 一兩場,勝率全是雜訊。併成六類之後每類有十幾到五十場,才問得出
+  # 「我玩哪種英雄比較會贏」。
+  #
+  # 一隻英雄可能同時屬於兩類(例如安妮是 mage + support),所以是長格式、
+  # 一對多,場次類指標一律用 count_distinct。
+  - name: champion_roles
+    title: 英雄定位
+    sql: >
+      SELECT cr.rowid AS row_key, cr.champion_id, cr.role,
+             CASE cr.role
+               WHEN 'mage' THEN '法師'
+               WHEN 'fighter' THEN '鬥士'
+               WHEN 'tank' THEN '坦克'
+               WHEN 'support' THEN '輔助'
+               WHEN 'assassin' THEN '刺客'
+               WHEN 'marksman' THEN '射手'
+               ELSE cr.role
+             END AS role_name
+      FROM dim_champion_roles cr
+
+    # 與 participants.yml 相同的 refresh key,理由寫在那裡。SQL 必須一字不差才會被合併。
+    refresh_key:
+      sql: >
+        SELECT (SELECT COALESCE(MAX(ingested_at), 0) FROM matches) || ':' || (SELECT COUNT(*) FROM dim_augments) || ':' || (SELECT group_concat(puuid || is_me || tracked) FROM accounts)
+
+    dimensions:
+      # 用來源表的 rowid 當整數主鍵,理由同 participants.id
+      - name: id
+        sql: "{CUBE}.row_key"
+        type: number
+        primary_key: true
+
+      - name: champion_id
+        sql: champion_id
+        type: number
+
+      - name: name
+        title: 英雄定位
+        sql: role_name
+        type: string
+        meta:
+          group: 英雄

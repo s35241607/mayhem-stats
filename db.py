@@ -110,6 +110,12 @@ CREATE TABLE IF NOT EXISTS ingest_runs (
 CREATE INDEX IF NOT EXISTS idx_mp_puuid_champ ON match_participants(puuid, champion_id);
 CREATE INDEX IF NOT EXISTS idx_mp_game        ON match_participants(platform_id, game_id);
 CREATE INDEX IF NOT EXISTS idx_m_creation     ON matches(game_creation);
+CREATE TABLE IF NOT EXISTS dim_champion_roles (
+  champion_id INTEGER NOT NULL,
+  role        TEXT    NOT NULL,
+  PRIMARY KEY (champion_id, role)
+);
+
 CREATE INDEX IF NOT EXISTS idx_m_queue        ON matches(queue_id);
 CREATE INDEX IF NOT EXISTS idx_pa_augment     ON participant_augments(augment_id);
 CREATE INDEX IF NOT EXISTS idx_pi_item        ON participant_items(item_id);
@@ -454,6 +460,13 @@ def replace_dimension(conn, table, rows):
             f"INSERT OR REPLACE INTO {table} ({','.join(columns)}) VALUES ({placeholders})",
             [tuple(row.get(c) for c in columns) for row in rows],
         )
+        if table == "dim_champions":
+            # 定位是長格式,一隻英雄可能有兩個。整批換掉,改版新增定位才跟得上。
+            conn.execute("DELETE FROM dim_champion_roles")
+            conn.executemany(
+                "INSERT OR IGNORE INTO dim_champion_roles (champion_id, role) VALUES (?,?)",
+                [(row["id"], role) for row in rows for role in (row.get("roles") or [])],
+            )
 
 
 def start_run(conn, trigger):
