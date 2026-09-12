@@ -34,6 +34,7 @@ import { FieldBuilder } from "@/components/FieldBuilder"
 import {
   BarChart,
   Heatmap,
+  HOURS_24,
   TrendChart,
   ScatterChart,
   TreemapChart,
@@ -336,11 +337,11 @@ export function Explore() {
       }
       const cells: HeatCell[] = rows.map((r) => ({
         weekday: Number(r["matches.weekday"]),
-        hour: Number(r["matches.hour_of_day"]),
+        x: Number(r["matches.hour_of_day"]),
         games: num(r["participants.games"]) ?? 0,
         winrate: num(r[activeMeasures[0]]),
       }))
-      return <Heatmap cells={cells} />
+      return <Heatmap cells={cells} xLabels={HOURS_24} />
     }
 
     return (

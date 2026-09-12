@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Kpi, Panel, EmptyState } from "@/components/primitives"
-import { BarChart, Heatmap, TrendChart, type BarDatum, type HeatCell, type TrendPoint } from "@/components/charts"
+import { BarChart, Heatmap, HOURS_24, TrendChart, type BarDatum, type HeatCell, type TrendPoint } from "@/components/charts"
 import { useCube } from "@/hooks/useCube"
 import { iconUrl, num } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
@@ -90,7 +90,7 @@ export function Dashboard() {
 
   const cells: HeatCell[] = heat.rows.map((r) => ({
     weekday: Number(r["matches.weekday"]),
-    hour: Number(r["matches.hour_of_day"]),
+    x: Number(r["matches.hour_of_day"]),
     games: num(r["participants.games"]) ?? 0,
     winrate: num(r["participants.winrate"]),
   }))
@@ -220,7 +220,7 @@ export function Dashboard() {
         {heat.loading ? (
           <Skeleton className="h-[300px] w-full" />
         ) : cells.length ? (
-          <Heatmap cells={cells} />
+          <Heatmap cells={cells} xLabels={HOURS_24} />
         ) : (
           <EmptyState>還沒有資料。</EmptyState>
         )}

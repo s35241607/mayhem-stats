@@ -7,11 +7,13 @@ import { AgTable, type GridColumn } from "@/components/AgTable"
 import {
   DailyChart,
   Heatmap,
+  HOURS_24,
   BarChart,
   type DayDatum,
   type HeatCell,
   type BarDatum,
 } from "@/components/charts"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { MatchDetail, type MatchRow } from "@/pages/Matches"
 import { useCube } from "@/hooks/useCube"
 import { num } from "@/lib/cube"
@@ -19,16 +21,31 @@ import { useFilters } from "@/lib/filters"
 
 const WEEKDAYS = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"]
 
-/** 目前下鑽到哪一塊。date 是某一天，slot 是某個星期幾的某個時段。 */
+/** 熱力圖的粗分組。
+ *
+ *  168 格攤 100 多場，單格最多只有個位數，顏色再怎麼校正也只是在看雜訊。
+ *  切成 7×4 = 28 格之後，每格的樣本才有機會累積到看得出差異的量。 */
+const BLOCKS = [
+  { label: "深夜 0-5", from: 0, to: 5 },
+  { label: "早上 6-11", from: 6, to: 11 },
+  { label: "下午 12-17", from: 12, to: 17 },
+  { label: "晚上 18-23", from: 18, to: 23 },
+]
+
+type Grain = "hour" | "block"
+
+/** 目前下鑽到哪一塊。date 是某一天，slot 是某個星期幾的某段時間。 */
 type Slice =
   | { kind: "date"; date: string }
-  | { kind: "slot"; weekday: number; hour: number }
+  | { kind: "slot"; weekday: number; from: number; to: number; label: string }
 
 const sliceLabel = (s: Slice) =>
-  s.kind === "date" ? s.date : `${WEEKDAYS[s.weekday]} ${String(s.hour).padStart(2, "0")}:00`
+  s.kind === "date" ? s.date : `${WEEKDAYS[s.weekday]} ${s.label}`
 
 const sliceQuery = (s: Slice) =>
-  s.kind === "date" ? `date=${s.date}` : `weekday=${s.weekday}&hour=${s.hour}`
+  s.kind === "date"
+    ? `date=${s.date}`
+    : `weekday=${s.weekday}&hour_from=${s.from}&hour_to=${s.to}`
 
 const fmtTime = (ms: number) =>
   new Date(ms).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
@@ -110,6 +127,7 @@ function SliceMatches({ slice, puuid, queueId }: { slice: Slice; puuid?: string;
 export function TimeAnalysis() {
   const { apply, account, queueId } = useFilters()
   const [slice, setSlice] = useState<Slice | null>(null)
+  const [grain, setGrain] = useState<Grain>("block")
 
   const daily = useCube(
     apply({
@@ -156,16 +174,45 @@ export function TimeAnalysis() {
     [daily.rows],
   )
 
-  const cells: HeatCell[] = heat.rows.map((r) => ({
-    weekday: Number(r["matches.weekday"]),
-    hour: Number(r["matches.hour_of_day"]),
-    games: num(r["participants.games"]) ?? 0,
-    winrate: num(r["participants.winrate"]),
-  }))
+  /** 一列一個小時，之後依照粗細度再合併。 */
+  const hourly = useMemo(
+    () =>
+      heat.rows.map((r) => ({
+        weekday: Number(r["matches.weekday"]),
+        hour: Number(r["matches.hour_of_day"]),
+        games: num(r["participants.games"]) ?? 0,
+        winrate: num(r["participants.winrate"]),
+      })),
+    [heat.rows],
+  )
 
-  const totalGames = cells.reduce((sum, c) => sum + c.games, 0)
+  const cells: HeatCell[] = useMemo(() => {
+    if (grain === "hour") {
+      return hourly.map((h) => ({ weekday: h.weekday, x: h.hour, games: h.games, winrate: h.winrate }))
+    }
+    // 合併時要用勝場數相加，不能把勝率平均起來——那樣一場的格子會和二十場的一樣重
+    const acc = new Map<string, { weekday: number; x: number; games: number; wins: number }>()
+    for (const h of hourly) {
+      const x = BLOCKS.findIndex((b) => h.hour >= b.from && h.hour <= b.to)
+      if (x < 0) continue
+      const key = `${h.weekday}:${x}`
+      const prev = acc.get(key) ?? { weekday: h.weekday, x, games: 0, wins: 0 }
+      prev.games += h.games
+      prev.wins += (h.games * (h.winrate ?? 0)) / 100
+      acc.set(key, prev)
+    }
+    return [...acc.values()].map((c) => ({
+      weekday: c.weekday,
+      x: c.x,
+      games: c.games,
+      winrate: c.games ? (c.wins / c.games) * 100 : null,
+    }))
+  }, [hourly, grain])
+
+  const xLabels = grain === "hour" ? HOURS_24 : BLOCKS.map((b) => b.label)
+  const totalGames = hourly.reduce((sum, c) => sum + c.games, 0)
   const activeCells = cells.filter((c) => c.games > 0).length
-  const busiest = [...cells].sort((a, b) => b.games - a.games)[0]
+  const busiest = [...hourly].sort((a, b) => b.games - a.games)[0]
 
   const weekdayBars: BarDatum[] = byWeekday.rows
     .map((r) => ({
@@ -196,7 +243,7 @@ export function TimeAnalysis() {
           value={
             busiest ? `${WEEKDAYS[busiest.weekday]} ${String(busiest.hour).padStart(2, "0")}:00` : "—"
           }
-          hint={busiest ? `${busiest.games} 場・${activeCells} / 168 格有資料` : undefined}
+          hint={busiest ? `${busiest.games} 場・${activeCells} / ${7 * xLabels.length} 格有資料` : undefined}
           loading={heat.loading}
         />
       </div>
@@ -231,15 +278,42 @@ export function TimeAnalysis() {
 
       <Panel
         title="星期 × 時段"
-        caption={`同一格是所有週日的同一時段加總，不是單一天——共 ${totalGames} 場攤在 168 格裡。場次少的格子顏色會自動變淡，點一下可以看那個時段的每一場`}
+        caption={
+          grain === "hour"
+            ? `共 ${totalGames} 場攤在 ${7 * 24} 格裡，單格通常只有個位數——顏色已經依樣本多寡收斂，但這個粗細度主要是看「什麼時候在打」`
+            : `共 ${totalGames} 場分成 ${7 * BLOCKS.length} 格，樣本比逐小時集中得多。點一下可以看那個時段的每一場`
+        }
+        action={
+          <ToggleGroup
+            type="single"
+            size="sm"
+            variant="outline"
+            value={grain}
+            onValueChange={(v) => v && setGrain(v as Grain)}
+          >
+            <ToggleGroupItem value="block">四時段</ToggleGroupItem>
+            <ToggleGroupItem value="hour">逐小時</ToggleGroupItem>
+          </ToggleGroup>
+        }
       >
         {heat.loading ? (
           <Skeleton className="h-[260px] w-full" />
         ) : cells.length ? (
           <Heatmap
             cells={cells}
-            selected={slice?.kind === "slot" ? { weekday: slice.weekday, hour: slice.hour } : null}
-            onPick={({ weekday, hour }) => setSlice({ kind: "slot", weekday, hour })}
+            xLabels={xLabels}
+            selected={
+              slice?.kind === "slot"
+                ? { weekday: slice.weekday, x: grain === "hour" ? slice.from : BLOCKS.findIndex((b) => b.from === slice.from) }
+                : null
+            }
+            onPick={({ weekday, x }) =>
+              setSlice(
+                grain === "hour"
+                  ? { kind: "slot", weekday, from: x, to: x, label: `${String(x).padStart(2, "0")}:00` }
+                  : { kind: "slot", weekday, from: BLOCKS[x].from, to: BLOCKS[x].to, label: BLOCKS[x].label },
+              )
+            }
           />
         ) : (
           <EmptyState>這個條件下還沒有資料。</EmptyState>

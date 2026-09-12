@@ -149,14 +149,16 @@ def recent_matches(
     puuid: Optional[str] = None,
     date: Optional[str] = None,
     weekday: Optional[int] = None,
-    hour: Optional[int] = None,
+    hour_from: Optional[int] = None,
+    hour_to: Optional[int] = None,
 ):
     """指定帳號的對局清單，預設是本機帳號。
 
     列表與單場明細都直接讀 SQLite,不經過 Cube——語意層是為了聚合而存在,
     逐列的鑽取用它反而綁手綁腳。
 
-    date / weekday / hour 是給圖表下鑽用的,查的是 matches 裡存好的本地時間欄位,
+    date / weekday / hour_from~hour_to 是給圖表下鑽用的,查的是 matches 裡存好的
+    本地時間欄位（hour 是區間,因為熱力圖可以切成「下午」這種粗分組）,
     和 Cube 那邊的分桶是同一份資料,所以圖上點到的格子和這裡列出來的場次一定對得起來。
     """
     conn = db.connect()
@@ -188,9 +190,12 @@ def recent_matches(
         if weekday is not None:
             slice_sql += " AND m.local_weekday = ?"
             slice_params.append(weekday)
-        if hour is not None:
-            slice_sql += " AND m.local_hour = ?"
-            slice_params.append(hour)
+        if hour_from is not None:
+            slice_sql += " AND m.local_hour >= ?"
+            slice_params.append(hour_from)
+        if hour_to is not None:
+            slice_sql += " AND m.local_hour <= ?"
+            slice_params.append(hour_to)
         sql += slice_sql
         params.extend(slice_params)
         sql += " ORDER BY m.game_creation DESC LIMIT ? OFFSET ?"

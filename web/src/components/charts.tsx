@@ -136,6 +136,9 @@ function baseTooltip(theme: ReturnType<typeof useTheme>) {
 
 const WEEKDAYS = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"]
 
+/** 熱力圖用的 24 小時刻度。 */
+export const HOURS_24 = Array.from({ length: 24 }, (_, i) => String(i))
+
 // ─────────────────────────────────────────── 勝率趨勢
 
 export type TrendPoint = { date: string; games: number; winrate: number | null }
@@ -197,7 +200,7 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
 
 // ─────────────────────────────────────────── 星期 × 時段熱力圖
 
-export type HeatCell = { weekday: number; hour: number; games: number; winrate: number | null }
+export type HeatCell = { weekday: number; x: number; games: number; winrate: number | null }
 
 /** 樣本數多少才算「這格的勝率可以看」。低於這個數會被拉回整體平均。 */
 const SHRINK_K = 6
@@ -217,13 +220,16 @@ function shrunk(games: number, winrate: number | null, base: number) {
 
 export function Heatmap({
   cells,
+  xLabels,
   selected,
   onPick,
 }: {
   cells: HeatCell[]
+  /** x 軸的刻度。24 小時就給 24 個，粗分組就給 4 個。 */
+  xLabels: string[]
   /** 目前下鑽中的格子,會打上外框。 */
-  selected?: { weekday: number; hour: number } | null
-  onPick?: (cell: { weekday: number; hour: number }) => void
+  selected?: { weekday: number; x: number } | null
+  onPick?: (cell: { weekday: number; x: number }) => void
 }) {
   const theme = useTheme()
 
@@ -233,24 +239,24 @@ export function Heatmap({
     const base = totalGames ? (totalWins / totalGames) * 100 : 50
 
     // 空格也要畫出來,否則會分不清「沒打過」和「打過但勝率中庸」。
-    const byKey = new Map(cells.map((c) => [`${c.weekday}:${c.hour}`, c]))
+    const byKey = new Map(cells.map((c) => [`${c.weekday}:${c.x}`, c]))
     // 空格要看得出來是「格子」，否則 168 格的版面會散掉，也分不清沒打過和打過但普通
     const empty = mix(theme.card, theme.muted, 0.28)
     const neutral = mix(theme.card, theme.muted, 0.85)
 
     const data = []
     for (let wd = 0; wd < 7; wd++) {
-      for (let hour = 0; hour < 24; hour++) {
-        const cell = byKey.get(`${wd}:${hour}`)
+      for (let x = 0; x < xLabels.length; x++) {
+        const cell = byKey.get(`${wd}:${x}`)
         const games = cell?.games ?? 0
         const adjusted = shrunk(games, cell?.winrate ?? null, base)
         const deviation = (adjusted - base) / SPREAD // -1 ~ 1
         const color = !games
           ? empty
           : mix(neutral, deviation >= 0 ? theme.win : theme.loss, Math.min(1, Math.abs(deviation)))
-        const isSelected = selected && selected.weekday === wd && selected.hour === hour
+        const isSelected = selected && selected.weekday === wd && selected.x === x
         data.push({
-          value: [hour, wd, games, cell?.winrate ?? null, adjusted],
+          value: [x, wd, games, cell?.winrate ?? null, adjusted],
           itemStyle: {
             color,
             borderColor: isSelected ? theme.primary : theme.card,
@@ -268,8 +274,8 @@ export function Heatmap({
         tooltip: {
           ...baseTooltip(theme),
           formatter: (p: { value: [number, number, number, number | null, number] }) => {
-            const [hour, wd, games, raw, adj] = p.value
-            const when = `${WEEKDAYS[wd]} ${String(hour).padStart(2, "0")}:00`
+            const [x, wd, games, raw, adj] = p.value
+            const when = `${WEEKDAYS[wd]} ${xLabels[x]}`
             if (!games) return `${when}<br/>沒有對局`
             const wins = Math.round(((raw ?? 0) / 100) * games)
             const note =
@@ -284,9 +290,9 @@ export function Heatmap({
         },
         xAxis: {
           type: "category",
-          data: Array.from({ length: 24 }, (_, i) => String(i)),
+          data: xLabels,
           splitArea: { show: false },
-          axisLabel: { color: theme.muted, fontSize: 10, interval: 1 },
+          axisLabel: { color: theme.muted, fontSize: xLabels.length > 12 ? 10 : 12, interval: 0 },
           axisLine: { show: false },
           axisTick: { show: false },
         },
@@ -309,7 +315,7 @@ export function Heatmap({
         ],
       },
     }
-  }, [cells, selected, theme])
+  }, [cells, xLabels, selected, theme])
 
   return (
     <div className="space-y-2">
@@ -318,7 +324,7 @@ export function Heatmap({
         height={260}
         onEvent={
           onPick
-            ? { click: (p: { value?: number[] }) => p.value && onPick({ weekday: p.value[1], hour: p.value[0] }) }
+            ? { click: (p: { value?: number[] }) => p.value && onPick({ weekday: p.value[1], x: p.value[0] }) }
             : undefined
         }
       />
@@ -358,23 +364,50 @@ export function BarChart({
   data,
   suffix = "",
   colorBy = "value",
+  baseline,
   onPick,
 }: {
   data: BarDatum[]
   suffix?: string
   colorBy?: "value" | "flat"
+  /** 紅綠的分界。預設用這批資料自己的加權平均——也就是「你的水準」。
+   *  傳數字可以改成固定門檻(例如 50)。 */
+  baseline?: number
   onPick?: (label: string) => void
 }) {
   const theme = useTheme()
 
   const option = useMemo(() => {
     const ordered = [...data].reverse() // ECharts 的 y 軸由下往上
+    // 用 50% 當紅綠分界，對整體勝率 42.6% 的人來說幾乎整排都是紅的，
+    // 看不出「哪個比較適合我」。改成跟自己的平均比。
+    const totalGames = data.reduce((a, d) => a + d.games, 0)
+    const base =
+      baseline ??
+      (totalGames
+        ? data.reduce((a, d) => a + d.value * d.games, 0) / totalGames
+        : data.reduce((a, d) => a + d.value, 0) / Math.max(1, data.length))
+    const neutral = mix(theme.card, theme.muted, 0.9)
+    // 顏色和熱力圖同一套規則：場次少的先往平均收縮，不會因為兩場全勝就通紅通綠
+    const tint = (d: BarDatum) => {
+      const adj = shrunk(d.games, d.value, base)
+      const dev = (adj - base) / SPREAD
+      return mix(neutral, dev >= 0 ? theme.win : theme.loss, Math.min(1, Math.abs(dev)))
+    }
     return {
-      grid: { left: 8, right: 56, top: 8, bottom: 8, containLabel: true },
+      // 有平均線時上緣要留位置給它的標籤，否則會被切掉
+      grid: { left: 8, right: 56, top: colorBy === "flat" ? 8 : 20, bottom: 8, containLabel: true },
       tooltip: {
         ...baseTooltip(theme),
-        formatter: (p: { name: string; value: number; dataIndex: number }) =>
-          `${p.name}<br/>${p.value.toFixed(1)}${suffix} · ${ordered[p.dataIndex].games} 場`,
+        formatter: (p: { name: string; value: number; dataIndex: number }) => {
+          const d = ordered[p.dataIndex]
+          const diff = p.value - base
+          const tail =
+            colorBy === "flat"
+              ? ""
+              : `<br/><span style="opacity:.7">比平均 ${base.toFixed(1)}${suffix} ${diff >= 0 ? "高" : "低"} ${Math.abs(diff).toFixed(1)}${suffix}</span>`
+          return `${p.name}<br/>${p.value.toFixed(1)}${suffix} · ${d.games} 場${tail}`
+        },
       },
       xAxis: {
         type: "value",
@@ -394,16 +427,29 @@ export function BarChart({
           data: ordered.map((d) => ({
             value: d.value,
             itemStyle: {
-              color:
-                colorBy === "flat"
-                  ? theme.primary
-                  : d.value >= 50
-                    ? theme.win
-                    : theme.loss,
+              color: colorBy === "flat" ? theme.primary : tint(d),
               borderRadius: [0, 4, 4, 0],
             },
           })),
           barMaxWidth: 22,
+          markLine:
+            colorBy === "flat"
+              ? undefined
+              : {
+                  silent: true,
+                  symbol: "none",
+                  data: [{ xAxis: base }],
+                  lineStyle: { color: theme.muted, type: "dashed", width: 1 },
+                  label: {
+                    formatter: `平均 ${base.toFixed(1)}${suffix}`,
+                    color: theme.muted,
+                    fontSize: 10,
+                    // 預設會沿著線轉成直的，壓在長條上很難讀
+                    rotate: 0,
+                    position: "end",
+                    distance: 2,
+                  },
+                },
           label: {
             show: true,
             position: "right",
@@ -414,7 +460,7 @@ export function BarChart({
         },
       ],
     }
-  }, [data, suffix, colorBy, theme])
+  }, [data, suffix, colorBy, baseline, theme])
 
   return (
     <ResponsiveChart
