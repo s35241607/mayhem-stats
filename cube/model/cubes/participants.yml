@@ -132,6 +132,19 @@ cubes:
         type: number
         public: false
 
+      # 同隊有幾個「追蹤中」的朋友。用相關子查詢而不是存欄位,因為追蹤名單
+      # 之後還會變,存下來就會過期。
+      - name: party_size
+        title: 同隊朋友數
+        sql: >
+          (SELECT COUNT(*) FROM match_participants o
+            WHERE o.platform_id = {CUBE}.platform_id AND o.game_id = {CUBE}.game_id
+              AND o.team_id = {CUBE}.team_id AND o.puuid <> {CUBE}.puuid
+              AND o.puuid IN (SELECT puuid FROM accounts WHERE tracked = 1))
+        type: number
+        meta:
+          group: 對局
+
       - name: result
         title: 勝負
         sql: "CASE WHEN {CUBE}.win = 1 THEN '勝' ELSE '敗' END"
@@ -491,3 +504,98 @@ cubes:
           group: 資源
           decimals: 0
           higherIsBetter: false
+
+      # 我方與敵方的團隊加總。這些欄位在同一隊的五列裡是一樣的,所以只有在
+      # 「鎖定單一玩家」時平均才有意義——敗因分析頁一律有帳號篩選。
+      - name: avg_team_dmg
+        title: 我方總傷害
+        sql: team_dmg
+        type: avg
+        meta: { group: 團隊, decimals: 0 }
+
+      - name: avg_enemy_dmg
+        title: 敵方總傷害
+        sql: enemy_dmg
+        type: avg
+        meta: { group: 團隊, decimals: 0 }
+
+      - name: dmg_gap
+        title: 傷害差
+        sql: "{avg_team_dmg} - {avg_enemy_dmg}"
+        type: number
+        description: 我方總傷害減敵方總傷害。負的代表輸出被壓過去。
+        meta: { group: 團隊, decimals: 0, higherIsBetter: true }
+
+      - name: avg_team_gold
+        title: 我方總經濟
+        sql: team_gold
+        type: avg
+        meta: { group: 團隊, decimals: 0 }
+
+      - name: avg_enemy_gold
+        title: 敵方總經濟
+        sql: enemy_gold
+        type: avg
+        meta: { group: 團隊, decimals: 0 }
+
+      - name: gold_gap
+        title: 經濟差
+        sql: "{avg_team_gold} - {avg_enemy_gold}"
+        type: number
+        meta: { group: 團隊, decimals: 0, higherIsBetter: true }
+
+      - name: avg_team_kills
+        title: 我方總擊殺
+        sql: team_kills
+        type: avg
+        meta: { group: 團隊, decimals: 1 }
+
+      - name: avg_enemy_kills
+        title: 敵方總擊殺
+        sql: enemy_kills
+        type: avg
+        meta: { group: 團隊, decimals: 1 }
+
+      - name: kill_gap
+        title: 擊殺差
+        sql: "{avg_team_kills} - {avg_enemy_kills}"
+        type: number
+        meta: { group: 團隊, decimals: 1, higherIsBetter: true }
+
+      # 團隊差距的每分鐘版本。原始總量會被局長帶著走——敗局平均 17 分、勝局
+      # 15.1 分,光是時間差就會讓敗局的雙方總傷害都變高。要比較勝敗必須除以時間。
+      - name: team_dpm
+        title: 我方每分鐘傷害
+        sql: "{CUBE}.team_dmg * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: avg
+        meta: { group: 團隊, decimals: 0 }
+
+      - name: enemy_dpm
+        title: 敵方每分鐘傷害
+        sql: "{CUBE}.enemy_dmg * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: avg
+        meta: { group: 團隊, decimals: 0 }
+
+      - name: dpm_gap
+        title: 每分鐘傷害差
+        sql: "{team_dpm} - {enemy_dpm}"
+        type: number
+        meta: { group: 團隊, decimals: 0, higherIsBetter: true }
+
+      - name: team_gpm
+        title: 我方每分鐘經濟
+        sql: "{CUBE}.team_gold * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: avg
+        meta: { group: 團隊, decimals: 0 }
+
+      - name: enemy_gpm
+        title: 敵方每分鐘經濟
+        sql: "{CUBE}.enemy_gold * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: avg
+        meta: { group: 團隊, decimals: 0 }
+
+      - name: gpm_gap
+        title: 每分鐘經濟差
+        sql: "{team_gpm} - {enemy_gpm}"
+        type: number
+        meta: { group: 團隊, decimals: 0, higherIsBetter: true }

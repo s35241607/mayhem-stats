@@ -28,6 +28,9 @@ export type GridColumn = {
   rarityKey?: string
   format?: (n: number) => string
   suffix?: string
+  /** 自訂這一格的好壞方向。勝率欄以外的欄位若也要上色就給這個——
+   *  例如「敗局相差」看的是各指標自己的方向，不是數字大小。 */
+  tone?: (value: number, row: Row) => "good" | "bad" | null
 }
 
 type Row = Record<string, unknown>
@@ -164,6 +167,10 @@ export function AgTable({
             // 沒有套到儲存格上，所以直接給 class。
             const base = "tabular-nums font-semibold text-right"
             const n = Number(p.value)
+            if (col.tone && Number.isFinite(n)) {
+              const tone = col.tone(n, p.data as Row)
+              return tone ? `${base} ${tone === "good" ? "!text-win" : "!text-loss"}` : base
+            }
             // participants.winrate、wr、baseWr 都算勝率欄
             if (/(winrate|wr)$/i.test(col.key) && Number.isFinite(n)) {
               return n >= 50 ? `${base} !text-win` : `${base} !text-loss`

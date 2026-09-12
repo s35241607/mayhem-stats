@@ -56,6 +56,10 @@ CREATE TABLE IF NOT EXISTS match_participants (
   perk_primary_style INTEGER, perk_sub_style INTEGER,
   team_kills         INTEGER,
   team_dmg           INTEGER,
+  team_gold          INTEGER,
+  -- 敵方的團隊加總。要回答「是我們打不動還是被打爆」就得有對手的數字,
+  -- 而那是同一場其他列的資料——先算好存下來,查詢層才不必為此自我 join。
+  enemy_kills        INTEGER, enemy_dmg INTEGER, enemy_gold INTEGER,
   game_duration      INTEGER,
   double_kills       INTEGER, triple_kills INTEGER,
   quadra_kills       INTEGER, penta_kills INTEGER,
@@ -197,6 +201,14 @@ def _migrate(conn):
         with conn:
             conn.execute("ALTER TABLE accounts ADD COLUMN tracked INTEGER NOT NULL DEFAULT 0")
 
+    team_cols = ["team_gold", "enemy_kills", "enemy_dmg", "enemy_gold"]
+    if any(col not in existing for col in team_cols):
+        with conn:
+            for col in team_cols:
+                if col not in existing:
+                    conn.execute(f"ALTER TABLE match_participants ADD COLUMN {col} INTEGER")
+        _backfill_team_totals(conn)
+
     missing = [col for col in LATE_COLUMNS if col not in existing]
     if missing:
         with conn:
@@ -217,6 +229,42 @@ def _backfill_local_time(conn):
             [(*local_buckets(r["game_creation"]), r["platform_id"], r["game_id"]) for r in rows],
         )
     return len(rows)
+
+
+def _backfill_team_totals(conn):
+    """從 raw_json 重算每場的雙方團隊加總。
+
+    這些是同一場其他列的合計,沒辦法用單列的欄位推回來——能補是因為當初
+    連原始 JSON 一起存了。
+    """
+    import json as _json
+
+    updates = []
+    for row in conn.execute("SELECT platform_id, game_id, raw_json FROM matches"):
+        game = _json.loads(row["raw_json"])
+        participants = game.get("participants", [])
+        kills, dmg, gold = {}, {}, {}
+        for p in participants:
+            team = p.get("teamId")
+            stats = p.get("stats", {})
+            kills[team] = kills.get(team, 0) + _num(stats, "kills")
+            dmg[team] = dmg.get(team, 0) + _num(stats, "totalDamageDealtToChampions")
+            gold[team] = gold.get(team, 0) + _num(stats, "goldEarned")
+        for p in participants:
+            team = p.get("teamId")
+            other = lambda totals: sum(v for t, v in totals.items() if t != team)  # noqa: E731
+            updates.append((
+                gold.get(team, 0), other(kills), other(dmg), other(gold),
+                row["platform_id"], row["game_id"], p.get("participantId"),
+            ))
+    with conn:
+        conn.executemany(
+            """UPDATE match_participants
+               SET team_gold = ?, enemy_kills = ?, enemy_dmg = ?, enemy_gold = ?
+               WHERE platform_id = ? AND game_id = ? AND participant_id = ?""",
+            updates,
+        )
+    return len(updates)
 
 
 def _backfill_from_raw(conn, columns):
@@ -278,12 +326,17 @@ def store_match(conn, game):
         for ident in game.get("participantIdentities", [])
     }
 
-    team_kills, team_dmg = {}, {}
+    team_kills, team_dmg, team_gold = {}, {}, {}
     for p in participants:
         team = p.get("teamId")
         stats = p.get("stats", {})
         team_kills[team] = team_kills.get(team, 0) + _num(stats, "kills")
         team_dmg[team] = team_dmg.get(team, 0) + _num(stats, "totalDamageDealtToChampions")
+        team_gold[team] = team_gold.get(team, 0) + _num(stats, "goldEarned")
+
+    def other_side(totals, team):
+        """同一場裡不屬於這一隊的加總。"""
+        return sum(v for t, v in totals.items() if t != team)
 
     first_stats = participants[0].get("stats", {}) if participants else {}
 
@@ -329,13 +382,14 @@ def store_match(conn, game):
                     dmg_physical, dmg_magic, dmg_true, dmg_taken, dmg_mitigated,
                     total_heal, cs, vision_score, time_ccing_others, largest_multi_kill,
                     spell1_id, spell2_id, perk_primary_style, perk_sub_style,
-                    team_kills, team_dmg, game_duration,
+                    team_kills, team_dmg, team_gold,
+                    enemy_kills, enemy_dmg, enemy_gold, game_duration,
                     double_kills, triple_kills, quadra_kills, penta_kills,
                     first_blood, first_tower, dmg_to_objectives, longest_time_living,
                     taken_physical, taken_magic, taken_true, total_damage, cc_duration,
                     largest_spree, killing_sprees, turret_kills, largest_crit, units_healed)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
-                           ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                           ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     platform_id, game_id, pid,
                     player.get("puuid") or "",
@@ -359,7 +413,9 @@ def store_match(conn, game):
                     _num(stats, "largestMultiKill"),
                     p.get("spell1Id"), p.get("spell2Id"),
                     _num(stats, "perkPrimaryStyle"), _num(stats, "perkSubStyle"),
-                    team_kills.get(team, 0), team_dmg.get(team, 0),
+                    team_kills.get(team, 0), team_dmg.get(team, 0), team_gold.get(team, 0),
+                    other_side(team_kills, team), other_side(team_dmg, team),
+                    other_side(team_gold, team),
                     game.get("gameDuration"),
                     _num(stats, "doubleKills"), _num(stats, "tripleKills"),
                     _num(stats, "quadraKills"), _num(stats, "pentaKills"),

@@ -14,6 +14,7 @@ import {
   Link2,
   Activity,
   Radar,
+  TrendingDown,
 } from "lucide-react"
 import {
   Sidebar,
@@ -55,6 +56,7 @@ export type PageId =
   | "players"
   | "time"
   | "tilt"
+  | "losses"
   | "explore"
   | "tracked"
 
@@ -75,6 +77,7 @@ const NAV: { group: string; items: { id: PageId; label: string; icon: typeof Zap
       { id: "players", label: "隊友 / 對手", icon: Users },
       { id: "time", label: "時段", icon: CalendarClock },
       { id: "tilt", label: "節奏與連敗", icon: Activity },
+      { id: "losses", label: "敗因分析", icon: TrendingDown },
     ],
   },
   {
@@ -91,6 +94,7 @@ const PAGE_TITLES: Record<PageId, { title: string; caption: string }> = {
   matches: { title: "對局紀錄", caption: "逐場瀏覽，點進去看完整戰報" },
   synergy: { title: "增幅契合度", caption: "哪些增幅特別適合哪隻英雄" },
   tilt: { title: "節奏與連敗", caption: "上一場的結果與當日場次，對表現的影響" },
+  losses: { title: "敗因分析", caption: "輸的時候，哪些數字和贏的時候不一樣" },
   champions: { title: "英雄", caption: "每個英雄的場次、勝率與輸出表現" },
   augments: { title: "增幅裝置", caption: "各增幅的選取率與勝率——第三方網站拿不到的資料" },
   players: { title: "隊友 / 對手", caption: "和誰同隊會贏、遇到誰會輸" },

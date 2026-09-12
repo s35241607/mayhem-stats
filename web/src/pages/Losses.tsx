@@ -1,0 +1,186 @@
+import { Skeleton } from "@/components/ui/skeleton"
+import { Kpi, Panel, EmptyState } from "@/components/primitives"
+import { AgTable, type GridColumn } from "@/components/AgTable"
+import { BarChart, type BarDatum } from "@/components/charts"
+import { useCube } from "@/hooks/useCube"
+import { num } from "@/lib/cube"
+import { useFilters } from "@/lib/filters"
+
+/** 拿來做勝負對照的指標。higherIsBetter 只影響顏色，不影響數字。 */
+type Metric = {
+  key: string
+  label: string
+  group: string
+  decimals?: number
+  suffix?: string
+  higherIsBetter: boolean
+}
+
+const TEAM_METRICS: Metric[] = [
+  { key: "participants.team_dpm", label: "我方每分鐘傷害", group: "團隊", higherIsBetter: true },
+  { key: "participants.enemy_dpm", label: "敵方每分鐘傷害", group: "團隊", higherIsBetter: false },
+  { key: "participants.team_gpm", label: "我方每分鐘經濟", group: "團隊", higherIsBetter: true },
+  { key: "participants.enemy_gpm", label: "敵方每分鐘經濟", group: "團隊", higherIsBetter: false },
+  { key: "participants.avg_team_kills", label: "我方總擊殺", group: "團隊", decimals: 1, higherIsBetter: true },
+  { key: "participants.avg_enemy_kills", label: "敵方總擊殺", group: "團隊", decimals: 1, higherIsBetter: false },
+]
+
+const MINE_METRICS: Metric[] = [
+  { key: "participants.avg_kills", label: "我的擊殺", group: "我自己", decimals: 1, higherIsBetter: true },
+  { key: "participants.avg_deaths", label: "我的死亡", group: "我自己", decimals: 1, higherIsBetter: false },
+  { key: "participants.avg_assists", label: "我的助攻", group: "我自己", decimals: 1, higherIsBetter: true },
+  { key: "participants.kda", label: "我的 KDA", group: "我自己", decimals: 2, higherIsBetter: true },
+  { key: "participants.dpm", label: "我的每分鐘傷害", group: "我自己", higherIsBetter: true },
+  { key: "participants.gpm", label: "我的每分鐘經濟", group: "我自己", higherIsBetter: true },
+  { key: "participants.avg_taken", label: "我承受的傷害", group: "我自己", higherIsBetter: false },
+  { key: "participants.avg_survival", label: "最長存活(秒)", group: "我自己", higherIsBetter: true },
+]
+
+const SHARE_METRICS: Metric[] = [
+  { key: "participants.damage_share", label: "我的傷害佔比", group: "隊內佔比", decimals: 1, suffix: "%", higherIsBetter: true },
+  { key: "participants.tank_share", label: "我的承傷佔比", group: "隊內佔比", decimals: 1, suffix: "%", higherIsBetter: true },
+  { key: "participants.kill_participation", label: "我的參團率", group: "隊內佔比", decimals: 1, suffix: "%", higherIsBetter: true },
+]
+
+const ALL_METRICS = [...TEAM_METRICS, ...MINE_METRICS, ...SHARE_METRICS]
+
+const COLUMNS: GridColumn[] = [
+  { key: "group", title: "分類", kind: "dimension" },
+  { key: "label", title: "指標", kind: "dimension" },
+  { key: "win", title: "勝局", kind: "metric", format: (n) => n.toLocaleString(undefined, { maximumFractionDigits: 2 }) },
+  { key: "loss", title: "敗局", kind: "metric", format: (n) => n.toLocaleString(undefined, { maximumFractionDigits: 2 }) },
+  {
+    key: "diffPct",
+    title: "敗局相差",
+    kind: "metric",
+    format: (n) => `${n > 0 ? "+" : ""}${n.toFixed(1)}`,
+    suffix: "%",
+    // 好壞方向每個指標都不一樣：敵方傷害變高是壞事，我的 KDA 變高是好事
+    tone: (n, row) => {
+      if (Math.abs(n) < 3) return null // 差不到 3% 就不上色，免得看起來像有事
+      return n > 0 === (row.higherIsBetter === true) ? "good" : "bad"
+    },
+  },
+]
+
+export function Losses() {
+  const { apply } = useFilters()
+
+  const byResult = useCube(
+    apply({
+      measures: ["participants.games", ...ALL_METRICS.map((m) => m.key), "matches.avg_duration"],
+      dimensions: ["participants.result"],
+      limit: 5,
+    }),
+  )
+
+  const byParty = useCube(
+    apply({
+      measures: ["participants.games", "participants.winrate"],
+      dimensions: ["participants.party_size"],
+      order: { "participants.party_size": "asc" },
+      limit: 10,
+    }),
+  )
+
+  const win = byResult.rows.find((r) => r["participants.result"] === "勝")
+  const loss = byResult.rows.find((r) => r["participants.result"] === "敗")
+  const winGames = num(win?.["participants.games"]) ?? 0
+  const lossGames = num(loss?.["participants.games"]) ?? 0
+  const total = winGames + lossGames
+
+  const rows = ALL_METRICS.map((m) => {
+    const w = num(win?.[m.key])
+    const l = num(loss?.[m.key])
+    // 用相對差而不是絕對差,不同量級的指標才排得在一起比
+    const diffPct = w !== null && l !== null && w !== 0 ? ((l - w) / Math.abs(w)) * 100 : null
+    return { group: m.group, label: m.label, win: w, loss: l, diffPct, higherIsBetter: m.higherIsBetter }
+  })
+
+  const partyBars: BarDatum[] = byParty.rows.map((r) => ({
+    label: `${r["participants.party_size"]} 人`,
+    value: num(r["participants.winrate"]) ?? 0,
+    games: num(r["participants.games"]) ?? 0,
+  }))
+
+  const teamDpmWin = num(win?.["participants.team_dpm"])
+  const teamDpmLoss = num(loss?.["participants.team_dpm"])
+  const enemyDpmWin = num(win?.["participants.enemy_dpm"])
+  const enemyDpmLoss = num(loss?.["participants.enemy_dpm"])
+  const oursDrop =
+    teamDpmWin && teamDpmLoss ? ((teamDpmLoss - teamDpmWin) / teamDpmWin) * 100 : null
+  const theirsRise =
+    enemyDpmWin && enemyDpmLoss ? ((enemyDpmLoss - enemyDpmWin) / enemyDpmWin) * 100 : null
+
+  const durWin = num(win?.["matches.avg_duration"])
+  const durLoss = num(loss?.["matches.avg_duration"])
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Kpi
+          label="勝率"
+          value={total ? `${((winGames / total) * 100).toFixed(1)}%` : "—"}
+          hint={total ? `${winGames} 勝 ${lossGames} 敗` : undefined}
+          loading={byResult.loading}
+        />
+        <Kpi
+          label="打不動還是被打爆"
+          value={oursDrop !== null && theirsRise !== null ? (Math.abs(theirsRise) > Math.abs(oursDrop) ? "被打爆" : "打不動") : "—"}
+          hint={
+            oursDrop !== null && theirsRise !== null
+              ? `輸時我方輸出 ${oursDrop.toFixed(0)}%、敵方 ${theirsRise > 0 ? "+" : ""}${theirsRise.toFixed(0)}%`
+              : undefined
+          }
+          loading={byResult.loading}
+        />
+        <Kpi
+          label="平均局長"
+          // matches.avg_duration 在模型裡已經除過 60，單位就是分鐘
+          value={durWin !== null && durLoss !== null ? `${durLoss.toFixed(1)} / ${durWin.toFixed(1)} 分` : "—"}
+          hint="敗局 / 勝局。輸的局通常比較長，所以下面一律用每分鐘來比"
+          loading={byResult.loading}
+        />
+      </div>
+
+      <Panel
+        title="勝局與敗局，數字差在哪"
+        caption="「敗局相差」= 敗局比勝局高或低幾 %。綠色代表往好的方向、紅色代表往壞的方向；可以點欄位標題排序。"
+      >
+        {byResult.loading ? (
+          <Skeleton className="h-[520px] w-full" />
+        ) : !win || !loss ? (
+          <EmptyState>這個條件下缺少勝局或敗局，沒得比較。</EmptyState>
+        ) : (
+          <>
+            <AgTable columns={COLUMNS} rows={rows as unknown as Record<string, unknown>[]} height={560} fileName="win-vs-loss" />
+            <div className="mt-3 space-y-1 text-[11px] text-muted-foreground">
+              <p>
+                這張表是<strong>描述</strong>，不是原因。遊戲中的數字大多是輸贏的結果而不是起因——
+                落後了才會經濟少、才會被推塔，不是反過來。真正在結果之前就決定的，是英雄、增幅、
+                時段、隊友這些，那些在其他頁面。
+              </p>
+              <p>
+                「隊內佔比」那一組比較接近可以自省的部分：如果輸的時候你的佔比反而變高，
+                代表拖住的不是你；反過來就是你自己在輸的局裡也縮了。
+              </p>
+            </div>
+          </>
+        )}
+      </Panel>
+
+      <Panel
+        title="同隊朋友數與勝率"
+        caption="我方隊伍裡有幾個追蹤中的朋友。這是開打前就決定的事，比賽中的數字沒辦法反過來影響它，所以這裡的關聯比上面那張表可信。"
+      >
+        {byParty.loading ? (
+          <Skeleton className="h-[220px] w-full" />
+        ) : partyBars.length ? (
+          <BarChart data={partyBars} suffix="%" />
+        ) : (
+          <EmptyState>還沒有資料。</EmptyState>
+        )}
+      </Panel>
+    </div>
+  )
+}

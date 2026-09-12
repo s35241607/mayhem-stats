@@ -14,6 +14,7 @@ const LOADERS = {
   matches: () => import("@/pages/Matches").then((m) => m.Matches),
   synergy: () => import("@/pages/Synergy").then((m) => m.Synergy),
   tilt: () => import("@/pages/Tilt").then((m) => m.Tilt),
+  losses: () => import("@/pages/Losses").then((m) => m.Losses),
   champions: () => import("@/pages/Champions").then((m) => m.Champions),
   augments: () => import("@/pages/Augments").then((m) => m.Augments),
   players: () => import("@/pages/Players").then((m) => m.Players),
