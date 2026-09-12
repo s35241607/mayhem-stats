@@ -3,6 +3,11 @@ cubes:
     sql_table: dim_champions
     description: 英雄名稱與圖示,來自客戶端內建資源檔,會隨版本更新。
 
+    # 與 participants.yml 相同的 refresh key,理由寫在那裡。SQL 必須一字不差才會被合併。
+    refresh_key:
+      sql: >
+        SELECT (SELECT COALESCE(MAX(ingested_at), 0) FROM matches) || ':' || (SELECT COUNT(*) FROM dim_augments) || ':' || (SELECT group_concat(puuid || is_me || tracked) FROM accounts)
+
     dimensions:
       - name: id
         sql: id
@@ -36,6 +41,11 @@ cubes:
     description: >
       長格式的增幅裝置(一列一個)。以此為維度查詢時同一場對局會展開成多列——
       這正是 participants 的場次指標必須用 count_distinct 的原因。
+
+    # 與 participants.yml 相同的 refresh key,理由寫在那裡。SQL 必須一字不差才會被合併。
+    refresh_key:
+      sql: >
+        SELECT (SELECT COALESCE(MAX(ingested_at), 0) FROM matches) || ':' || (SELECT COUNT(*) FROM dim_augments) || ':' || (SELECT group_concat(puuid || is_me || tracked) FROM accounts)
 
     dimensions:
       - name: id
@@ -76,6 +86,11 @@ cubes:
       FROM participant_items pi
       LEFT JOIN dim_items di ON di.id = pi.item_id
     description: 長格式的裝備(一列一件),同樣會造成對局展開。
+
+    # 與 participants.yml 相同的 refresh key,理由寫在那裡。SQL 必須一字不差才會被合併。
+    refresh_key:
+      sql: >
+        SELECT (SELECT COALESCE(MAX(ingested_at), 0) FROM matches) || ':' || (SELECT COUNT(*) FROM dim_augments) || ':' || (SELECT group_concat(puuid || is_me || tracked) FROM accounts)
 
     dimensions:
       - name: id

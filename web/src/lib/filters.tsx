@@ -27,6 +27,10 @@ export const DATE_RANGES = [
 ] as const
 
 type FilterState = {
+  /** 帳號清單載入完成（或確定載不到）之前是 false。
+   *  這段期間 account 還是 null，apply() 組出來的查詢會少了帳號篩選，
+   *  查到的是資料庫裡所有玩家的合計——頁面必須等它變 true 才能開始查。 */
+  ready: boolean
   /** 目前在看誰的數據。預設是本機帳號，可切換成任何出現過的玩家。 */
   account: Player | null
   setAccount: (player: Player) => void
@@ -56,6 +60,7 @@ export function FilterProvider({ children }: { children: ReactNode }) {
   const [queueId, setQueueId] = useState<string | null>(MAYHEM_QUEUE_ID)
   const [dateRange, setDateRange] = useState<string>("all")
   const [drills, setDrills] = useState<Drill[]>([])
+  const [ready, setReady] = useState(false)
 
   useEffect(() => {
     fetch("/api/players")
@@ -66,6 +71,8 @@ export function FilterProvider({ children }: { children: ReactNode }) {
         setAccount((current) => current ?? d.players.find((p) => p.is_me) ?? d.players[0] ?? null)
       })
       .catch(() => undefined)
+      // 載不到也要放行，否則後端一掛整個畫面就永遠停在骨架
+      .finally(() => setReady(true))
   }, [])
 
   const value = useMemo<FilterState>(() => {
@@ -82,6 +89,7 @@ export function FilterProvider({ children }: { children: ReactNode }) {
     }
 
     return {
+      ready,
       account,
       setAccount: (player) => {
         setAccount(player)
@@ -128,7 +136,7 @@ export function FilterProvider({ children }: { children: ReactNode }) {
         return merged
       },
     }
-  }, [account, players, queueId, dateRange, drills])
+  }, [ready, account, players, queueId, dateRange, drills])
 
   return <FilterContext.Provider value={value}>{children}</FilterContext.Provider>
 }
