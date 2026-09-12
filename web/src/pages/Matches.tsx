@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils"
 type Item = { slot: number; item_id: number; name: string | null; icon_path: string | null }
 type Augment = { slot: number; name: string | null; rarity: string | null; icon_path: string | null }
 
-type MatchRow = {
+export type MatchRow = {
   platform_id: string
   game_id: number
   participant_id: number
@@ -36,7 +36,7 @@ type MatchRow = {
   items: Item[]
 }
 
-type Player = MatchRow & {
+export type Player = MatchRow & {
   riot_id: string
   team_id: number
   is_me: number
@@ -326,7 +326,7 @@ function StatTable({ players }: { players: Player[] }) {
 
 // ─────────────────────────────────────────── 單場戰報
 
-function MatchDetail({
+export function MatchDetail({
   platformId,
   gameId,
   puuid,

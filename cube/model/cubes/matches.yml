@@ -3,6 +3,11 @@ cubes:
     sql_table: matches
     description: 一場對局的表頭。時間欄位在資料庫裡是 epoch 毫秒(UTC),這裡轉成時間戳給 Cube,時區換算交由查詢端指定。
 
+    # 與 participants.yml 相同的 refresh key,理由寫在那裡。SQL 必須一字不差才會被合併。
+    refresh_key:
+      sql: >
+        SELECT (SELECT COALESCE(MAX(ingested_at), 0) FROM matches) || ':' || (SELECT COUNT(*) FROM dim_augments) || ':' || (SELECT group_concat(puuid || is_me || tracked) FROM accounts)
+
     dimensions:
       - name: id
         sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id"
@@ -47,18 +52,30 @@ cubes:
       # 型別刻意用字串:這些是運算式、沒有欄位型別親和性,而 Cube 會把篩選值綁成
       # 字串,若宣告成數字,SQLite 不會把 '15' 轉成 15,篩選會永遠比對不到。
       # 這裡的 localtime 取本機時區——這個工具本來就跑在使用者自己的電腦上。
+      # 這三個是採集時就用 Python 算好存進資料庫的本地時間。
+      # 不要改回 strftime(..., 'localtime'):Cube 的 server 行程跑在 UTC 下,
+      # 那個 'localtime' 等於 UTC,整頁時段分析會偏移 8 小時。
+      # (實測過:畫面說「最常打 週日 07:00」,實際是週日 15:00。)
       - name: hour_of_day
         title: 時段
-        sql: "strftime('%H', {CUBE}.game_creation / 1000, 'unixepoch', 'localtime')"
-        type: string
+        sql: local_hour
+        type: number
         meta:
           group: 時間
 
       - name: weekday
         title: 星期
-        sql: "strftime('%w', {CUBE}.game_creation / 1000, 'unixepoch', 'localtime')"
-        type: string
+        sql: local_weekday
+        type: number
         description: 0 = 週日
+        meta:
+          group: 時間
+
+      - name: local_date
+        title: 日期
+        sql: local_date
+        type: string
+        description: 開打當下的本地日期(YYYY-MM-DD)
         meta:
           group: 時間
 

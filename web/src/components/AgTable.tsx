@@ -111,7 +111,8 @@ export function AgTable({
 }: {
   columns: GridColumn[]
   rows: Row[]
-  onDrill?: (column: GridColumn, value: string) => void
+  /** 第三個參數是被點的那一列原始資料——用值去反查會在重複值上選錯列。 */
+  onDrill?: (column: GridColumn, value: string, row: Row) => void
   emptyHint?: string
   height?: number
   fileName?: string
@@ -246,7 +247,8 @@ export function AgTable({
           rowSelection={{ mode: "multiRow", checkboxes: false, headerCheckbox: false }}
           onCellDoubleClicked={(e) => {
             const col = columns.find((c) => c.key === e.colDef.colId)
-            if (col?.kind === "dimension" && e.value != null) onDrill?.(col, String(e.value))
+            if (col?.kind === "dimension" && e.value != null)
+              onDrill?.(col, String(e.value), e.data as Row)
           }}
           localeText={{
             noRowsToShow: "沒有資料",

@@ -147,11 +147,17 @@ def recent_matches(
     offset: int = 0,
     queue: Optional[int] = None,
     puuid: Optional[str] = None,
+    date: Optional[str] = None,
+    weekday: Optional[int] = None,
+    hour: Optional[int] = None,
 ):
     """指定帳號的對局清單，預設是本機帳號。
 
     列表與單場明細都直接讀 SQLite,不經過 Cube——語意層是為了聚合而存在,
     逐列的鑽取用它反而綁手綁腳。
+
+    date / weekday / hour 是給圖表下鑽用的,查的是 matches 裡存好的本地時間欄位,
+    和 Cube 那邊的分桶是同一份資料,所以圖上點到的格子和這裡列出來的場次一定對得起來。
     """
     conn = db.connect()
     try:
@@ -171,9 +177,22 @@ def recent_matches(
             WHERE mp.puuid = ?
         """
         params: list = [subject]
+        slice_sql = ""
+        slice_params: list = []
         if queue is not None:
-            sql += " AND m.queue_id = ?"
-            params.append(queue)
+            slice_sql += " AND m.queue_id = ?"
+            slice_params.append(queue)
+        if date is not None:
+            slice_sql += " AND m.local_date = ?"
+            slice_params.append(date)
+        if weekday is not None:
+            slice_sql += " AND m.local_weekday = ?"
+            slice_params.append(weekday)
+        if hour is not None:
+            slice_sql += " AND m.local_hour = ?"
+            slice_params.append(hour)
+        sql += slice_sql
+        params.extend(slice_params)
         sql += " ORDER BY m.game_creation DESC LIMIT ? OFFSET ?"
         params.extend([min(limit, 200), max(offset, 0)])
 
@@ -207,11 +226,8 @@ def recent_matches(
             JOIN matches m ON m.platform_id = mp.platform_id AND m.game_id = mp.game_id
             WHERE mp.puuid = ?
         """
-        count_params: list = [subject]
-        if queue is not None:
-            count_sql += " AND m.queue_id = ?"
-            count_params.append(queue)
-        total = conn.execute(count_sql, count_params).fetchone()["n"]
+        count_sql += slice_sql
+        total = conn.execute(count_sql, [subject, *slice_params]).fetchone()["n"]
 
         return {"matches": matches, "total": total}
     finally:

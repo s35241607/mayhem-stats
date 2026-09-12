@@ -4,6 +4,7 @@
 所以每場都連同原始 JSON 一起存,將來想分析新欄位時不必(也無法)重抓。
 """
 
+import datetime
 import json
 import sqlite3
 import time
@@ -22,6 +23,13 @@ CREATE TABLE IF NOT EXISTS matches (
   game_creation   INTEGER NOT NULL,
   game_duration   INTEGER NOT NULL,
   ended_surrender INTEGER DEFAULT 0,
+  -- 開打當下「你這台機器」的本地日期/星期/小時。
+  -- 這三個值一定要在寫入時就用 Python 算好,不能留給查詢層。
+  -- Cube 的 server 行程跑在 UTC 下,SQLite 的 'localtime' 在那裡等於 UTC,
+  -- 時段分析會整個偏移 8 小時(實測「最常打 07:00」其實是下午 3 點)。
+  local_date      TEXT,
+  local_weekday   INTEGER,
+  local_hour      INTEGER,
   raw_json        TEXT    NOT NULL,
   ingested_at     INTEGER NOT NULL,
   PRIMARY KEY (platform_id, game_id)
@@ -170,6 +178,14 @@ def _migrate(conn):
                 WHERE mp.game_duration IS NULL
             """)
 
+    match_cols = {row["name"] for row in conn.execute("PRAGMA table_info(matches)")}
+    if "local_date" not in match_cols:
+        with conn:
+            conn.execute("ALTER TABLE matches ADD COLUMN local_date TEXT")
+            conn.execute("ALTER TABLE matches ADD COLUMN local_weekday INTEGER")
+            conn.execute("ALTER TABLE matches ADD COLUMN local_hour INTEGER")
+        _backfill_local_time(conn)
+
     account_cols = {row["name"] for row in conn.execute("PRAGMA table_info(accounts)")}
     if "tracked" not in account_cols:
         with conn:
@@ -181,6 +197,20 @@ def _migrate(conn):
             for col in missing:
                 conn.execute(f"ALTER TABLE match_participants ADD COLUMN {col} INTEGER")
         _backfill_from_raw(conn, missing)
+
+
+def _backfill_local_time(conn):
+    """用 game_creation 重算本地時間欄位。換過時區的話手動清空這三欄再跑一次就會重建。"""
+    rows = conn.execute(
+        "SELECT platform_id, game_id, game_creation FROM matches WHERE local_date IS NULL"
+    ).fetchall()
+    with conn:
+        conn.executemany(
+            """UPDATE matches SET local_date = ?, local_weekday = ?, local_hour = ?
+               WHERE platform_id = ? AND game_id = ?""",
+            [(*local_buckets(r["game_creation"]), r["platform_id"], r["game_id"]) for r in rows],
+        )
+    return len(rows)
 
 
 def _backfill_from_raw(conn, columns):
@@ -202,6 +232,18 @@ def _backfill_from_raw(conn, columns):
                 WHERE platform_id = ? AND game_id = ? AND participant_id = ?""",
             updates,
         )
+
+
+def local_buckets(game_creation_ms):
+    """把對局開始時間換算成本地的 (日期, 星期, 小時)。星期 0 = 週日,和 strftime('%w') 一致。"""
+    if not game_creation_ms:
+        return None, None, None
+    moment = datetime.datetime.fromtimestamp(game_creation_ms / 1000)
+    return (
+        moment.strftime("%Y-%m-%d"),
+        (moment.weekday() + 1) % 7,   # Python 的 weekday() 週一=0,這裡改成週日=0
+        moment.hour,
+    )
 
 
 def _num(stats, key, default=0):
@@ -243,8 +285,9 @@ def store_match(conn, game):
         cur = conn.execute(
             """INSERT OR IGNORE INTO matches
                (platform_id, game_id, queue_id, game_mode, game_version, map_id,
-                game_creation, game_duration, ended_surrender, raw_json, ingested_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                game_creation, game_duration, ended_surrender,
+                local_date, local_weekday, local_hour, raw_json, ingested_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 platform_id,
                 game_id,
@@ -255,6 +298,7 @@ def store_match(conn, game):
                 game.get("gameCreation"),
                 game.get("gameDuration"),
                 1 if _num(first_stats, "gameEndedInSurrender") else 0,
+                *local_buckets(game.get("gameCreation")),
                 json.dumps(game, ensure_ascii=False),
                 int(time.time()),
             ),

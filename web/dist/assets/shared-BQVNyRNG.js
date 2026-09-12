@@ -1,1 +1,0 @@
-var e=e=>e.toFixed(1),t=e=>Math.round(e).toLocaleString(),n=e=>e.toFixed(2);export{e as n,n as r,t};

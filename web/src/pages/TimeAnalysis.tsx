@@ -1,14 +1,123 @@
+import { useEffect, useMemo, useState } from "react"
+import { X } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Panel, EmptyState, Kpi } from "@/components/primitives"
-import { Heatmap, BarChart, type HeatCell, type BarDatum } from "@/components/charts"
+import { AgTable, type GridColumn } from "@/components/AgTable"
+import {
+  DailyChart,
+  Heatmap,
+  BarChart,
+  type DayDatum,
+  type HeatCell,
+  type BarDatum,
+} from "@/components/charts"
+import { MatchDetail, type MatchRow } from "@/pages/Matches"
 import { useCube } from "@/hooks/useCube"
 import { num } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 
 const WEEKDAYS = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"]
 
+/** 目前下鑽到哪一塊。date 是某一天，slot 是某個星期幾的某個時段。 */
+type Slice =
+  | { kind: "date"; date: string }
+  | { kind: "slot"; weekday: number; hour: number }
+
+const sliceLabel = (s: Slice) =>
+  s.kind === "date" ? s.date : `${WEEKDAYS[s.weekday]} ${String(s.hour).padStart(2, "0")}:00`
+
+const sliceQuery = (s: Slice) =>
+  s.kind === "date" ? `date=${s.date}` : `weekday=${s.weekday}&hour=${s.hour}`
+
+const fmtTime = (ms: number) =>
+  new Date(ms).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
+
+const MATCH_COLUMNS: GridColumn[] = [
+  { key: "champion_name", title: "英雄", kind: "dimension", iconKey: "champion_icon" },
+  { key: "when", title: "時間", kind: "dimension" },
+  { key: "result", title: "結果", kind: "dimension" },
+  { key: "kda_text", title: "K / D / A", kind: "dimension" },
+  { key: "kda", title: "KDA", kind: "metric", format: (n) => n.toFixed(2) },
+  { key: "dmg_to_champions", title: "對英雄傷害", kind: "metric", format: (n) => Math.round(n).toLocaleString() },
+  { key: "gold_earned", title: "取得金錢", kind: "metric", format: (n) => Math.round(n).toLocaleString() },
+  { key: "duration_min", title: "時長(分)", kind: "metric", format: (n) => n.toFixed(1) },
+]
+
+/** 下鑽面板：先列出這一塊的每一場，再點一場看完整戰報。 */
+function SliceMatches({ slice, puuid, queueId }: { slice: Slice; puuid?: string; queueId: string | null }) {
+  const [rows, setRows] = useState<MatchRow[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [picked, setPicked] = useState<{ platformId: string; gameId: number } | null>(null)
+
+  useEffect(() => {
+    setRows(null)
+    setError(null)
+    setPicked(null)
+    const params = new URLSearchParams(sliceQuery(slice))
+    params.set("limit", "200")
+    if (puuid) params.set("puuid", puuid)
+    if (queueId) params.set("queue", queueId)
+    fetch(`/api/matches?${params}`)
+      .then((r) => r.json())
+      .then((d: { matches: MatchRow[] }) => setRows(d.matches))
+      .catch((e: Error) => setError(e.message))
+  }, [slice, puuid, queueId])
+
+  if (picked) {
+    return (
+      <MatchDetail
+        platformId={picked.platformId}
+        gameId={picked.gameId}
+        puuid={puuid}
+        onBack={() => setPicked(null)}
+      />
+    )
+  }
+
+  if (error) return <div className="text-sm text-destructive">{error}</div>
+  if (!rows) return <Skeleton className="h-[260px] w-full" />
+  if (!rows.length) return <EmptyState>這一塊沒有對局。</EmptyState>
+
+  const table = rows.map((m) => {
+    const deaths = m.deaths || 1
+    return {
+      ...m,
+      when: fmtTime(m.game_creation),
+      result: m.win ? "勝" : "敗",
+      kda_text: `${m.kills} / ${m.deaths} / ${m.assists}`,
+      kda: (m.kills + m.assists) / deaths,
+      duration_min: m.game_duration / 60,
+    }
+  })
+
+  return (
+    <div className="space-y-2">
+      <AgTable
+        columns={MATCH_COLUMNS}
+        rows={table as unknown as Record<string, unknown>[]}
+        height={Math.min(460, 120 + rows.length * 38)}
+        fileName={`matches-${sliceLabel(slice).replace(/[ :]/g, "")}`}
+        onDrill={(_col, _value, row) =>
+          setPicked({ platformId: String(row.platform_id), gameId: Number(row.game_id) })
+        }
+      />
+      <p className="text-[11px] text-muted-foreground">雙擊「英雄」或「時間」那一格，看該場的完整戰報。</p>
+    </div>
+  )
+}
+
 export function TimeAnalysis() {
-  const { apply } = useFilters()
+  const { apply, account, queueId } = useFilters()
+  const [slice, setSlice] = useState<Slice | null>(null)
+
+  const daily = useCube(
+    apply({
+      measures: ["participants.games", "participants.winrate"],
+      dimensions: ["matches.local_date"],
+      limit: 400,
+    }),
+  )
 
   const heat = useCube(
     apply({
@@ -32,6 +141,19 @@ export function TimeAnalysis() {
       dimensions: ["matches.duration_bucket"],
       limit: 10,
     }),
+  )
+
+  const days: DayDatum[] = useMemo(
+    () =>
+      daily.rows
+        .map((r) => ({
+          date: String(r["matches.local_date"] ?? ""),
+          games: num(r["participants.games"]) ?? 0,
+          winrate: num(r["participants.winrate"]),
+        }))
+        .filter((d) => d.date)
+        .sort((a, b) => a.date.localeCompare(b.date)),
+    [daily.rows],
   )
 
   const cells: HeatCell[] = heat.rows.map((r) => ({
@@ -64,31 +186,61 @@ export function TimeAnalysis() {
       <div className="grid gap-3 sm:grid-cols-3">
         <Kpi label="總場次" value={String(totalGames)} loading={heat.loading} />
         <Kpi
-          label="有打過的時段"
-          value={`${activeCells} / 168`}
-          hint="星期 × 小時共 168 格"
-          loading={heat.loading}
+          label="打過的日子"
+          value={String(days.length)}
+          hint={days.length ? `${days[0].date} 起` : undefined}
+          loading={daily.loading}
         />
         <Kpi
           label="最常打的時段"
           value={
-            busiest
-              ? `${WEEKDAYS[busiest.weekday]} ${String(busiest.hour).padStart(2, "0")}:00`
-              : "—"
+            busiest ? `${WEEKDAYS[busiest.weekday]} ${String(busiest.hour).padStart(2, "0")}:00` : "—"
           }
-          hint={busiest ? `${busiest.games} 場` : undefined}
+          hint={busiest ? `${busiest.games} 場・${activeCells} / 168 格有資料` : undefined}
           loading={heat.loading}
         />
       </div>
 
+      <Panel title="每天的場次與勝率" caption="長條是場次，折線是勝率，虛線是你的整體水準。點任一天可以看那天的每一場">
+        {daily.loading ? (
+          <Skeleton className="h-[260px] w-full" />
+        ) : days.length ? (
+          <DailyChart
+            days={days}
+            selected={slice?.kind === "date" ? slice.date : null}
+            onPick={(date) => setSlice({ kind: "date", date })}
+          />
+        ) : (
+          <EmptyState>這個條件下還沒有資料。</EmptyState>
+        )}
+      </Panel>
+
+      {slice && (
+        <Panel
+          title={`${sliceLabel(slice)} 的每一場`}
+          action={
+            <Button size="sm" variant="ghost" onClick={() => setSlice(null)}>
+              <X className="size-3.5" />
+              收起
+            </Button>
+          }
+        >
+          <SliceMatches slice={slice} puuid={account?.puuid} queueId={queueId} />
+        </Panel>
+      )}
+
       <Panel
         title="星期 × 時段"
-        caption={`同一格是所有週日的同一時段加總，不是單一天——共 ${totalGames} 場攤在 168 格裡，單格場次少時勝率別當真`}
+        caption={`同一格是所有週日的同一時段加總，不是單一天——共 ${totalGames} 場攤在 168 格裡。場次少的格子顏色會自動變淡，點一下可以看那個時段的每一場`}
       >
         {heat.loading ? (
-          <Skeleton className="h-[300px] w-full" />
+          <Skeleton className="h-[260px] w-full" />
         ) : cells.length ? (
-          <Heatmap cells={cells} />
+          <Heatmap
+            cells={cells}
+            selected={slice?.kind === "slot" ? { weekday: slice.weekday, hour: slice.hour } : null}
+            onPick={({ weekday, hour }) => setSlice({ kind: "slot", weekday, hour })}
+          />
         ) : (
           <EmptyState>這個條件下還沒有資料。</EmptyState>
         )}
@@ -105,7 +257,7 @@ export function TimeAnalysis() {
           )}
         </Panel>
 
-        <Panel title="對局長度與勝率" caption="打得快是不是比較容易贏？">
+        <Panel title="對局長度與勝率" caption="注意因果方向：贏的時候通常推得快，所以短局勝率高多半是結果、不是原因">
           {byDuration.loading ? (
             <Skeleton className="h-[220px] w-full" />
           ) : durationBars.length ? (

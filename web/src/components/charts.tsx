@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import ReactECharts from "echarts-for-react"
 
 /** 包一層尺寸觀察。
@@ -21,14 +21,28 @@ function ResponsiveChart({
 }) {
   const boxRef = useRef<HTMLDivElement>(null)
   const instance = useRef<EChartsInstance | null>(null)
+  const [width, setWidth] = useState(0)
 
   useEffect(() => {
     const box = boxRef.current
     if (!box) return
-    const observer = new ResizeObserver(() => instance.current?.resize())
+    const sync = () => {
+      const w = box.clientWidth
+      setWidth(w)
+      if (w > 0) instance.current?.resize()
+    }
+    sync()
+    const observer = new ResizeObserver(sync)
     observer.observe(box)
     return () => observer.disconnect()
   }, [])
+
+  // 寬度還是 0 就先不要建立圖表。ECharts 在掛載當下量寬度,量到 0 就不會產生
+  // canvas,而且之後只能靠 resize 救回來——分頁在背景時瀏覽器會把 ResizeObserver
+  // 一起節流,那個 resize 可能好幾秒後才來,圖就一直是空白的。
+  if (width === 0) {
+    return <div ref={boxRef} className="w-full" style={{ height }} />
+  }
 
   return (
     <div ref={boxRef} className="w-full">
@@ -46,6 +60,46 @@ function ResponsiveChart({
       />
     </div>
   )
+}
+
+/** 把任何 CSS 顏色字串解析成 [r,g,b]。
+ *
+ *  專案的主題色是 oklch()。canvas 的 fillStyle 看得懂它,所以單純填色沒問題,
+ *  但 ECharts 的 visualMap 漸層是交給 zrender 自己做內插的,而 zrender 解析不了
+ *  oklch——漸層會整個塌掉。實測結果是熱力圖完全沒有顏色,只剩背景的棋盤格。
+ *  這裡借畫布讓瀏覽器幫我們解析,之後所有內插都自己算,只餵 ECharts 純 rgb()。 */
+const rgbCache = new Map<string, [number, number, number]>()
+
+function toRgb(color: string): [number, number, number] {
+  const hit = rgbCache.get(color)
+  if (hit) return hit
+  let out: [number, number, number] = [128, 128, 128]
+  try {
+    const canvas = document.createElement("canvas")
+    canvas.width = canvas.height = 1
+    const ctx = canvas.getContext("2d", { willReadFrequently: true })!
+    ctx.fillStyle = color
+    ctx.fillRect(0, 0, 1, 1)
+    const d = ctx.getImageData(0, 0, 1, 1).data
+    out = [d[0], d[1], d[2]]
+  } catch {
+    /* 解析不了就用中性灰，總比整張圖沒顏色好 */
+  }
+  rgbCache.set(color, out)
+  return out
+}
+
+const mix = (a: string, b: string, t: number) => {
+  const [r1, g1, b1] = toRgb(a)
+  const [r2, g2, b2] = toRgb(b)
+  const k = Math.max(0, Math.min(1, t))
+  return `rgb(${Math.round(r1 + (r2 - r1) * k)},${Math.round(g1 + (g2 - g1) * k)},${Math.round(b1 + (b2 - b1) * k)})`
+}
+
+/** 文字要黑要白，看背景亮度決定。 */
+const readableOn = (color: string) => {
+  const [r, g, b] = toRgb(color)
+  return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? "#0f1520" : "#eef1f8"
 }
 
 /** 從 CSS 變數讀主題色，讓圖表跟著 shadcn 的主題走，不要另外寫死一組色。 */
@@ -79,6 +133,8 @@ function baseTooltip(theme: ReturnType<typeof useTheme>) {
     padding: [8, 12],
   }
 }
+
+const WEEKDAYS = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"]
 
 // ─────────────────────────────────────────── 勝率趨勢
 
@@ -143,69 +199,158 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
 
 export type HeatCell = { weekday: number; hour: number; games: number; winrate: number | null }
 
-const WEEKDAYS = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"]
+/** 樣本數多少才算「這格的勝率可以看」。低於這個數會被拉回整體平均。 */
+const SHRINK_K = 6
+/** 顏色飽和到頂的偏離幅度。用 ±20 個百分點,不是 0~100,否則真實差距全被壓成一團。 */
+const SPREAD = 20
 
-export function Heatmap({ cells }: { cells: HeatCell[] }) {
-  const theme = useTheme()
-
-  const option = useMemo(() => {
-    const data = cells.map((c) => [c.hour, c.weekday, c.winrate ?? 0, c.games])
-    return {
-      grid: { left: 52, right: 24, top: 16, bottom: 56 },
-      tooltip: {
-        ...baseTooltip(theme),
-        formatter: (p: { data: number[] }) =>
-          `${WEEKDAYS[p.data[1]]} ${String(p.data[0]).padStart(2, "0")}:00<br/>` +
-          `${p.data[3]} 場 · 勝率 ${p.data[2].toFixed(1)}%`,
-      },
-      xAxis: {
-        type: "category",
-        data: Array.from({ length: 24 }, (_, i) => String(i)),
-        splitArea: { show: true },
-        axisLabel: { color: theme.muted, fontSize: 10 },
-        axisLine: { lineStyle: { color: theme.border } },
-      },
-      yAxis: {
-        type: "category",
-        data: WEEKDAYS,
-        splitArea: { show: true },
-        axisLabel: { color: theme.muted, fontSize: 11 },
-        axisLine: { lineStyle: { color: theme.border } },
-      },
-      visualMap: {
-        min: 0,
-        max: 100,
-        calculable: false,
-        orient: "horizontal",
-        left: "center",
-        bottom: 4,
-        itemWidth: 12,
-        itemHeight: 90,
-        text: ["勝率高", "勝率低"],
-        textStyle: { color: theme.muted, fontSize: 11 },
-        inRange: { color: [theme.loss, "#4a5568", theme.win] },
-      },
-      series: [
-        {
-          type: "heatmap",
-          data,
-          label: {
-            show: true,
-            formatter: (p: { data: number[] }) => (p.data[3] ? String(p.data[3]) : ""),
-            color: theme.text,
-            fontSize: 10,
-          },
-          itemStyle: { borderColor: theme.card, borderWidth: 1, borderRadius: 3 },
-          emphasis: { itemStyle: { borderColor: theme.primary, borderWidth: 2 } },
-        },
-      ],
-    }
-  }, [cells, theme])
-
-  return <ResponsiveChart option={option} height={300} />
+/** 把一格的勝率往整體平均收縮。
+ *
+ *  一場 100% 和二十場 60%,原始數字看起來前者比較強,但前者只是還沒輸過而已。
+ *  收縮之後 (wins + k*base) / (n + k),一場的格子幾乎貼著平均、顏色很淡,
+ *  場次夠多才會真的往兩端跑。這樣顏色本身就帶著「可不可信」的資訊。 */
+function shrunk(games: number, winrate: number | null, base: number) {
+  if (!games || winrate === null) return base
+  const wins = (winrate / 100) * games
+  return ((wins + SHRINK_K * (base / 100)) / (games + SHRINK_K)) * 100
 }
 
-// ─────────────────────────────────────────── 橫向長條圖
+export function Heatmap({
+  cells,
+  selected,
+  onPick,
+}: {
+  cells: HeatCell[]
+  /** 目前下鑽中的格子,會打上外框。 */
+  selected?: { weekday: number; hour: number } | null
+  onPick?: (cell: { weekday: number; hour: number }) => void
+}) {
+  const theme = useTheme()
+
+  const { option, base } = useMemo(() => {
+    const totalGames = cells.reduce((sum, c) => sum + c.games, 0)
+    const totalWins = cells.reduce((sum, c) => sum + (c.games * (c.winrate ?? 0)) / 100, 0)
+    const base = totalGames ? (totalWins / totalGames) * 100 : 50
+
+    // 空格也要畫出來,否則會分不清「沒打過」和「打過但勝率中庸」。
+    const byKey = new Map(cells.map((c) => [`${c.weekday}:${c.hour}`, c]))
+    // 空格要看得出來是「格子」，否則 168 格的版面會散掉，也分不清沒打過和打過但普通
+    const empty = mix(theme.card, theme.muted, 0.28)
+    const neutral = mix(theme.card, theme.muted, 0.85)
+
+    const data = []
+    for (let wd = 0; wd < 7; wd++) {
+      for (let hour = 0; hour < 24; hour++) {
+        const cell = byKey.get(`${wd}:${hour}`)
+        const games = cell?.games ?? 0
+        const adjusted = shrunk(games, cell?.winrate ?? null, base)
+        const deviation = (adjusted - base) / SPREAD // -1 ~ 1
+        const color = !games
+          ? empty
+          : mix(neutral, deviation >= 0 ? theme.win : theme.loss, Math.min(1, Math.abs(deviation)))
+        const isSelected = selected && selected.weekday === wd && selected.hour === hour
+        data.push({
+          value: [hour, wd, games, cell?.winrate ?? null, adjusted],
+          itemStyle: {
+            color,
+            borderColor: isSelected ? theme.primary : theme.card,
+            borderWidth: isSelected ? 2 : 1,
+          },
+          label: { color: games ? readableOn(color) : "transparent" },
+        })
+      }
+    }
+
+    return {
+      base,
+      option: {
+        grid: { left: 46, right: 16, top: 10, bottom: 26 },
+        tooltip: {
+          ...baseTooltip(theme),
+          formatter: (p: { value: [number, number, number, number | null, number] }) => {
+            const [hour, wd, games, raw, adj] = p.value
+            const when = `${WEEKDAYS[wd]} ${String(hour).padStart(2, "0")}:00`
+            if (!games) return `${when}<br/>沒有對局`
+            const wins = Math.round(((raw ?? 0) / 100) * games)
+            const note =
+              games < SHRINK_K
+                ? `<br/><span style="opacity:.7">只有 ${games} 場，顏色已往整體 ${base.toFixed(0)}% 收斂</span>`
+                : ""
+            return (
+              `${when}<br/>${games} 場 · ${wins} 勝 ${games - wins} 敗` +
+              `<br/>勝率 ${(raw ?? 0).toFixed(1)}%（校正後 ${adj.toFixed(1)}%）${note}`
+            )
+          },
+        },
+        xAxis: {
+          type: "category",
+          data: Array.from({ length: 24 }, (_, i) => String(i)),
+          splitArea: { show: false },
+          axisLabel: { color: theme.muted, fontSize: 10, interval: 1 },
+          axisLine: { show: false },
+          axisTick: { show: false },
+        },
+        yAxis: {
+          type: "category",
+          data: WEEKDAYS,
+          splitArea: { show: false },
+          axisLabel: { color: theme.muted, fontSize: 11 },
+          axisLine: { show: false },
+          axisTick: { show: false },
+        },
+        series: [
+          {
+            type: "heatmap",
+            data,
+            label: { show: true, formatter: (p: { value: number[] }) => (p.value[2] ? String(p.value[2]) : ""), fontSize: 10 },
+            itemStyle: { borderRadius: 3 },
+            emphasis: { itemStyle: { borderColor: theme.primary, borderWidth: 2 } },
+          },
+        ],
+      },
+    }
+  }, [cells, selected, theme])
+
+  return (
+    <div className="space-y-2">
+      <ResponsiveChart
+        option={option}
+        height={260}
+        onEvent={
+          onPick
+            ? { click: (p: { value?: number[] }) => p.value && onPick({ weekday: p.value[1], hour: p.value[0] }) }
+            : undefined
+        }
+      />
+      <HeatLegend base={base} theme={theme} />
+    </div>
+  )
+}
+
+/** 自己畫圖例。ECharts 的 visualMap 會用 zrender 內插主題色,而它解析不了 oklch。 */
+function HeatLegend({ base, theme }: { base: number; theme: ReturnType<typeof useTheme> }) {
+  const neutral = mix(theme.card, theme.muted, 0.85)
+  const steps = [-1, -0.6, -0.3, 0, 0.3, 0.6, 1]
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+      <span>勝率低</span>
+      <span className="flex overflow-hidden rounded">
+        {steps.map((d) => (
+          <span
+            key={d}
+            className="h-3 w-6"
+            style={{ background: mix(neutral, d >= 0 ? theme.win : theme.loss, Math.abs(d)) }}
+          />
+        ))}
+      </span>
+      <span>勝率高</span>
+      <span className="opacity-70">
+        中間 = 你的整體 {base.toFixed(1)}%，兩端 = ±{SPREAD} 個百分點；格子裡的數字是場次
+      </span>
+    </div>
+  )
+}
+
 
 export type BarDatum = { label: string; value: number; games: number }
 
@@ -418,6 +563,123 @@ export function TreemapChart({
       option={option}
       height={380}
       onEvent={onPick ? { click: (p: { name?: string }) => p.name && onPick(p.name) } : undefined}
+    />
+  )
+}
+
+// ─────────────────────────────────────────── 每日戰績（場次 + 勝率）
+
+export type DayDatum = { date: string; games: number; winrate: number | null }
+
+/** 一天一組：長條是場次，折線是勝率。
+ *
+ *  兩個指標量級差很多（場次個位數、勝率 0~100），所以分兩個 y 軸。
+ *  場次少的那天勝率本來就跳，折線的點會跟著場次縮小,提醒那天別多看。 */
+export function DailyChart({
+  days,
+  selected,
+  onPick,
+}: {
+  days: DayDatum[]
+  selected?: string | null
+  onPick?: (date: string) => void
+}) {
+  const theme = useTheme()
+
+  const option = useMemo(() => {
+    const maxGames = Math.max(1, ...days.map((d) => d.games))
+    const total = days.reduce((a, d) => a + d.games, 0)
+    const wins = days.reduce((a, d) => a + (d.games * (d.winrate ?? 0)) / 100, 0)
+    const base = total ? (wins / total) * 100 : 50
+    return {
+      grid: { left: 40, right: 44, top: 16, bottom: 48 },
+      tooltip: {
+        trigger: "axis",
+        ...baseTooltip(theme),
+        formatter: (ps: { dataIndex: number }[]) => {
+          const d = days[ps[0].dataIndex]
+          const w = Math.round(((d.winrate ?? 0) / 100) * d.games)
+          return `${d.date}<br/>${d.games} 場 · ${w} 勝 ${d.games - w} 敗<br/>勝率 ${(d.winrate ?? 0).toFixed(1)}%<br/><span style="opacity:.7">點一下看這天的每一場</span>`
+        },
+      },
+      xAxis: {
+        type: "category",
+        data: days.map((d) => d.date.slice(5)),
+        axisLabel: { color: theme.muted, fontSize: 10, rotate: days.length > 12 ? 45 : 0 },
+        axisLine: { lineStyle: { color: theme.border } },
+        axisTick: { show: false },
+      },
+      yAxis: [
+        {
+          type: "value",
+          name: "場次",
+          nameTextStyle: { color: theme.muted, fontSize: 10 },
+          max: Math.ceil(maxGames * 1.25),
+          axisLabel: { color: theme.muted, fontSize: 10 },
+          splitLine: { lineStyle: { color: theme.border } },
+        },
+        {
+          type: "value",
+          name: "勝率",
+          nameTextStyle: { color: theme.muted, fontSize: 10 },
+          min: 0,
+          max: 100,
+          axisLabel: { color: theme.muted, fontSize: 10, formatter: "{value}%" },
+          splitLine: { show: false },
+        },
+      ],
+      series: [
+        {
+          type: "bar",
+          name: "場次",
+          data: days.map((d) => ({
+            value: d.games,
+            itemStyle: {
+              color: selected === d.date ? theme.primary : mix(theme.card, theme.muted, 0.9),
+              borderRadius: [3, 3, 0, 0],
+            },
+          })),
+          barMaxWidth: 26,
+        },
+        {
+          type: "line",
+          name: "勝率",
+          yAxisIndex: 1,
+          data: days.map((d) => d.winrate),
+          smooth: false,
+          connectNulls: true,
+          lineStyle: { color: theme.primary, width: 2 },
+          itemStyle: { color: theme.primary },
+          // 點的大小跟著場次走，一兩場的那天不會看起來和二十場一樣有份量
+          symbolSize: (_v: unknown, p: { dataIndex: number }) =>
+            4 + 8 * Math.sqrt((days[p.dataIndex]?.games ?? 0) / maxGames),
+          markLine: {
+            silent: true,
+            symbol: "none",
+            data: [{ yAxis: base }],
+            lineStyle: { color: theme.muted, type: "dashed", width: 1 },
+            label: {
+              formatter: `整體 ${base.toFixed(1)}%`,
+              color: theme.muted,
+              fontSize: 10,
+              position: "insideEndTop",
+            },
+          },
+        },
+      ],
+    }
+  }, [days, selected, theme])
+
+  return (
+    <ResponsiveChart
+      option={option}
+      height={260}
+      onEvent={
+        onPick ? { click: (p: { dataIndex?: number }) => {
+          const d = days[p.dataIndex ?? -1]
+          if (d) onPick(d.date)
+        } } : undefined
+      }
     />
   )
 }
