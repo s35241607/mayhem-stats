@@ -35,6 +35,19 @@ New-NetFirewallRule -DisplayName "Mayhem: 封鎖 Cube 對外連線" -Direction I
 
 ## 畫面
 
+### 一路挖下去：圖表 → 那一天的每一場 → 單場完整戰報
+
+![下鑽示範](docs/screenshots/drilldown.gif)
+
+點每日圖裡的某一天，就列出那天的每一場；再雙擊一列，就是那場 10 個人的完整戰報
+（出裝、增幅、KDA、經濟）。熱力圖的格子也可以這樣點。
+
+### 自由探索：換個圖表型態看同一份資料
+
+![自由探索示範](docs/screenshots/explore.gif)
+
+維度和指標可以拖曳配置，右上角隨時切換表格／長條／散布／佔比。
+
 ### 敗因分析——輸的時候，哪些數字和贏的時候不一樣
 
 ![敗因分析](docs/screenshots/losses.png)
@@ -53,11 +66,7 @@ New-NetFirewallRule -DisplayName "Mayhem: 封鎖 Cube 對外連線" -Direction I
 
 ![增幅裝置](docs/screenshots/augments.png)
 
-### 自由探索——自己組維度和指標
-
-![自由探索](docs/screenshots/explore.png)
-
-指標定義集中在語意層，這頁的選單直接由模型產生——模型裡加一個指標，這裡就多一個選項。
+指標定義集中在語意層，自由探索的選單直接由模型產生——模型裡加一個指標，那頁就多一個選項。
 
 ## 全部分頁
 
@@ -168,4 +177,6 @@ cd web && npm install && npm run build
 所有運算和儲存都在你自己的電腦上，不會把任何資料送到任何伺服器。
 
 資料庫裡會有同場其他玩家的名稱（做隊友分析的必要資料），一樣只留在本機。
-**上面的截圖裡所有玩家名稱都是假的**，是截圖時就在 API 層換掉的。
+
+**上面的截圖與 GIF 裡，所有玩家名稱都是假的**——錄製時在 API 層就換成假名了，
+不是事後修圖。隊友頁和對局列表這種會整排列出他人帳號的畫面，一律不放進 repo。
