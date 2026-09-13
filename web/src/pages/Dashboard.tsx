@@ -49,7 +49,7 @@ function TopList({
             onClick={() => addDrill(drill(name))}
             className="flex w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left transition hover:bg-accent"
           >
-            <img src={iconUrl(r[iconKey] as string)} alt="" className="size-7 shrink-0 rounded-md bg-secondary" />
+            <img src={iconUrl(r[iconKey] as string)} alt="" className="size-7 shrink-0 rounded-md bg-icon-tile" />
             <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
             <span className="text-xs text-muted-foreground">{n} 場</span>
             <Badge

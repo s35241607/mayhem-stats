@@ -46,6 +46,8 @@
   --silver: #b9c4d6;
   --glow: rgb(34 211 238 / 9%);
   --grid-line: rgb(125 185 255 / 4%);
+  /* 圖示底塊。增幅圖示是白色線條的透明圖，亮色主題也必須墊深色，否則白線直接消失 */
+  --icon-tile: var(--secondary);
 
   --chart-1: #8272f2;
   --chart-2: #129bc9;
@@ -157,6 +159,55 @@
   --sidebar-ring: #3ee08f;
 }
 
+/* 紫電：深紫底、紫光強調 */
+[data-theme="violet"] {
+  color-scheme: dark;
+  --background: #0a0714;
+  --foreground: #efe8ff;
+  --card: #150f24;
+  --card-foreground: #efe8ff;
+  --popover: #181129;
+  --popover-foreground: #efe8ff;
+  --primary: #c084fc;
+  --primary-foreground: #1a0b2e;
+  --secondary: #211836;
+  --secondary-foreground: #efe8ff;
+  --muted: #211836;
+  --muted-foreground: #9a8cb8;
+  --accent: #241a3b;
+  --accent-foreground: #efe8ff;
+  --destructive: #f0506e;
+  --border: rgb(190 150 255 / 13%);
+  --input: rgb(190 150 255 / 17%);
+  --ring: #c084fc;
+
+  --win: #2f9fd8;
+  --loss: #e0508f;
+  --data: #b08408;
+  --prismatic: #d6a8ff;
+  --gold: #f0c35a;
+  --silver: #bdb6cf;
+  --glow: rgb(192 132 252 / 10%);
+  --grid-line: rgb(190 150 255 / 4%);
+
+  --chart-1: #b08408;
+  --chart-2: #2f9fd8;
+  --chart-3: #c084fc;
+  --chart-4: #d6a8ff;
+  --chart-5: #f0c35a;
+
+  --sidebar: #100b1d;
+  --sidebar-foreground: #efe8ff;
+  --sidebar-primary: #c084fc;
+  --sidebar-primary-foreground: #1a0b2e;
+  --sidebar-accent: #1e1633;
+  --sidebar-accent-foreground: #efe8ff;
+  --sidebar-border: rgb(190 150 255 / 11%);
+  --sidebar-ring: #c084fc;
+}
+
+/* ─────────────────────────── 亮色 ─────────────────────────── */
+
 /* 晨光：淺色 */
 [data-theme="daylight"] {
   color-scheme: light;
@@ -187,6 +238,7 @@
   --silver: #64748b;
   --glow: rgb(37 99 235 / 7%);
   --grid-line: rgb(15 23 42 / 4%);
+  --icon-tile: #1e2533;
 
   --chart-1: #b8740f;
   --chart-2: #1f6fd1;
@@ -202,6 +254,150 @@
   --sidebar-accent-foreground: #0f172a;
   --sidebar-border: rgb(15 23 42 / 9%);
   --sidebar-ring: #2563eb;
+}
+
+/* 薄荷：淡綠白、翠綠強調 */
+[data-theme="mint"] {
+  color-scheme: light;
+  --background: #eef7f3;
+  --foreground: #0f2a22;
+  --card: #fbfefc;
+  --card-foreground: #0f2a22;
+  --popover: #ffffff;
+  --popover-foreground: #0f2a22;
+  --primary: #0f9d77;
+  --primary-foreground: #ffffff;
+  --secondary: #e3f1eb;
+  --secondary-foreground: #0f2a22;
+  --muted: #e3f1eb;
+  --muted-foreground: #52706a;
+  --accent: #dcefe7;
+  --accent-foreground: #0f2a22;
+  --destructive: #d9362b;
+  --border: rgb(15 60 45 / 11%);
+  --input: rgb(15 60 45 / 15%);
+  --ring: #0f9d77;
+
+  --win: #0088ab;
+  --loss: #d4502e;
+  --data: #6a55d8;
+  --prismatic: #7c4ddb;
+  --gold: #a36a00;
+  --silver: #5f7470;
+  --glow: rgb(15 157 119 / 8%);
+  --grid-line: rgb(15 60 45 / 4%);
+  --icon-tile: #1b2a25;
+
+  --chart-1: #6a55d8;
+  --chart-2: #0088ab;
+  --chart-3: #0f9d77;
+  --chart-4: #7c4ddb;
+  --chart-5: #a36a00;
+
+  --sidebar: #e6f3ed;
+  --sidebar-foreground: #0f2a22;
+  --sidebar-primary: #0f9d77;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #d6ebe2;
+  --sidebar-accent-foreground: #0f2a22;
+  --sidebar-border: rgb(15 60 45 / 9%);
+  --sidebar-ring: #0f9d77;
+}
+
+/* 櫻花：淡粉白、桃紅強調 */
+[data-theme="sakura"] {
+  color-scheme: light;
+  --background: #fbf1f5;
+  --foreground: #2b1420;
+  --card: #fffafc;
+  --card-foreground: #2b1420;
+  --popover: #ffffff;
+  --popover-foreground: #2b1420;
+  --primary: #db2777;
+  --primary-foreground: #ffffff;
+  --secondary: #f6e6ee;
+  --secondary-foreground: #2b1420;
+  --muted: #f6e6ee;
+  --muted-foreground: #7a5566;
+  --accent: #f3dde8;
+  --accent-foreground: #2b1420;
+  --destructive: #c9302c;
+  --border: rgb(80 20 45 / 11%);
+  --input: rgb(80 20 45 / 15%);
+  --ring: #db2777;
+
+  --win: #2a6fc9;
+  --loss: #d0461f;
+  --data: #0e8f7e;
+  --prismatic: #8b4fd6;
+  --gold: #a06400;
+  --silver: #6f6470;
+  --glow: rgb(219 39 119 / 7%);
+  --grid-line: rgb(80 20 45 / 4%);
+  --icon-tile: #2a1f27;
+
+  --chart-1: #0e8f7e;
+  --chart-2: #2a6fc9;
+  --chart-3: #db2777;
+  --chart-4: #8b4fd6;
+  --chart-5: #a06400;
+
+  --sidebar: #f7e9ef;
+  --sidebar-foreground: #2b1420;
+  --sidebar-primary: #db2777;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #efd9e3;
+  --sidebar-accent-foreground: #2b1420;
+  --sidebar-border: rgb(80 20 45 / 9%);
+  --sidebar-ring: #db2777;
+}
+
+/* 沙丘：米白、琥珀強調 */
+[data-theme="sand"] {
+  color-scheme: light;
+  --background: #f6f1e7;
+  --foreground: #2a2116;
+  --card: #fffdf8;
+  --card-foreground: #2a2116;
+  --popover: #ffffff;
+  --popover-foreground: #2a2116;
+  --primary: #b45309;
+  --primary-foreground: #ffffff;
+  --secondary: #efe7d8;
+  --secondary-foreground: #2a2116;
+  --muted: #efe7d8;
+  --muted-foreground: #75674f;
+  --accent: #ebe1cf;
+  --accent-foreground: #2a2116;
+  --destructive: #c42d2d;
+  --border: rgb(70 50 20 / 12%);
+  --input: rgb(70 50 20 / 16%);
+  --ring: #b45309;
+
+  --win: #1d6fb8;
+  --loss: #c2410c;
+  --data: #10926d;
+  --prismatic: #7c4ddb;
+  --gold: #9a6400;
+  --silver: #6b6457;
+  --glow: rgb(180 83 9 / 7%);
+  --grid-line: rgb(70 50 20 / 4%);
+  --icon-tile: #2a251d;
+
+  --chart-1: #10926d;
+  --chart-2: #1d6fb8;
+  --chart-3: #b45309;
+  --chart-4: #7c4ddb;
+  --chart-5: #9a6400;
+
+  --sidebar: #f0e8da;
+  --sidebar-foreground: #2a2116;
+  --sidebar-primary: #b45309;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e6dac6;
+  --sidebar-accent-foreground: #2a2116;
+  --sidebar-border: rgb(70 50 20 / 10%);
+  --sidebar-ring: #b45309;
 }
 
 @theme inline {
@@ -226,6 +422,7 @@
   --color-win: var(--win);
   --color-loss: var(--loss);
   --color-data: var(--data);
+  --color-icon-tile: var(--icon-tile);
   --color-prismatic: var(--prismatic);
   --color-gold: var(--gold);
   --color-silver: var(--silver);

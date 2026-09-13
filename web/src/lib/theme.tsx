@@ -1,10 +1,20 @@
 import { createContext, useContext, useState, type ReactNode } from "react"
 
+// 色票依序是：底色、介面強調、勝、敗。勝敗兩極與資料色都跑過 dataviz 的配色驗證（見 index.css 開頭）。
 export const THEMES = [
   { id: "neon", label: "霓虹", hint: "深藍黑、青色光", dark: true, swatch: ["#070b16", "#22d3ee", "#129bc9", "#e3437c"] },
   { id: "matrix", label: "終端", hint: "黑綠、螢光綠", dark: true, swatch: ["#040906", "#3ee08f", "#17a874", "#df5f2e"] },
-  { id: "lava", label: "熔岩", hint: "原本的橘色", dark: true, swatch: ["#131a26", "#f07a3c", "#20a3a8", "#e0564e"] },
-  { id: "daylight", label: "晨光", hint: "淺色", dark: false, swatch: ["#f3f6fb", "#2563eb", "#1f6fd1", "#d6395f"] },
+  { id: "lava", label: "熔岩", hint: "深灰藍、橘色（原本的配色）", dark: true, swatch: ["#131a26", "#f07a3c", "#20a3a8", "#e0564e"] },
+  { id: "violet", label: "紫電", hint: "深紫、紫光", dark: true, swatch: ["#0a0714", "#c084fc", "#2f9fd8", "#e0508f"] },
+  { id: "daylight", label: "晨光", hint: "冷白、寶藍", dark: false, swatch: ["#f3f6fb", "#2563eb", "#1f6fd1", "#d6395f"] },
+  { id: "mint", label: "薄荷", hint: "淡綠白、翠綠", dark: false, swatch: ["#eef7f3", "#0f9d77", "#0088ab", "#d4502e"] },
+  { id: "sakura", label: "櫻花", hint: "淡粉白、桃紅", dark: false, swatch: ["#fbf1f5", "#db2777", "#2a6fc9", "#d0461f"] },
+  { id: "sand", label: "沙丘", hint: "米白、琥珀", dark: false, swatch: ["#f6f1e7", "#b45309", "#1d6fb8", "#c2410c"] },
+] as const
+
+export const THEME_GROUPS = [
+  { label: "暗色", dark: true },
+  { label: "亮色", dark: false },
 ] as const
 
 export type ThemeId = (typeof THEMES)[number]["id"]

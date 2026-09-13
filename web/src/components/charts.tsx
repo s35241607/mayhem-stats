@@ -241,7 +241,10 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
           smooth: 0.25,
           data: points.map((p) => [p.date, p.winrate]),
           lineStyle: { color: theme.data, width: 2, shadowBlur: 12, shadowColor: alpha(theme.data, 0.6) },
-          itemStyle: { color: theme.card, borderColor: theme.data, borderWidth: 2 },
+          // 暗色：空心點（卡片色填心）發光；亮色：白心在白底上像線斷掉，改成實心點加白框
+          // 折線預設的點是 emptyCircle，會無視 itemStyle.color 一律填白；要自己控制填色得指定成 circle
+          symbol: "circle",
+          itemStyle: theme.isDark ? { color: theme.card, borderColor: theme.data, borderWidth: 2 } : { color: theme.data, borderColor: theme.card, borderWidth: 2 },
           // 點的大小代表當天場次，避免只打一場的 0%／100% 看起來跟 20 場一樣重
           symbolSize: (_: unknown, params: { dataIndex: number }) =>
             8 + 10 * Math.sqrt(points[params.dataIndex].games / maxGames),
@@ -786,7 +789,10 @@ export function DailyChart({
           smooth: 0.25,
           connectNulls: true,
           lineStyle: { color: theme.data, width: 2, shadowBlur: 10, shadowColor: alpha(theme.data, 0.55) },
-          itemStyle: { color: theme.card, borderColor: theme.data, borderWidth: 2 },
+          // 暗色：空心點（卡片色填心）發光；亮色：白心在白底上像線斷掉，改成實心點加白框
+          // 折線預設的點是 emptyCircle，會無視 itemStyle.color 一律填白；要自己控制填色得指定成 circle
+          symbol: "circle",
+          itemStyle: theme.isDark ? { color: theme.card, borderColor: theme.data, borderWidth: 2 } : { color: theme.data, borderColor: theme.card, borderWidth: 2 },
           areaStyle: {
             color: {
               type: "linear",

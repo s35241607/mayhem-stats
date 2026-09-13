@@ -89,7 +89,7 @@ function ItemRow({ items, size = "size-7" }: { items: Item[]; size?: string }) {
             src={iconUrl(item.icon_path)}
             alt=""
             title={item.name ?? ""}
-            className={cn(size, "rounded bg-secondary", slot === 6 && "ml-1")}
+            className={cn(size, "rounded bg-icon-tile", slot === 6 && "ml-1")}
           />
         ) : (
           <div
@@ -111,7 +111,7 @@ function AugmentRow({ augments }: { augments: Augment[] }) {
           src={iconUrl(a.icon_path)}
           alt=""
           title={`${a.name ?? ""}${a.rarity ? `（${a.rarity.replace("k", "")}）` : ""}`}
-          className={cn("size-6 rounded bg-secondary ring-1", a.rarity ? RARITY_RING[a.rarity] : "ring-border")}
+          className={cn("size-6 rounded bg-icon-tile ring-1", a.rarity ? RARITY_RING[a.rarity] : "ring-border")}
         />
       ))}
     </div>
@@ -170,7 +170,7 @@ function Scoreboard({ players }: { players: Player[] }) {
                   <img
                     src={iconUrl(p.champion_icon)}
                     alt=""
-                    className="size-10 rounded-md bg-secondary"
+                    className="size-10 rounded-md bg-icon-tile"
                   />
                   <span className="absolute -bottom-1 -right-1 rounded bg-background px-1 text-[10px] font-bold tabular-nums">
                     {p.champ_level}
@@ -264,7 +264,7 @@ function StatTable({ players }: { players: Player[] }) {
                     alt=""
                     title={p.riot_id}
                     className={cn(
-                      "size-8 rounded-md bg-secondary",
+                      "size-8 rounded-md bg-icon-tile",
                       p.is_me && "ring-2 ring-primary",
                       p.team_id === 100 ? "ring-offset-0" : "",
                     )}
@@ -423,7 +423,7 @@ export function MatchCards({
             )}
           >
             <div className="relative shrink-0">
-              <img src={iconUrl(m.champion_icon)} alt="" className="size-11 rounded-md bg-secondary" />
+              <img src={iconUrl(m.champion_icon)} alt="" className="size-11 rounded-md bg-icon-tile" />
               <span className="absolute -bottom-1 -right-1 rounded bg-background px-1 text-[10px] font-bold tabular-nums">
                 {m.champ_level}
               </span>
