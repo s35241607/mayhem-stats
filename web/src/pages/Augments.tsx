@@ -1,4 +1,5 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
+import { BarCell, LiftCell, RecordCell, StatCell, num0, numOf, solidMax, weightedAvg } from "@/components/cells"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Select,
@@ -13,38 +14,95 @@ import { BarChart, type BarDatum } from "@/components/charts"
 import { useCube } from "@/hooks/useCube"
 import { num, type CubeRow } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
-import { MIN_GAMES, round0, round1, round2 } from "./shared"
+import { MIN_GAMES, round0, round1 } from "./shared"
 
 const ALL = "__all__"
 
-const BASE_COLUMNS: GridColumn[] = [
-  {
-    key: "augments.name",
-    title: "增幅裝置",
-    kind: "dimension",
-    iconKey: "augments.icon_path",
-    rarityKey: "augments.rarity",
-  },
-  { key: "participants.games", title: "場次", kind: "metric", format: round0 },
-  { key: "participants.wins", title: "勝場", kind: "metric", format: round0 },
-  { key: "participants.winrate", title: "勝率", kind: "metric", format: round1, suffix: "%" },
-  { key: "participants.kda", title: "KDA", kind: "metric", format: round2 },
-  { key: "participants.dpm", title: "每分鐘傷害", kind: "metric", format: round0 },
-]
+const G = "participants.games"
 
-// 選了英雄之後多出來的三欄，原本是獨立的「增幅契合度」頁
-const SYNERGY_COLUMNS: GridColumn[] = [
-  { key: "baseWr", title: "所有英雄勝率", kind: "metric", format: round1, suffix: "%" },
-  { key: "baseGames", title: "所有英雄場次", kind: "metric", format: round0 },
-  {
-    key: "lift",
-    title: "加成",
-    kind: "metric",
-    format: (n) => `${n > 0 ? "+" : ""}${n.toFixed(1)}`,
-    suffix: "pp",
-    tone: (n) => (Math.abs(n) < 1 ? null : n > 0 ? "good" : "bad"),
-  },
-]
+/** 複合格子的欄位（規則見 ui-conventions skill）。選了英雄時多一欄「契合度」子彈圖。 */
+function buildColumns(rows: CubeRow[], withSynergy: boolean): GridColumn[] {
+  const maxDpm = solidMax(rows, "participants.dpm", G, MIN_GAMES)
+  const avgDpm = weightedAvg(rows, "participants.dpm", G)
+  const totalGames = rows.reduce((a, r) => a + num0(r, G), 0)
+  // 同一場有好幾個增幅，場次會重複算，但每場重複的次數相同，比例仍然是這批對局的勝率
+  const avgWr = totalGames ? (100 * rows.reduce((a, r) => a + num0(r, "participants.wins"), 0)) / totalGames : null
+
+  return [
+    { key: "augments.name", title: "增幅裝置", kind: "dimension", iconKey: "augments.icon_path", rarityKey: "augments.rarity", flex: 1.8, minWidth: 190 },
+    { key: G, title: "場次", kind: "metric", format: round0, flex: 0.5, minWidth: 70 },
+    {
+      key: "participants.winrate",
+      title: "戰績",
+      kind: "metric",
+      flex: 1.4,
+      minWidth: 165,
+      cell: (r) => (
+        <RecordCell
+          winrate={numOf(r, "participants.winrate")}
+          wins={num0(r, "participants.wins")}
+          losses={num0(r, G) - num0(r, "participants.wins")}
+          baseline={avgWr}
+        />
+      ),
+    },
+    ...(withSynergy
+      ? ([
+          {
+            key: "lift",
+            title: "契合度（加成）",
+            kind: "metric",
+            flex: 1.6,
+            minWidth: 190,
+            cell: (r) => (
+              <LiftCell
+                winrate={numOf(r, "participants.winrate")}
+                base={numOf(r, "baseWr")}
+                sub={
+                  numOf(r, "baseWr") === null
+                    ? "沒有其他英雄的紀錄"
+                    : `所有英雄 ${round1(num0(r, "baseWr"))}% · ${round0(num0(r, "baseGames"))} 場`
+                }
+              />
+            ),
+          },
+        ] satisfies GridColumn[])
+      : []),
+    {
+      key: "participants.kda",
+      title: "KDA",
+      kind: "metric",
+      flex: 1,
+      minWidth: 140,
+      cell: (r) => (
+        <StatCell
+          main={numOf(r, "participants.kda")?.toFixed(2) ?? "—"}
+          sub={`${round1(num0(r, "participants.avg_kills"))}/${round1(num0(r, "participants.avg_deaths"))}/${round1(num0(r, "participants.avg_assists"))}`}
+        />
+      ),
+    },
+    {
+      key: "participants.dpm",
+      title: "輸出（每分鐘傷害）",
+      kind: "metric",
+      flex: 1.6,
+      minWidth: 200,
+      cell: (r) => (
+        <BarCell value={numOf(r, "participants.dpm")} max={maxDpm} reference={avgDpm} label={round0(num0(r, "participants.dpm"))} />
+      ),
+    },
+    { key: "participants.wins", title: "勝場", kind: "metric", hide: true },
+    { key: "participants.avg_kills", title: "平均擊殺", kind: "metric", hide: true },
+    { key: "participants.avg_deaths", title: "平均死亡", kind: "metric", hide: true },
+    { key: "participants.avg_assists", title: "平均助攻", kind: "metric", hide: true },
+    ...(withSynergy
+      ? ([
+          { key: "baseWr", title: "所有英雄勝率", kind: "metric", hide: true },
+          { key: "baseGames", title: "所有英雄場次", kind: "metric", hide: true },
+        ] satisfies GridColumn[])
+      : []),
+  ]
+}
 
 export function Augments() {
   const { apply, addDrill, drills } = useFilters()
@@ -70,6 +128,9 @@ export function Augments() {
         "participants.wins",
         "participants.winrate",
         "participants.kda",
+        "participants.avg_kills",
+        "participants.avg_deaths",
+        "participants.avg_assists",
         "participants.dpm",
       ],
       dimensions: ["augments.name", "augments.rarity", "augments.icon_path"],
@@ -94,34 +155,38 @@ export function Augments() {
       : null,
   )
 
-  const baseMap = new Map(
-    baseline.rows.map((r) => [
-      String(r["augments.name"]),
-      { wr: num(r["participants.winrate"]), games: num(r["participants.games"]) ?? 0 },
-    ]),
-  )
-
-  // 單一英雄的樣本通常只有個位數，所以選了英雄時什麼都不藏，全部列出來、場次少的淡化。
-  // 排序用場次而不是加成：依加成排的話，最上面會整排是「1 場 1 勝 → +50pp」這種雜訊。
-  // 想看加成排行點欄位標題就能換。
-  const tableRows = champion
-    ? rows
-        .map((r): CubeRow => {
-          const base = baseMap.get(String(r["augments.name"]))
-          const wr = num(r["participants.winrate"])
-          return {
-            ...r,
-            baseWr: base?.wr ?? null,
-            baseGames: base?.games ?? null,
-            lift: wr !== null && base?.wr != null ? wr - base.wr : null,
-          }
-        })
-        .sort(
-          (a, b) =>
-            (num(b["participants.games"]) ?? 0) - (num(a["participants.games"]) ?? 0) ||
-            (num(b.lift) ?? -999) - (num(a.lift) ?? -999),
-        )
-    : rows
+  // 資料沒變就回傳同一個陣列：欄位定義跟著它重建，每次都換新的話 AG Grid 會把使用者點的排序重設
+  const tableRows = useMemo(() => {
+    const baseMap = new Map(
+      baseline.rows.map((r) => [
+        String(r["augments.name"]),
+        { wr: num(r["participants.winrate"]), games: num(r["participants.games"]) ?? 0 },
+      ]),
+    )
+  
+    // 單一英雄的樣本通常只有個位數，所以選了英雄時什麼都不藏，全部列出來、場次少的淡化。
+    // 排序用場次而不是加成：依加成排的話，最上面會整排是「1 場 1 勝 → +50pp」這種雜訊。
+    // 想看加成排行點欄位標題就能換。
+    return champion
+      ? rows
+          .map((r): CubeRow => {
+            const base = baseMap.get(String(r["augments.name"]))
+            const wr = num(r["participants.winrate"])
+            return {
+              ...r,
+              baseWr: base?.wr ?? null,
+              baseGames: base?.games ?? null,
+              lift: wr !== null && base?.wr != null ? wr - base.wr : null,
+            }
+          })
+          .sort(
+            (a, b) =>
+              (num(b["participants.games"]) ?? 0) - (num(a["participants.games"]) ?? 0) ||
+              (num(b.lift) ?? -999) - (num(a.lift) ?? -999),
+          )
+      : rows
+  }, [rows, baseline.rows, champion])
+  const columns = useMemo(() => buildColumns(tableRows, !!champion), [tableRows, champion])
 
   // 全部英雄時圖表只放樣本夠的，否則整張圖都是 1 場 100% 的雜訊。
   // 單一英雄時幾乎沒有增幅到得了門檻，圖會永遠是空的——改成畫最常選的幾個，
@@ -141,7 +206,7 @@ export function Augments() {
     <div className="space-y-4">
       <Panel
         title="看某隻英雄上的表現"
-        caption="選一隻英雄，表格會多出「所有英雄勝率」與「加成」：同一個增幅在這隻英雄上比它的平均好多少，就是契合度"
+        caption="選一隻英雄，表格會多出「契合度」：條是這個增幅在這隻英雄上的勝率，刻度線是它在所有英雄上的勝率，差距就是加成"
       >
         {champions.loading ? (
           <Skeleton className="h-9 w-72" />
@@ -202,7 +267,8 @@ export function Augments() {
           <div className="text-sm text-destructive">{error}</div>
         ) : (
           <AgTable
-            columns={champion ? [...BASE_COLUMNS, ...SYNERGY_COLUMNS] : BASE_COLUMNS}
+            columns={columns}
+            rowHeight={54}
             rows={tableRows}
             emptyHint={champion ? "這個條件下這隻英雄還沒有增幅紀錄。" : undefined}
             height={520}

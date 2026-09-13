@@ -41,6 +41,7 @@ function buildColumns(rows: CubeRow[]): GridColumn[] {
   const avgDpm = totalGames
     ? rows.reduce((a, r) => a + n0(r, "participants.dpm") * n0(r, "participants.games"), 0) / totalGames
     : null
+  const avgWr = totalGames ? (100 * rows.reduce((a, r) => a + n0(r, "participants.wins"), 0)) / totalGames : null
 
   return [
     { key: "champions.name", title: "英雄", kind: "dimension", iconKey: "champions.icon_path", flex: 1.6, minWidth: 160 },
@@ -56,6 +57,7 @@ function buildColumns(rows: CubeRow[]): GridColumn[] {
           winrate={opt(r, "participants.winrate")}
           wins={n0(r, "participants.wins")}
           losses={n0(r, "participants.losses")}
+          baseline={avgWr}
         />
       ),
     },
@@ -188,7 +190,7 @@ export function Champions() {
   const table = (
     <Panel
       title="英雄表現"
-      caption={`點英雄看這隻英雄的每一場。輸出條的長度對應最高的英雄，細線是依場次加權的平均；場次不到 ${MIN_GAMES} 的列會淡化。欄位標題可排序（戰績依勝率、輸出依每分鐘傷害），匯出 CSV 含所有原始欄位`}
+      caption={`點英雄看這隻英雄的每一場。輸出條的長度對應最高的英雄，戰績條與輸出條上的刻度線是你的整體水準；場次不到 ${MIN_GAMES} 的列會淡化。欄位標題可排序（戰績依勝率、輸出依每分鐘傷害），匯出 CSV 含所有原始欄位`}
     >
       {loading ? (
         <Skeleton className="h-[520px] w-full" />

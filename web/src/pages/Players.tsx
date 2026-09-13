@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
+import { RecordCell, num0, numOf } from "@/components/cells"
 import { Check, Radar, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -10,20 +11,37 @@ import { BarChart, type BarDatum } from "@/components/charts"
 import { useCube } from "@/hooks/useCube"
 import { MAYHEM_QUEUE_ID, num, type CubeFilter } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
-import { MIN_GAMES, round0, round1 } from "./shared"
+import { MIN_GAMES, round0 } from "./shared"
 
-const COLUMNS: GridColumn[] = [
-  { key: "teammates.player", title: "玩家", kind: "dimension" },
-  { key: "teammates.games", title: "同場次數", kind: "metric", format: round0 },
-  { key: "teammates.wins", title: "我方勝場", kind: "metric", format: round0 },
-  { key: "teammates.winrate", title: "我的勝率", kind: "metric", format: round1, suffix: "%" },
+/** 「我的戰績」複合格子：勝率 + 勝敗比例條，刻度線是比較基準（你的整體勝率，或和這個人同場的整體勝率）。 */
+const recordColumn = (title: string, baseline: number | null): GridColumn => ({
+  key: "teammates.winrate",
+  title,
+  kind: "metric",
+  flex: 1.6,
+  minWidth: 170,
+  cell: (r) => (
+    <RecordCell
+      winrate={numOf(r, "teammates.winrate")}
+      wins={num0(r, "teammates.wins")}
+      losses={num0(r, "teammates.games") - num0(r, "teammates.wins")}
+      baseline={baseline}
+    />
+  ),
+})
+
+const playerColumns = (myWinrate: number | null): GridColumn[] => [
+  { key: "teammates.player", title: "玩家", kind: "dimension", flex: 1.6, minWidth: 150 },
+  { key: "teammates.games", title: "同場次數", kind: "metric", format: round0, flex: 0.6, minWidth: 88 },
+  recordColumn("我的戰績", myWinrate),
+  { key: "teammates.wins", title: "我方勝場", kind: "metric", hide: true },
 ]
 
-const CHAMP_COLUMNS = (whoseKey: string, iconKey: string): GridColumn[] => [
-  { key: whoseKey, title: "英雄", kind: "dimension", iconKey },
-  { key: "teammates.games", title: "場次", kind: "metric", format: round0 },
-  { key: "teammates.wins", title: "勝場", kind: "metric", format: round0 },
-  { key: "teammates.winrate", title: "勝率", kind: "metric", format: round1, suffix: "%" },
+const champColumns = (whoseKey: string, iconKey: string, baseline: number | null): GridColumn[] => [
+  { key: whoseKey, title: "英雄", kind: "dimension", iconKey, flex: 1.6, minWidth: 150 },
+  { key: "teammates.games", title: "場次", kind: "metric", format: round0, flex: 0.6, minWidth: 72 },
+  recordColumn("戰績", baseline),
+  { key: "teammates.wins", title: "勝場", kind: "metric", hide: true },
 ]
 
 type Picked = { player: string; puuid: string; relation: string }
@@ -140,6 +158,13 @@ function TogetherPanel({
   }))
 
   const champRows = champs.rows
+  const champCols = useMemo(
+    () =>
+      side === "mine"
+        ? champColumns("teammates.my_champion", "teammates.my_champion_icon", winrate)
+        : champColumns("teammates.other_champion", "teammates.other_champion_icon", winrate),
+    [side, winrate],
+  )
   const thin = champRows.filter((r) => (num(r["teammates.games"]) ?? 0) < MIN_GAMES).length
 
   return (
@@ -223,18 +248,15 @@ function TogetherPanel({
               ) : champRows.length ? (
                 <>
                   <AgTable
-                    columns={
-                      side === "mine"
-                        ? CHAMP_COLUMNS("teammates.my_champion", "teammates.my_champion_icon")
-                        : CHAMP_COLUMNS("teammates.other_champion", "teammates.other_champion_icon")
-                    }
+                    columns={champCols}
+                    rowHeight={54}
                     rows={champRows}
                     height={360}
                     sampleKey="teammates.games"
                     fileName={`together-${player}-${side}`}
                   />
                   <p className="mt-2 text-[11px] text-muted-foreground">
-                    {champRows.length} 隻英雄裡有 {thin} 隻不到 {MIN_GAMES} 場（已淡化）——那幾列的勝率只是
+                    戰績條上的刻度線是和這個人同場的整體勝率。{champRows.length} 隻英雄裡有 {thin} 隻不到 {MIN_GAMES} 場（已淡化）——那幾列的勝率只是
                     「還沒輸過」或「還沒贏過」，別當結論。上面的定位分組才是這個資料量問得出答案的粒度。
                   </p>
                 </>
@@ -255,6 +277,7 @@ function PlayerTable({
   queueId,
   relation,
   subject,
+  myWinrate,
   onPick,
 }: {
   title: string
@@ -262,8 +285,10 @@ function PlayerTable({
   queueId: string | null
   relation: string
   subject: CubeFilter[]
+  myWinrate: number | null
   onPick: (picked: Picked) => void
 }) {
+  const columns = useMemo(() => playerColumns(myWinrate), [myWinrate])
   const { timeFilter } = useFilters()
   // teammates 是自己的 cube，沒有 participants.is_me，所以不套 apply()。
   // subject 指定要以誰為視角——少了它，所有人的視角會混在一起。
@@ -324,7 +349,8 @@ function PlayerTable({
       ) : (
         <>
           <AgTable
-            columns={COLUMNS}
+            columns={columns}
+            rowHeight={54}
             rows={meaningful}
             height={420}
             fileName={`players-${relation}`}
@@ -334,7 +360,7 @@ function PlayerTable({
             }
           />
           <p className="mt-2 text-[11px] text-muted-foreground">
-            雙擊玩家名字，看和這個人同場時的拆解、每一場的戰報，也可以直接加入追蹤。
+            戰績條上的刻度線是你的整體勝率。雙擊玩家名字，看和這個人同場時的拆解、每一場的戰報，也可以直接加入追蹤。
           </p>
         </>
       )}
@@ -401,6 +427,7 @@ export function Players() {
           queueId={queue}
           relation="teammate"
           subject={subject}
+          myWinrate={myWinrate}
           onPick={setPicked}
         />
         <PlayerTable
@@ -409,6 +436,7 @@ export function Players() {
           queueId={queue}
           relation="opponent"
           subject={subject}
+          myWinrate={myWinrate}
           onPick={setPicked}
         />
       </div>

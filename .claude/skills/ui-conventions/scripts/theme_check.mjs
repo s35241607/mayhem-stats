@@ -9,7 +9,7 @@ const PAGES = (process.argv[3] || "儀表板,時段").split(",")
 const port = 9420 + Math.max(0, ["neon", "matrix", "lava", "violet", "daylight", "mint", "sakura", "sand"].indexOf(THEME))
 const edge = spawn("C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
   ["--headless=new", "--remote-debugging-port=" + port, "--window-size=1500,1000",
-    "--user-data-dir=" + mkdtempSync(join(tmpdir(), "edge-th-")), "--no-first-run", "--hide-scrollbars", "about:blank"], { stdio: "ignore" })
+    "--user-data-dir=" + mkdtempSync(join(tmpdir(), "edge-th-")), "--no-first-run", "about:blank"], { stdio: "ignore" })
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 let targets
 for (let i = 0; i < 60; i++) { try { targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json(); if (targets.length) break } catch { } await sleep(200) }
@@ -50,5 +50,6 @@ for (const page of PAGES) {
 report.errors = [...new Set(errors)]
 console.log(JSON.stringify(report))
 ws.close(); edge.kill(); process.exit(0)
+
 
 

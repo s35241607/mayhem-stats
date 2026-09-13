@@ -4,6 +4,7 @@ import { AgTable, type GridColumn } from "@/components/AgTable"
 import { BarChart, type BarDatum } from "@/components/charts"
 import { useCube } from "@/hooks/useCube"
 import { num } from "@/lib/cube"
+import { ContrastCell, numOf } from "@/components/cells"
 import { useFilters } from "@/lib/filters"
 
 /** 拿來做勝負對照的指標。higherIsBetter 只影響顏色，不影響數字。 */
@@ -44,23 +45,36 @@ const SHARE_METRICS: Metric[] = [
 
 const ALL_METRICS = [...TEAM_METRICS, ...MINE_METRICS, ...SHARE_METRICS]
 
+// 好壞方向每個指標都不一樣：敵方傷害變高是壞事，我的 KDA 變高是好事。差不到 3% 就不上色，免得看起來像有事
+const toneOf = (diff: number | null, higherIsBetter: boolean) =>
+  diff === null || Math.abs(diff) < 3 ? null : diff > 0 === higherIsBetter ? "good" : "bad"
+
+const fmtMetric = (n: number, decimals = 0, suffix = "") =>
+  `${n.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}${suffix}`
+
+// 表格高 680px + 工具列：載入骨架要一樣高（722px），資料到的時候版面才不會往下推
 const COLUMNS: GridColumn[] = [
-  { key: "group", title: "分類", kind: "dimension" },
-  { key: "label", title: "指標", kind: "dimension" },
-  { key: "win", title: "勝局", kind: "metric", format: (n) => n.toLocaleString(undefined, { maximumFractionDigits: 2 }) },
-  { key: "loss", title: "敗局", kind: "metric", format: (n) => n.toLocaleString(undefined, { maximumFractionDigits: 2 }) },
+  { key: "group", title: "分類", kind: "dimension", flex: 0.8, minWidth: 90 },
+  { key: "label", title: "指標", kind: "dimension", flex: 1.3, minWidth: 140 },
   {
+    // 排序依「敗局相差」；兩條細條同刻度，一眼看出勝局和敗局差多少
     key: "diffPct",
-    title: "敗局相差",
+    title: "勝局 vs 敗局（敗局相差）",
     kind: "metric",
-    format: (n) => `${n > 0 ? "+" : ""}${n.toFixed(1)}`,
-    suffix: "%",
-    // 好壞方向每個指標都不一樣：敵方傷害變高是壞事，我的 KDA 變高是好事
-    tone: (n, row) => {
-      if (Math.abs(n) < 3) return null // 差不到 3% 就不上色，免得看起來像有事
-      return n > 0 === (row.higherIsBetter === true) ? "good" : "bad"
-    },
+    flex: 2.6,
+    minWidth: 300,
+    cell: (r) => (
+      <ContrastCell
+        win={numOf(r, "win")}
+        loss={numOf(r, "loss")}
+        format={(n) => fmtMetric(n, Number(r.decimals ?? 0), String(r.suffix ?? ""))}
+        diffPct={numOf(r, "diffPct")}
+        tone={toneOf(numOf(r, "diffPct"), r.higherIsBetter === true)}
+      />
+    ),
   },
+  { key: "win", title: "勝局", kind: "metric", hide: true },
+  { key: "loss", title: "敗局", kind: "metric", hide: true },
 ]
 
 export function Losses() {
@@ -93,7 +107,7 @@ export function Losses() {
     const l = num(loss?.[m.key])
     // 用相對差而不是絕對差,不同量級的指標才排得在一起比
     const diffPct = w !== null && l !== null && w !== 0 ? ((l - w) / Math.abs(w)) * 100 : null
-    return { group: m.group, label: m.label, win: w, loss: l, diffPct, higherIsBetter: m.higherIsBetter }
+    return { group: m.group, label: m.label, win: w, loss: l, diffPct, higherIsBetter: m.higherIsBetter, decimals: m.decimals, suffix: m.suffix }
   })
 
   const durationBars: BarDatum[] = byDuration.rows.map((r) => ({
@@ -147,12 +161,12 @@ export function Losses() {
         caption="「敗局相差」= 敗局比勝局高或低幾 %。綠色代表往好的方向、紅色代表往壞的方向；可以點欄位標題排序。"
       >
         {byResult.loading ? (
-          <Skeleton className="h-[520px] w-full" />
+          <Skeleton className="h-[722px] w-full" />
         ) : !win || !loss ? (
           <EmptyState>這個條件下缺少勝局或敗局，沒得比較。</EmptyState>
         ) : (
           <>
-            <AgTable columns={COLUMNS} rows={rows as unknown as Record<string, unknown>[]} height={560} fileName="win-vs-loss" />
+            <AgTable columns={COLUMNS} rowHeight={54} rows={rows as unknown as Record<string, unknown>[]} height={680} fileName="win-vs-loss" />
             <div className="mt-3 space-y-1 text-[11px] text-muted-foreground">
               <p>
                 這張表是<strong>描述</strong>，不是原因。遊戲中的數字大多是輸贏的結果而不是起因——
