@@ -1,4 +1,6 @@
+import { useState } from "react"
 import { Skeleton } from "@/components/ui/skeleton"
+import { DrillPanel } from "@/components/MatchList"
 import { Kpi, Panel, EmptyState } from "@/components/primitives"
 import { AgTable, type GridColumn } from "@/components/AgTable"
 import { BarChart, type BarDatum } from "@/components/charts"
@@ -78,7 +80,8 @@ const COLUMNS: GridColumn[] = [
 ]
 
 export function Losses() {
-  const { apply } = useFilters()
+  const { apply, matchParams, account } = useFilters()
+  const [bucket, setBucket] = useState<string | null>(null)
 
   const byResult = useCube(
     apply({
@@ -185,16 +188,30 @@ export function Losses() {
 
       <Panel
         title="對局長度與勝率"
-        caption="和上面的「平均局長」是同一件事的分組版。注意因果方向：贏的時候通常推得快，所以短局勝率高多半是結果、不是原因"
+        caption="和上面的「平均局長」是同一件事的分組版。注意因果方向：贏的時候通常推得快，所以短局勝率高多半是結果、不是原因。點一根看那些場次"
       >
         {byDuration.loading ? (
           <Skeleton className="h-[220px] w-full" />
         ) : durationBars.length ? (
-          <BarChart data={durationBars} suffix="%" />
+          <BarChart
+            data={durationBars}
+            suffix="%"
+            selected={bucket}
+            onPick={(label) => setBucket((cur) => (cur === label ? null : label))}
+          />
         ) : (
           <EmptyState>還沒有資料。</EmptyState>
         )}
       </Panel>
+
+      {bucket && (
+        <DrillPanel
+          title={`對局長度 ${bucket}`}
+          params={{ ...matchParams(), duration: bucket }}
+          puuid={account?.puuid}
+          onClose={() => setBucket(null)}
+        />
+      )}
     </div>
   )
 }

@@ -4,6 +4,9 @@ cubes:
   # 這兩個要靠視窗函數，而 Cube 的 measure/dimension 沒辦法表達 LAG，
   # 所以在 sql: 裡先算好。SQLite 支援 LAG 與 ROW_NUMBER。
   #
+  # 「當日」用採集時存好的 m.local_date，不能用 date(..., 'localtime')：Cube 行程跑在 UTC，
+  # 那個 localtime 等於 UTC，一天從台灣早上 8 點才開始算（實測 143 場裡 47 場的當日第幾場算錯）。
+  #
   # 視窗函數以 puuid 分區，否則不同玩家的對局會混在一起算「前一場」。
   # 同時以 queue_id 分區：畫面通常篩到只看 Mayhem，若跨模式取前一場，
   # 「前一場」會指到畫面上根本看不到的對局。
@@ -16,8 +19,7 @@ cubes:
           PARTITION BY mp.puuid, m.queue_id ORDER BY m.game_creation
         ) AS prev_win,
         ROW_NUMBER() OVER (
-          PARTITION BY mp.puuid, m.queue_id,
-                       date(m.game_creation / 1000, 'unixepoch', 'localtime')
+          PARTITION BY mp.puuid, m.queue_id, m.local_date
           ORDER BY m.game_creation
         ) AS game_of_day
       FROM match_participants mp

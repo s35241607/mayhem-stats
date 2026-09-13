@@ -6,12 +6,17 @@ import { BarChart, type BarDatum } from "@/components/charts"
 import { useCube } from "@/hooks/useCube"
 import { num, type CubeFilter } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
+import { DrillPanel } from "@/components/MatchList"
 import { MIN_GAMES } from "./shared"
+
+/** 下鑽的分組。kind 同時是 /api/matches 的參數名。 */
+type TiltFocus = { kind: "prev_result" | "session_stage" | "game_of_day"; value: string; label: string }
 
 const STAGE_ORDER = ["第 1-2 場", "第 3-5 場", "第 6-9 場", "第 10 場以後"]
 
 export function Tilt() {
-  const { queueId, subjectFilter, timeFilter } = useFilters()
+  const { queueId, subjectFilter, timeFilter, matchParams, account } = useFilters()
+  const [focus, setFocus] = useState<TiltFocus | null>(null)
   // 「一天打到第幾場」原本畫成分段、逐場兩張並排的圖。同一個維度的粗細兩種，
   // 改成和時段頁「四時段／逐小時」一樣用切換鈕。
   const [grain, setGrain] = useState<"stage" | "index">("stage")
@@ -87,6 +92,10 @@ export function Tilt() {
     .filter((r) => r.games >= MIN_GAMES)
     .sort((a, b) => a.index - b.index)
 
+  // 點長條 → 下面列出那一組的每一場。再點一次同一根取消。
+  const toggleFocus = (next: TiltFocus) =>
+    setFocus((cur) => (cur && cur.kind === next.kind && cur.value === next.value ? null : next))
+
   const dayChart = grain === "stage" ? byStage : byIndex
   const dayBars = grain === "stage" ? stageBars : indexBars
 
@@ -126,12 +135,17 @@ export function Tilt() {
 
       <Panel
         title="前一場的結果，對這一場有影響嗎"
-        caption="兩個柱子差距明顯的話，代表上一場的結果會影響你下一場的表現"
+        caption="兩個柱子差距明顯的話，代表上一場的結果會影響你下一場的表現。點一根看那些場次"
       >
         {byPrev.loading ? (
           <Skeleton className="h-[180px] w-full" />
         ) : prevBars.length ? (
-          <BarChart data={prevBars} suffix="%" />
+          <BarChart
+            data={prevBars}
+            suffix="%"
+            selected={focus?.kind === "prev_result" ? focus.value : null}
+            onPick={(label) => toggleFocus({ kind: "prev_result", value: label, label })}
+          />
         ) : (
           <EmptyState>還沒有資料。</EmptyState>
         )}
@@ -141,8 +155,8 @@ export function Tilt() {
         title="一天打到第幾場開始變差"
         caption={
           grain === "stage"
-            ? "以當天的第幾場分組，樣本集中、比較看得出趨勢"
-            : `逐場拆開，只列出累積 ${MIN_GAMES} 場以上的場次序號`
+            ? "以當天的第幾場分組，樣本集中、比較看得出趨勢。點一根看那些場次"
+            : `逐場拆開，只列出累積 ${MIN_GAMES} 場以上的場次序號。點一根看那些場次`
         }
         action={
           <ToggleGroup
@@ -160,13 +174,37 @@ export function Tilt() {
         {dayChart.loading ? (
           <Skeleton className="h-[220px] w-full" />
         ) : dayBars.length ? (
-          <BarChart data={dayBars} suffix="%" />
+          <BarChart
+            data={dayBars}
+            suffix="%"
+            selected={
+              grain === "stage" && focus?.kind === "session_stage"
+                ? focus.value
+                : grain === "index" && focus?.kind === "game_of_day"
+                  ? `第 ${focus.value} 場`
+                  : null
+            }
+            onPick={(label) =>
+              grain === "stage"
+                ? toggleFocus({ kind: "session_stage", value: label, label: `當日${label}` })
+                : toggleFocus({ kind: "game_of_day", value: label.replace(/\D/g, ""), label: `當日${label}` })
+            }
+          />
         ) : (
           <EmptyState>
             {grain === "stage" ? "還沒有資料。" : `單一場次序號還沒累積到 ${MIN_GAMES} 場，切回「分段」看看。`}
           </EmptyState>
         )}
       </Panel>
+
+      {focus && (
+        <DrillPanel
+          title={focus.label}
+          params={{ ...matchParams(), [focus.kind]: focus.value }}
+          puuid={account?.puuid}
+          onClose={() => setFocus(null)}
+        />
+      )}
 
       <p className="text-xs leading-relaxed text-muted-foreground">
         「前一場」是同一個模式內、時間上的前一場——這樣切是為了讓上方的模式篩選有意義，

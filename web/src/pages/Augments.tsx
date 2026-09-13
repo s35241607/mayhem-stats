@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/select"
 import { Panel, EmptyState } from "@/components/primitives"
 import { AgTable, type GridColumn } from "@/components/AgTable"
+import { DrillPanel } from "@/components/MatchList"
 import { BarChart, type BarDatum } from "@/components/charts"
 import { useCube } from "@/hooks/useCube"
 import { num, type CubeRow } from "@/lib/cube"
@@ -105,7 +106,7 @@ function buildColumns(rows: CubeRow[], withSynergy: boolean): GridColumn[] {
 }
 
 export function Augments() {
-  const { apply, addDrill, drills } = useFilters()
+  const { apply, addDrill, drills, matchParams, account } = useFilters()
   const [picked, setPicked] = useState<string>(ALL)
   // 交叉篩選：點長條 → 表格選取並捲到那一列；點表格一列 → 長條亮起那一根。再點一次取消
   const [focus, setFocus] = useState<string | null>(null)
@@ -242,7 +243,7 @@ export function Augments() {
         caption={
           champion
             ? "這隻英雄上選過最多次的 14 個增幅，依勝率排列。樣本多半只有一兩場，長條顏色已依場次往平均收斂——滑過長條看場次"
-            : `僅計入 ${MIN_GAMES} 場以上的增幅。點一根長條，下面的表格會選到那一列；點表格的一列，這裡也會亮起來`
+            : `僅計入 ${MIN_GAMES} 場以上的增幅。點一根長條（或表格的一列）會列出選了它的每一場，表格與長條也會互相亮起`
         }
       >
         {loading ? (
@@ -255,6 +256,15 @@ export function Augments() {
           </EmptyState>
         )}
       </Panel>
+
+      {focus && (
+        <DrillPanel
+          title={champion ? `${champion} 選了「${focus}」` : `選了「${focus}」`}
+          params={{ ...matchParams(), augment: focus, ...(champion ? { champion } : {}) }}
+          puuid={account?.puuid}
+          onClose={() => setFocus(null)}
+        />
+      )}
 
       <Panel
         title={champion ? `${champion} 的增幅契合度` : "全部增幅"}

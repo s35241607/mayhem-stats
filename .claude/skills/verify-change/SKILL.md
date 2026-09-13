@@ -16,18 +16,26 @@ description: 在這個專案裡驗證一個改動是否真的正確、真的變�
 
 ```powershell
 $root = "C:\Users\User\vsdbg\Downloads\mayhem-stats"
-Get-CimInstance Win32_Process -Filter "Name='pythonw.exe' OR Name='python.exe'" |
-  Where-Object { $_.CommandLine -like '*app.py*' -or $_.CommandLine -like '*autostart.pyw*' } |
+Get-CimInstance Win32_Process |
+  Where-Object { ($_.Name -like 'python*' -and ($_.CommandLine -like '*app.py*' -or $_.CommandLine -like '*autostart.pyw*')) -or $_.Name -eq 'cubestored.exe' } |
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-Get-NetTCPConnection -LocalPort 4000 -State Listen -ErrorAction SilentlyContinue |
+Get-NetTCPConnection -LocalPort 4000,3030,15432,5057 -State Listen -ErrorAction SilentlyContinue |
   ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
-Start-Sleep -Seconds 2
+Start-Sleep -Seconds 4
 Start-Process -FilePath "$root\.venv\Scripts\pythonw.exe" -ArgumentList "autostart.pyw" -WorkingDirectory $root
-Start-Sleep -Seconds 45
+# 就緒要用「真的查詢有回資料」判斷，不要只看 /readyz
+$sw = [Diagnostics.Stopwatch]::StartNew()
+while ($sw.Elapsed.TotalSeconds -lt 180) {
+  Start-Sleep 5
+  try { $r = Invoke-RestMethod ("http://127.0.0.1:5057/api/cube/load?query=" + [uri]::EscapeDataString('{"measures":["participants.games"]}')) -TimeoutSec 20; if ($r.data) { break } } catch {}
+}
 ```
 
-**一定要連 4000 埠的 node 一起殺。** 殺掉 Python 不會帶走 Cube（Windows 不會連坐子行程），
-下次啟動會看到「已經有 Cube 在 4000 埠上，沿用現有的那份」——那份跑的是舊模型。
+**一定要連 4000 埠的 node 和 Cube Store（`cubestored.exe`、3030 埠）一起殺。** Windows 不會連坐子行程：
+- 殺掉 Python 不帶走 Cube，下次啟動會「沿用 4000 埠上現有的那份」——跑的是舊模型。
+- 殺掉 Cube 的 node 不帶走 Cube Store。新的 Cube Store 起來時舊的還拿著快取的鎖，
+  結果是 `/readyz` 回 200，但**所有查詢（連 `/sql` 這種不碰資料庫的）都卡死**，log 停在
+  「Using existing cachestore」、一直印「Previous interval #1 was not finished」。實際發生過。
 
 啟動訊息在 `autostart.log` 尾端。
 

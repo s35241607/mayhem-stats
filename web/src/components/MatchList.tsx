@@ -1,10 +1,46 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
+import { X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { EmptyState } from "@/components/primitives"
+import { EmptyState, Panel } from "@/components/primitives"
+import { prefersReducedMotion } from "@/lib/motion"
 import { MatchCards, MatchDetail, type MatchRow } from "@/pages/Matches"
 
 const PAGE = 20
+
+/** 從圖表下鑽出來的「XX 的每一場」面板。各頁共用，行為一致：出現時捲到看得到的位置、收起就清掉聚焦。 */
+export function DrillPanel({
+  title,
+  params,
+  puuid,
+  onClose,
+}: {
+  title: string
+  params: Record<string, string>
+  puuid?: string
+  onClose: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    // nearest：已經在畫面裡就不動，只有在畫面外才捲過去
+    ref.current?.scrollIntoView({ block: "nearest", behavior: prefersReducedMotion() ? "auto" : "smooth" })
+  }, [title])
+  return (
+    <div ref={ref} className="scroll-mt-40">
+      <Panel
+        title={`${title} 的每一場`}
+        action={
+          <Button size="sm" variant="ghost" onClick={onClose}>
+            <X className="size-3.5" />
+            收起
+          </Button>
+        }
+      >
+        <MatchList params={params} puuid={puuid} />
+      </Panel>
+    </div>
+  )
+}
 
 /** 圖表下鑽用的逐場列表：卡片樣式和「對局紀錄」頁一樣，點一張看完整戰報。
  *  英雄頁（某隻英雄）、時段頁（某天、某個時段）、隊友頁（和某人同場）共用。 */
