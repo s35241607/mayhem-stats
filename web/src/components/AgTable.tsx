@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { AgGridReact } from "ag-grid-react"
 import {
   AllCommunityModule,
@@ -130,7 +130,13 @@ export function AgTable({
   sampleKey,
   drillOn = "dblclick",
   rowHeight = ROW_H,
+  highlight = null,
+  onRowClick,
 }: {
+  /** 交叉篩選：選取並捲到這一列（例如點了圖表的某根長條）；null 清除選取 */
+  highlight?: { key: string; value: string } | null
+  /** 單擊一列（雙擊不算，雙擊留給下鑽） */
+  onRowClick?: (row: Row) => void
   /** 複合格子有兩行內容，要把列高調高（建議 54） */
   rowHeight?: number
   columns: GridColumn[]
@@ -217,9 +223,30 @@ export function AgTable({
     if (col?.kind === "dimension" && e.value != null) onDrill?.(col, String(e.value), e.data as Row)
   }
 
+  const [gridReady, setGridReady] = useState(false)
   const onGridReady = useCallback((e: GridReadyEvent) => {
     apiRef.current = e.api
+    setGridReady(true)
   }, [])
+
+  useEffect(() => {
+    const api = apiRef.current
+    if (!api || !gridReady) return
+    if (!highlight) {
+      api.deselectAll()
+      return
+    }
+    let target: Parameters<typeof api.ensureNodeVisible>[0] | null = null
+    api.forEachNodeAfterFilterAndSort((node) => {
+      if (!target && String((node.data as Row)?.[highlight.key]) === highlight.value) target = node
+    })
+    api.deselectAll()
+    if (!target) return
+    const node = target as { setSelected: (v: boolean) => void }
+    node.setSelected(true)
+    api.ensureNodeVisible(target, "middle")
+    api.flashCells({ rowNodes: [target] })
+  }, [highlight, rows, gridReady])
 
   const exportCsv = () =>
     apiRef.current?.exportDataAsCsv({
@@ -277,6 +304,10 @@ export function AgTable({
           theme={theme}
           rowData={rows}
           rowHeight={rowHeight}
+          onRowClicked={(e) => {
+            // 雙擊會先觸發兩次單擊（detail 1、2），只認第一下，免得選了又立刻取消
+            if (onRowClick && (e.event as MouseEvent | undefined)?.detail === 1) onRowClick(e.data as Row)
+          }}
           columnDefs={colDefs}
           onGridReady={onGridReady}
           quickFilterText={quickFilter}

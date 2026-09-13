@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react"
-import { X } from "lucide-react"
+import { ArrowDown, Crosshair, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Panel, EmptyState, Kpi } from "@/components/primitives"
 import { MatchList } from "@/components/MatchList"
 import {
   DailyChart,
+  weekdayOf,
   Heatmap,
   HOURS_24,
   BarChart,
@@ -109,6 +110,23 @@ export function TimeAnalysis() {
     }))
     .sort((a, b) => b.value - a.value)
 
+  // ── 交叉篩選：三張圖共用同一個「聚焦」。點每日圖的某天、熱力圖的某格、星期長條的某天，
+  //    三張圖都亮起同一個星期、其餘淡掉；下面列出那一塊的每一場。再點一次同一個就取消。
+  const focusWeekday = slice === null ? null : slice.kind === "date" ? weekdayOf(slice.date) : slice.weekday
+  const pick = (next: Slice) => setSlice((cur) => (cur && sliceLabel(cur) === sliceLabel(next) ? null : next))
+
+  // 聚焦那一塊的場次與勝率：由已經載入的圖表資料加總，不另外查（和下方逐場列表是同一份資料）
+  const focusStats = useMemo(() => {
+    if (!slice) return null
+    if (slice.kind === "date") {
+      const d = days.find((x) => x.date === slice.date)
+      return d ? { games: d.games, wins: Math.round((d.games * (d.winrate ?? 0)) / 100) } : null
+    }
+    const hit = hourly.filter((h) => h.weekday === slice.weekday && h.hour >= slice.from && h.hour <= slice.to)
+    const games = hit.reduce((a, h) => a + h.games, 0)
+    const wins = Math.round(hit.reduce((a, h) => a + (h.games * (h.winrate ?? 0)) / 100, 0))
+    return { games, wins }
+  }, [slice, days, hourly])
 
   return (
     <div className="space-y-4">
@@ -130,43 +148,63 @@ export function TimeAnalysis() {
         />
       </div>
 
-      <Panel title="每天的場次與勝率" caption="長條是場次，折線是勝率，虛線是你的整體水準。點任一天可以看那天的每一場">
+      {/* 目前聚焦在哪一塊。放在圖表上方並黏在頂端，捲到哪一張圖都看得到、都能清除 */}
+      <div className="sticky top-[72px] z-10">
+        {slice ? (
+          <div className="slide-in flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-primary/40 bg-card/95 px-4 py-2.5 text-sm shadow-lg backdrop-blur">
+            <span className="flex items-center gap-2">
+              <Crosshair className="size-4 text-primary" />
+              <span className="text-muted-foreground">聚焦</span>
+              <b>{sliceLabel(slice)}</b>
+            </span>
+            {focusStats && focusStats.games > 0 && (
+              <span className="font-mono tabular-nums text-muted-foreground">
+                {focusStats.games} 場 · {focusStats.wins} 勝 {focusStats.games - focusStats.wins} 敗 ·{" "}
+                <span className={focusStats.wins / focusStats.games >= 0.5 ? "text-win" : "text-loss"}>
+                  {((focusStats.wins / focusStats.games) * 100).toFixed(1)}%
+                </span>
+              </span>
+            )}
+            <span className="text-xs text-muted-foreground">三張圖已連動，{WEEKDAYS[focusWeekday ?? 0]}以外的資料淡化</span>
+            <span className="ml-auto flex items-center gap-1">
+              <Button size="sm" variant="ghost" onClick={() => document.getElementById("focus-matches")?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+                <ArrowDown className="size-3.5" />
+                看每一場
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setSlice(null)}>
+                <X className="size-3.5" />
+                清除
+              </Button>
+            </span>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            點下面任一張圖的某天、某格或某個星期，三張圖會一起聚焦到那個星期，並列出那一塊的每一場。
+          </p>
+        )}
+      </div>
+
+      <Panel title="每天的場次與勝率" caption="上面是勝率、下面是場次，虛線是你的整體水準。點一天聚焦">
         {daily.loading ? (
-          <Skeleton className="h-[260px] w-full" />
+          <Skeleton className="h-[280px] w-full" />
         ) : days.length ? (
           <DailyChart
             days={days}
             selected={slice?.kind === "date" ? slice.date : null}
-            onPick={(date) => setSlice({ kind: "date", date })}
+            focusWeekday={focusWeekday}
+            onPick={(date) => pick({ kind: "date", date })}
           />
         ) : (
           <EmptyState>這個條件下還沒有資料。</EmptyState>
         )}
       </Panel>
 
-      {slice && (
-        <Panel
-          title={`${sliceLabel(slice)} 的每一場`}
-          action={
-            <Button size="sm" variant="ghost" onClick={() => setSlice(null)}>
-              <X className="size-3.5" />
-              收起
-            </Button>
-          }
-        >
-          <MatchList
-            params={{ ...matchParams(), ...sliceParams(slice) }}
-            puuid={account?.puuid}
-          />
-        </Panel>
-      )}
-
       <Panel
         title="星期 × 時段"
         caption={
           grain === "hour"
             ? `共 ${totalGames} 場攤在 ${7 * 24} 格裡，單格通常只有個位數——顏色已經依樣本多寡收斂，但這個粗細度主要是看「什麼時候在打」`
-            : `共 ${totalGames} 場分成 ${7 * BLOCKS.length} 格，樣本比逐小時集中得多。點一下可以看那個時段的每一場`
+            : `共 ${totalGames} 場分成 ${7 * BLOCKS.length} 格，樣本比逐小時集中得多。點一格聚焦`
         }
         action={
           <ToggleGroup
@@ -187,13 +225,15 @@ export function TimeAnalysis() {
           <Heatmap
             cells={cells}
             xLabels={xLabels}
+            focusRow={focusWeekday}
+            // 從星期長條點的「全天」只亮整列，不描某一格
             selected={
-              slice?.kind === "slot"
+              slice?.kind === "slot" && !(slice.from === 0 && slice.to === 23)
                 ? { weekday: slice.weekday, x: grain === "hour" ? slice.from : BLOCKS.findIndex((b) => b.from === slice.from) }
                 : null
             }
             onPick={({ weekday, x }) =>
-              setSlice(
+              pick(
                 grain === "hour"
                   ? { kind: "slot", weekday, from: x, to: x, label: `${String(x).padStart(2, "0")}:00` }
                   : { kind: "slot", weekday, from: BLOCKS[x].from, to: BLOCKS[x].to, label: BLOCKS[x].label },
@@ -205,15 +245,42 @@ export function TimeAnalysis() {
         )}
       </Panel>
 
-      <Panel title="星期別勝率">
+      <Panel title="星期別勝率" caption="點一個星期聚焦到那一整天">
         {byWeekday.loading ? (
           <Skeleton className="h-[220px] w-full" />
         ) : weekdayBars.length ? (
-          <BarChart data={weekdayBars} suffix="%" />
+          <BarChart
+            data={weekdayBars}
+            suffix="%"
+            selected={focusWeekday === null ? null : WEEKDAYS[focusWeekday]}
+            onPick={(label) => {
+              const weekday = WEEKDAYS.indexOf(label)
+              if (weekday >= 0) pick({ kind: "slot", weekday, from: 0, to: 23, label: "全天" })
+            }}
+          />
         ) : (
           <EmptyState>還沒有資料。</EmptyState>
         )}
       </Panel>
+
+      {slice && (
+        <div id="focus-matches" className="scroll-mt-40">
+          <Panel
+            title={`${sliceLabel(slice)} 的每一場`}
+            action={
+              <Button size="sm" variant="ghost" onClick={() => setSlice(null)}>
+                <X className="size-3.5" />
+                收起
+              </Button>
+            }
+          >
+            <MatchList
+              params={{ ...matchParams(), ...sliceParams(slice) }}
+              puuid={account?.puuid}
+            />
+          </Panel>
+        </div>
+      )}
     </div>
   )
 }

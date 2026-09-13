@@ -107,6 +107,9 @@ function buildColumns(rows: CubeRow[], withSynergy: boolean): GridColumn[] {
 export function Augments() {
   const { apply, addDrill, drills } = useFilters()
   const [picked, setPicked] = useState<string>(ALL)
+  // 交叉篩選：點長條 → 表格選取並捲到那一列；點表格一列 → 長條亮起那一根。再點一次取消
+  const [focus, setFocus] = useState<string | null>(null)
+  const toggleFocus = (name: string) => setFocus((cur) => (cur === name ? null : name))
 
   // 已經從別頁下鑽到某隻英雄的話，就以那隻為準，選單鎖住，免得兩個條件打架
   const drilled = drills.find((d) => d.member === "champions.name")?.values[0] ?? null
@@ -239,13 +242,13 @@ export function Augments() {
         caption={
           champion
             ? "這隻英雄上選過最多次的 14 個增幅，依勝率排列。樣本多半只有一兩場，長條顏色已依場次往平均收斂——滑過長條看場次"
-            : `僅計入 ${MIN_GAMES} 場以上的增幅`
+            : `僅計入 ${MIN_GAMES} 場以上的增幅。點一根長條，下面的表格會選到那一列；點表格的一列，這裡也會亮起來`
         }
       >
         {loading ? (
           <Skeleton className="h-[320px] w-full" />
         ) : top.length ? (
-          <BarChart data={top} suffix="%" />
+          <BarChart data={top} suffix="%" selected={focus} onPick={toggleFocus} />
         ) : (
           <EmptyState>
             {champion ? "這個條件下這隻英雄還沒有增幅紀錄。" : `還沒有任何增幅累積到 ${MIN_GAMES} 場，再多打幾場就會出現。`}
@@ -269,6 +272,8 @@ export function Augments() {
           <AgTable
             columns={columns}
             rowHeight={54}
+            highlight={focus ? { key: "augments.name", value: focus } : null}
+            onRowClick={(row) => toggleFocus(String(row["augments.name"]))}
             rows={tableRows}
             emptyHint={champion ? "這個條件下這隻英雄還沒有增幅紀錄。" : undefined}
             height={520}

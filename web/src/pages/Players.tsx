@@ -115,7 +115,11 @@ function TogetherPanel({
 }) {
   const { player, puuid, relation } = picked
   const { timeFilter, matchParams, account } = useFilters()
-  const [side, setSide] = useState<"mine" | "theirs">("mine")
+  const [sideChoice, setSide] = useState<"mine" | "theirs">("mine")
+  // 交叉篩選：點定位長條，下面的逐隻英雄只剩那個定位。定位是「我的英雄」的定位
+  // （teammates 只和我這邊的英雄 join 定位），所以選了定位時固定看我的英雄。
+  const [role, setRole] = useState<string | null>(null)
+  const side = role ? "mine" : sideChoice
   const [view, setView] = useState<"breakdown" | "matches">("breakdown")
 
   const filters: CubeFilter[] = [
@@ -141,7 +145,7 @@ function TogetherPanel({
       side === "mine"
         ? ["teammates.my_champion", "teammates.my_champion_icon"]
         : ["teammates.other_champion", "teammates.other_champion_icon"],
-    filters,
+    filters: role ? [...filters, { member: "champion_roles.name", operator: "equals", values: [role] }] : filters,
     order: { "teammates.games": "desc" },
     limit: 200,
     ...time,
@@ -218,12 +222,17 @@ function TogetherPanel({
             <div>
               <div className="mb-1 text-xs font-medium">我玩哪類英雄比較會贏</div>
               <p className="mb-2 text-[11px] text-muted-foreground">
-                英雄層級一隻通常只有一兩場，看不出東西；併成六類之後每類才有十幾到五十場。
+                英雄層級一隻通常只有一兩場，看不出東西；併成六類之後每類才有十幾到五十場。點一個定位，下面的逐隻英雄只列出那個定位。
               </p>
               {roles.loading ? (
                 <Skeleton className="h-[220px] w-full" />
               ) : roleBars.length ? (
-                <BarChart data={roleBars} suffix="%" />
+                <BarChart
+                  data={roleBars}
+                  suffix="%"
+                  selected={role}
+                  onPick={(label) => setRole((cur) => (cur === label ? null : label))}
+                />
               ) : (
                 <EmptyState>沒有資料。</EmptyState>
               )}
@@ -231,7 +240,18 @@ function TogetherPanel({
 
             <div>
               <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-                <div className="text-xs font-medium">逐隻英雄</div>
+                <div className="flex items-center gap-2 text-xs font-medium">
+                  逐隻英雄
+                  {role && (
+                    <button
+                      onClick={() => setRole(null)}
+                      className="slide-in flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[11px] text-primary transition hover:bg-primary/20"
+                    >
+                      只看{role}
+                      <X className="size-3" />
+                    </button>
+                  )}
+                </div>
                 <ToggleGroup
                   type="single"
                   size="sm"
@@ -240,7 +260,9 @@ function TogetherPanel({
                   onValueChange={(v) => v && setSide(v as "mine" | "theirs")}
                 >
                   <ToggleGroupItem value="mine">我的英雄</ToggleGroupItem>
-                  <ToggleGroupItem value="theirs">{player} 的英雄</ToggleGroupItem>
+                  <ToggleGroupItem value="theirs" disabled={!!role} title={role ? "定位是依你的英雄算的，選了定位時只能看你的英雄" : undefined}>
+                    {player} 的英雄
+                  </ToggleGroupItem>
                 </ToggleGroup>
               </div>
               {champs.loading ? (

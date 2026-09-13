@@ -3,6 +3,9 @@ import ReactECharts from "echarts-for-react"
 import { useThemeName } from "@/lib/theme"
 import { CHART_GROW_MS, STAGGER_CAP_MS, STAGGER_MS, prefersReducedMotion, useAfterPageEnter } from "@/lib/motion"
 
+/** 交叉篩選時，沒被選中的資料淡到這個不透明度——各張圖一致，看得出「這些是背景」但仍讀得到。 */
+export const DIM_OPACITY = 0.28
+
 /** 依序錯開：第 i 個元素晚多少出現，超過上限就不再往後排。 */
 const stagger = (i: number, step = STAGGER_MS) => Math.min(i * step, STAGGER_CAP_MS)
 
@@ -63,6 +66,8 @@ function ResponsiveChart({
         // 在這個版本拿不到東西，resize 會被 optional chaining 靜靜吞掉。
         onChartReady={(chart: EChartsInstance) => {
           instance.current = chart
+          // 掛在容器上給驗證腳本讀（換算座標去點某根長條、讀 option 確認有沒有淡化），畫面本身不用
+          if (boxRef.current) (boxRef.current as HTMLDivElement & { __chart?: EChartsInstance }).__chart = chart
           // 建立時量到的寬度不對才補一次 resize（理由同上，無條件呼叫會吃掉生長動畫）
           const w = boxRef.current?.clientWidth ?? 0
           if (w > 0 && Math.abs(chart.getWidth() - w) > 1) chart.resize()
@@ -326,6 +331,7 @@ export function Heatmap({
   cells,
   xLabels,
   selected,
+  focusRow = null,
   onPick,
 }: {
   cells: HeatCell[]
@@ -333,6 +339,8 @@ export function Heatmap({
   xLabels: string[]
   /** 目前下鑽中的格子,會打上外框。 */
   selected?: { weekday: number; x: number } | null
+  /** 交叉篩選：只亮這個星期那一列，其他列淡掉 */
+  focusRow?: number | null
   onPick?: (cell: { weekday: number; x: number }) => void
 }) {
   const theme = useTheme()
@@ -359,17 +367,19 @@ export function Heatmap({
           ? empty
           : mix(neutral, deviation >= 0 ? theme.win : theme.loss, Math.min(1, Math.abs(deviation)))
         const isSelected = selected && selected.weekday === wd && selected.x === x
+        const dimmed = focusRow !== null && focusRow !== wd
         data.push({
           value: [x, wd, games, cell?.winrate ?? null, adjusted],
           itemStyle: {
             color,
+            opacity: dimmed ? DIM_OPACITY : 1,
             // 2px 的卡片色縫隙把格子分開；選中的格子用介面強調色描邊並發光
             borderColor: isSelected ? theme.primary : theme.card,
             borderWidth: 2,
             shadowBlur: isSelected ? 12 : 0,
             shadowColor: alpha(theme.primary, 0.7),
           },
-          label: { color: games ? readableOn(color) : "transparent" },
+          label: { color: games ? readableOn(color) : "transparent", opacity: dimmed ? DIM_OPACITY : 1 },
         })
       }
     }
@@ -429,7 +439,7 @@ export function Heatmap({
         ],
       },
     }
-  }, [cells, xLabels, selected, theme])
+  }, [cells, xLabels, selected, focusRow, theme])
 
   return (
     <div className="space-y-2">
@@ -479,8 +489,11 @@ export function BarChart({
   suffix = "",
   colorBy = "value",
   baseline,
+  selected = null,
   onPick,
 }: {
+  /** 交叉篩選：選中的那根描邊，其他淡掉 */
+  selected?: string | null
   data: BarDatum[]
   suffix?: string
   colorBy?: "value" | "flat"
@@ -540,13 +553,21 @@ export function BarChart({
           type: "bar",
           data: ordered.map((d) => {
             const color = colorBy === "flat" ? theme.data : tint(d)
+            const isSelected = selected === d.label
+            const dimmed = selected !== null && !isSelected
             return {
               value: d.value,
               itemStyle: {
                 // 根部半透明、末端實色：長條像一道光往外打，而不是一塊平塗的色塊
                 color: fade(color, true),
                 borderRadius: [0, 4, 4, 0],
+                opacity: dimmed ? DIM_OPACITY : 1,
+                borderColor: isSelected ? theme.primary : "transparent",
+                borderWidth: isSelected ? 1.5 : 0,
+                shadowBlur: isSelected ? 14 : 0,
+                shadowColor: alpha(theme.primary, 0.6),
               },
+              label: { opacity: dimmed ? DIM_OPACITY : 1 },
               emphasis: { itemStyle: { color, shadowBlur: 14, shadowColor: alpha(color, 0.7) } },
             }
           }),
@@ -592,7 +613,7 @@ export function BarChart({
         },
       ],
     }
-  }, [data, suffix, colorBy, baseline, theme])
+  }, [data, suffix, colorBy, baseline, selected, theme])
 
   return (
     <ResponsiveChart
@@ -753,6 +774,12 @@ export function TreemapChart({
 
 // ─────────────────────────────────────────── 每日戰績（場次 + 勝率）
 
+/** YYYY-MM-DD（本地日期）是星期幾，0 = 週日。用本地時間建日期，不能讓它被當成 UTC 解析而差一天。 */
+export const weekdayOf = (date: string) => {
+  const [y, m, d] = date.split("-").map(Number)
+  return new Date(y, m - 1, d).getDay()
+}
+
 export type DayDatum = { date: string; games: number; winrate: number | null }
 
 /** 一天一組：長條是場次，折線是勝率。
@@ -762,10 +789,13 @@ export type DayDatum = { date: string; games: number; winrate: number | null }
 export function DailyChart({
   days,
   selected,
+  focusWeekday = null,
   onPick,
 }: {
   days: DayDatum[]
   selected?: string | null
+  /** 交叉篩選：只亮這個星期（0 = 週日）的那幾天 */
+  focusWeekday?: number | null
   onPick?: (date: string) => void
 }) {
   const theme = useTheme()
@@ -881,9 +911,11 @@ export function DailyChart({
           data: days.map((d) => {
             const picked = selected === d.date
             const color = picked ? theme.primary : theme.data
+            const dimmed = !picked && focusWeekday !== null && weekdayOf(d.date) !== focusWeekday
             return {
               value: d.games,
               itemStyle: {
+                opacity: dimmed ? DIM_OPACITY : 1,
                 color: fade(color, false, picked ? 0.6 : 0.25),
                 borderRadius: [4, 4, 0, 0],
                 shadowBlur: picked ? 14 : 0,
@@ -899,7 +931,7 @@ export function DailyChart({
         },
       ],
     }
-  }, [days, selected, theme])
+  }, [days, selected, focusWeekday, theme])
 
   return (
     <ResponsiveChart
