@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Panel, EmptyState } from "@/components/primitives"
 import { iconUrl } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
+import { useCrumb } from "@/lib/breadcrumb"
 import { cn } from "@/lib/utils"
 
 type Item = { slot: number; item_id: number; name: string | null; icon_path: string | null }
@@ -72,6 +73,10 @@ const fmtDate = (ms: number) =>
     hour: "2-digit",
     minute: "2-digit",
   })
+
+/** 麵包屑裡代表單場戰報的那一層：「9/12 22:48 剛普朗克」 */
+export const matchCrumbLabel = (m: MatchRow) =>
+  `${new Date(m.game_creation).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })} ${m.champion_name}`
 
 const fmtDuration = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`
 const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
@@ -476,6 +481,8 @@ export function Matches() {
   const [total, setTotal] = useState(0)
   const [offset, setOffset] = useState(0)
   const pageSize = 20
+  const selectedRow = selected ? rows?.find((m) => m.platform_id === selected.platformId && m.game_id === selected.gameId) : undefined
+  useCrumb(90, selectedRow ? matchCrumbLabel(selectedRow) : selected ? "單場戰報" : null, () => setSelected(null))
 
   useEffect(() => {
     setOffset(0)

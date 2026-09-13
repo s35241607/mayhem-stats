@@ -6,6 +6,7 @@ import { BarChart, type BarDatum } from "@/components/charts"
 import { useCube } from "@/hooks/useCube"
 import { num, type CubeFilter } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
+import { useCrumb } from "@/lib/breadcrumb"
 import { DrillPanel } from "@/components/MatchList"
 import { MIN_GAMES } from "./shared"
 
@@ -17,6 +18,7 @@ const STAGE_ORDER = ["第 1-2 場", "第 3-5 場", "第 6-9 場", "第 10 場以
 export function Tilt() {
   const { queueId, subjectFilter, timeFilter, matchParams, account } = useFilters()
   const [focus, setFocus] = useState<TiltFocus | null>(null)
+  useCrumb(10, focus?.label ?? null, () => setFocus(null))
   // 「一天打到第幾場」原本畫成分段、逐場兩張並排的圖。同一個維度的粗細兩種，
   // 改成和時段頁「四時段／逐小時」一樣用切換鈕。
   const [grain, setGrain] = useState<"stage" | "index">("stage")

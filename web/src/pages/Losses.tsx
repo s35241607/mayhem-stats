@@ -8,6 +8,7 @@ import { useCube } from "@/hooks/useCube"
 import { num } from "@/lib/cube"
 import { ContrastCell, numOf } from "@/components/cells"
 import { useFilters } from "@/lib/filters"
+import { useCrumb } from "@/lib/breadcrumb"
 
 /** 拿來做勝負對照的指標。higherIsBetter 只影響顏色，不影響數字。 */
 type Metric = {
@@ -82,6 +83,7 @@ const COLUMNS: GridColumn[] = [
 export function Losses() {
   const { apply, matchParams, account } = useFilters()
   const [bucket, setBucket] = useState<string | null>(null)
+  useCrumb(10, bucket ? `對局長度 ${bucket}` : null, () => setBucket(null))
 
   const byResult = useCube(
     apply({

@@ -11,6 +11,7 @@ import { BarChart, type BarDatum } from "@/components/charts"
 import { useCube } from "@/hooks/useCube"
 import { MAYHEM_QUEUE_ID, num, type CubeFilter } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
+import { useCrumb } from "@/lib/breadcrumb"
 import { MIN_GAMES, round0 } from "./shared"
 
 /** 「我的戰績」複合格子：勝率 + 勝敗比例條，刻度線是比較基準（你的整體勝率，或和這個人同場的整體勝率）。 */
@@ -120,6 +121,7 @@ function TogetherPanel({
   // （teammates 只和我這邊的英雄 join 定位），所以選了定位時固定看我的英雄。
   const [role, setRole] = useState<string | null>(null)
   const side = role ? "mine" : sideChoice
+  useCrumb(20, role, () => setRole(null))
   const [view, setView] = useState<"breakdown" | "matches">("breakdown")
 
   const filters: CubeFilter[] = [
@@ -396,6 +398,7 @@ export function Players() {
   const subject = subjectFilter("teammates.subject_puuid")
   const who = isMe ? "你" : (account?.riot_id ?? "他")
   const [picked, setPicked] = useState<Picked | null>(null)
+  useCrumb(10, picked ? `${picked.relation === "teammate" ? "和" : "對上"} ${picked.player}` : null, () => setPicked(null))
 
   // 拿來當基準線：和某人同隊的勝率要跟自己的整體比才有意義
   const overall = useCube(apply({ measures: ["participants.winrate"] }))

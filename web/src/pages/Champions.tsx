@@ -10,6 +10,7 @@ import { BarChart, type BarDatum } from "@/components/charts"
 import { useCube } from "@/hooks/useCube"
 import { num, type CubeRow } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
+import { useCrumb } from "@/lib/breadcrumb"
 import { MIN_GAMES, round0, round1, round2 } from "./shared"
 
 const MEASURES = [
@@ -164,6 +165,7 @@ function ChampionPanel({ row, onClose }: { row: CubeRow; onClose: () => void }) 
 export function Champions() {
   const { apply } = useFilters()
   const [picked, setPicked] = useState<string | null>(null)
+  useCrumb(10, picked, () => setPicked(null))
   const { rows, loading, error } = useCube(
     apply({
       measures: MEASURES,

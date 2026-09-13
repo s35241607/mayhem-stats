@@ -149,7 +149,23 @@ description: 這個專案前端的主題與動畫規範。只要動到 web/src �
 `convertToPixel` 換算座標實際點某根長條，再讀 `getOption().series[i].data[j].itemStyle.opacity` 確認別張圖有淡化。
 **不要用畫面上渲染出的表格列數判斷篩選結果**——AG Grid 只渲染看得到的列，要讀工具列的「N 列」。
 
-## 五、驗證
+## 五、下鑽到明細（Drill-through）與麵包屑
+
+**下鑽**：點圖表的一組 → 列出組成它的每一場 → 點一場看戰報。一律用 `components/MatchList.tsx`：
+- `<DrillPanel title params onClose />`：「XX 的每一場」面板，出現時自動捲到看得到的位置。
+- `params` 直接送 `/api/matches`，先展開 `matchParams()`（帳號、模式、期間），再加這一組的條件。
+- 後端的分組條件（`duration`、`prev_result`、`session_stage`…）**標籤必須和 Cube 模型裡的字串一字不差**，
+  在 `app.py` 查白名單換成 SQL 條件，不認得回 400，**不准把標籤拼進 SQL**。
+- 要驗證：每一組「列表的 total／勝場 = Cube 圖表的數字 = 手寫 SQL」。
+
+**麵包屑**：標題列顯示「頁名 › 全域下鑽 › 頁面內各層」，取代散在各處的篩選標籤。
+- 頁面內的聚焦狀態用 `useCrumb(order, label | null, clear)` 登記（`lib/breadcrumb.tsx`）。
+  order：頁面第一層 10、第二層 20、單場戰報 90。label 為 null 表示沒有聚焦。
+- 新增任何「點了會進到更細一層」的互動，都要登記一層，使用者才知道自己在哪、能一鍵退回。
+- 點某一層清掉比它深的所有層；點頁名清掉這頁所有聚焦；離開頁面自動清空，不用手動處理。
+- 頁面內原本的「收起」「清除」按鈕保留，麵包屑是額外的統一入口，不是取代。
+
+## 六、驗證
 
 服務要先在 `127.0.0.1:5057` 跑著（重啟方式見 `verify-change` skill）。前端改動要先 `cd web && npm run build`。
 
@@ -168,6 +184,10 @@ node .claude/skills/ui-conventions/scripts/perf_nav.mjs after.json 9451
 
 量測陷阱：
 - 某些列出現「幀數 0」或上萬毫秒的長任務，是機器被別的東西佔住或分頁被節流，**那一輪作廢重跑**，不要拿來比。
+  常見是跑到一半才開始節流（前幾頁正常、後面全部幀數 0），只比正常的那幾列。
+- **整輪都異常時，不要直接下結論說改動變慢了**：`git stash push -- web` 在同一時間點量一次舊版。
+  舊版正常、新版異常才是退步；再用 CDP `Performance.getMetrics` 量頁面閒置 5 秒的 `ScriptDuration`
+  排除渲染迴圈（應該是 0）。實際發生過：新版連兩輪全異常，同時間量舊版正常，但接著再量新版也正常——是環境間歇性節流。
 - 改前改後要在同一台機器、同一份資料上量。要量舊版可以 `git stash push -- web`（`web/dist` 有進版控，
   stash 後服務就是舊版），量完 `git stash pop`。
 - 前一次的 Edge 還沒完全關時，同一個除錯埠會連不上——換一個埠號。

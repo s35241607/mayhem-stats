@@ -18,6 +18,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useCube } from "@/hooks/useCube"
 import { num } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
+import { useCrumb } from "@/lib/breadcrumb"
 import { BLOCKS, WEEKDAYS, toBlocks } from "./shared"
 
 type Grain = "hour" | "block"
@@ -39,6 +40,7 @@ export function TimeAnalysis() {
   const { apply, account, matchParams } = useFilters()
   const [slice, setSlice] = useState<Slice | null>(null)
   const [grain, setGrain] = useState<Grain>("block")
+  useCrumb(10, slice ? sliceLabel(slice) : null, () => setSlice(null))
 
   const daily = useCube(
     apply({

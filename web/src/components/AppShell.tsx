@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react"
+import { useState, type CSSProperties, type ReactNode } from "react"
 import {
   LayoutDashboard,
   Swords,
@@ -14,6 +14,8 @@ import {
   Activity,
   Radar,
   TrendingDown,
+  ChevronRight,
+  Filter,
 } from "lucide-react"
 import {
   Sidebar,
@@ -32,7 +34,6 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import {
   Select,
@@ -46,6 +47,7 @@ import { DATE_RANGES, useFilters } from "@/lib/filters"
 import { MAYHEM_QUEUE_ID } from "@/lib/cube"
 import { AccountSwitcher, ViewingOtherBanner } from "@/components/AccountSwitcher"
 import { ThemeSwitcher } from "@/components/ThemeSwitcher"
+import { useCrumbs } from "@/lib/breadcrumb"
 
 export type PageId =
   | "dashboard"
@@ -157,8 +159,7 @@ function CollectorPill() {
 }
 
 function GlobalFilters() {
-  const { queueId, setQueueId, dateRange, setDateRange, drills, removeDrill, clearDrills } =
-    useFilters()
+  const { queueId, setQueueId, dateRange, setDateRange } = useFilters()
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -186,22 +187,81 @@ function GlobalFilters() {
         </SelectContent>
       </Select>
 
-      {drills.map((drill, index) => (
-        <Badge key={index} variant="secondary" className="gap-1.5 py-1 pl-2.5 pr-1.5">
-          {drill.label}
-          <button
-            onClick={() => removeDrill(index)}
-            className="rounded-sm opacity-60 transition hover:opacity-100"
-            aria-label="移除篩選"
-          >
-            <X className="size-3" />
+    </div>
+  )
+}
+
+/** 麵包屑：頁名 › 全域下鑽（跨頁生效，可個別移除）› 頁面內各層聚焦（登記自 useCrumb）。
+ *  點某一層清掉比它深的所有層；點頁名清掉這頁的所有聚焦。取代原本散在各處的篩選標籤。 */
+function Breadcrumb({ title, caption }: { title: string; caption: string }) {
+  const { drills, removeDrill, clearDrills } = useFilters()
+  const crumbs = useCrumbs()
+  // 由深到淺清，避免淺層的 clear 觸發重新渲染時深層還在
+  const clearFrom = (index: number) => [...crumbs.slice(index)].reverse().forEach((c) => c.clear())
+  const empty = !drills.length && !crumbs.length
+
+  return (
+    <div className="mr-auto min-w-0">
+      <h1 className="truncate text-base font-semibold leading-tight">
+        {crumbs.length ? (
+          <button onClick={() => clearFrom(0)} className="transition hover:text-primary" title="回到這頁的最上層">
+            {title}
           </button>
-        </Badge>
-      ))}
-      {drills.length > 0 && (
-        <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={clearDrills}>
-          清除
-        </Button>
+        ) : (
+          title
+        )}
+      </h1>
+      {empty ? (
+        <p className="truncate text-xs text-muted-foreground">{caption}</p>
+      ) : (
+        <nav aria-label="目前位置" className="mt-0.5">
+          <ol className="flex flex-wrap items-center gap-x-1 gap-y-1 text-xs">
+            {drills.map((drill, index) => (
+              <li key={`d${index}`} className="slide-in flex items-center gap-1" style={{ "--stagger": `${index * 30}ms` } as CSSProperties}>
+                <ChevronRight className="size-3 text-muted-foreground" />
+                <span className="flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 py-0.5 pl-2 pr-1 text-primary">
+                  <Filter className="size-3" />
+                  <button onClick={() => clearFrom(0)} title="跨頁生效的篩選；點這裡清掉這頁更深的聚焦">
+                    {drill.label}
+                  </button>
+                  <button onClick={() => removeDrill(index)} className="rounded-full p-0.5 opacity-70 transition hover:bg-primary/20 hover:opacity-100" aria-label={`移除篩選 ${drill.label}`}>
+                    <X className="size-3" />
+                  </button>
+                </span>
+              </li>
+            ))}
+            {crumbs.map((crumb, index) => {
+              const last = index === crumbs.length - 1
+              return (
+                <li key={crumb.id} className="slide-in flex items-center gap-1" style={{ "--stagger": `${(drills.length + index) * 30}ms` } as CSSProperties}>
+                  <ChevronRight className="size-3 text-muted-foreground" />
+                  {last ? (
+                    <span className="font-medium text-foreground" aria-current="location">{crumb.label}</span>
+                  ) : (
+                    <button onClick={() => clearFrom(index + 1)} className="text-muted-foreground transition hover:text-primary">
+                      {crumb.label}
+                    </button>
+                  )}
+                </li>
+              )
+            })}
+            {drills.length + crumbs.length > 1 && (
+              <li>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="ml-1 h-6 px-2 text-xs"
+                  onClick={() => {
+                    clearFrom(0)
+                    clearDrills()
+                  }}
+                >
+                  全部清除
+                </Button>
+              </li>
+            )}
+          </ol>
+        </nav>
       )}
     </div>
   )
@@ -290,10 +350,7 @@ export function AppShell({
           <div className="flex flex-wrap items-center gap-3">
             <SidebarTrigger className="-ml-1" />
             <Separator orientation="vertical" className="!h-5" />
-            <div className="mr-auto min-w-0">
-              <h1 className="truncate text-base font-semibold leading-tight">{meta.title}</h1>
-              <p className="truncate text-xs text-muted-foreground">{meta.caption}</p>
-            </div>
+            <Breadcrumb title={meta.title} caption={meta.caption} />
             <GlobalFilters />
             <ThemeSwitcher />
           </div>

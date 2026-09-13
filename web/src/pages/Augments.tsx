@@ -15,6 +15,7 @@ import { BarChart, type BarDatum } from "@/components/charts"
 import { useCube } from "@/hooks/useCube"
 import { num, type CubeRow } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
+import { useCrumb } from "@/lib/breadcrumb"
 import { MIN_GAMES, round0, round1 } from "./shared"
 
 const ALL = "__all__"
@@ -111,6 +112,9 @@ export function Augments() {
   // 交叉篩選：點長條 → 表格選取並捲到那一列；點表格一列 → 長條亮起那一根。再點一次取消
   const [focus, setFocus] = useState<string | null>(null)
   const toggleFocus = (name: string) => setFocus((cur) => (cur === name ? null : name))
+  // 從別頁下鑽來的英雄已經是全域篩選（麵包屑裡的標籤），這裡只登記本頁選單選的
+  useCrumb(10, picked === ALL || drills.some((d) => d.member === "champions.name") ? null : `${picked} 上的增幅`, () => setPicked(ALL))
+  useCrumb(20, focus, () => setFocus(null))
 
   // 已經從別頁下鑽到某隻英雄的話，就以那隻為準，選單鎖住，免得兩個條件打架
   const drilled = drills.find((d) => d.member === "champions.name")?.values[0] ?? null

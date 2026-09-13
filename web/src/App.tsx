@@ -4,6 +4,7 @@ import { AppShell, type PageId } from "@/components/AppShell"
 import { Skeleton } from "@/components/ui/skeleton"
 import { FilterProvider, useFilters } from "@/lib/filters"
 import { NavContext } from "@/lib/nav"
+import { BreadcrumbProvider } from "@/lib/breadcrumb"
 import { ThemeProvider } from "@/lib/theme"
 import { markNavigation } from "@/lib/motion"
 import { Dashboard } from "@/pages/Dashboard"
@@ -66,6 +67,7 @@ export default function App() {
     <TooltipProvider delayDuration={200}>
       <FilterProvider>
         <NavContext.Provider value={setPage}>
+        <BreadcrumbProvider>
         <AppShell page={page} onNavigate={setPage}>
           {/* 換頁只做淡入，不做離場動畫。
               原本用 AnimatePresence mode="wait"：新頁要等舊頁的離場動畫跑完才會掛載，
@@ -79,6 +81,7 @@ export default function App() {
             </Suspense>
           </div>
         </AppShell>
+        </BreadcrumbProvider>
         </NavContext.Provider>
       </FilterProvider>
     </TooltipProvider>

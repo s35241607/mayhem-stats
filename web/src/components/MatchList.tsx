@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { EmptyState, Panel } from "@/components/primitives"
 import { prefersReducedMotion } from "@/lib/motion"
-import { MatchCards, MatchDetail, type MatchRow } from "@/pages/Matches"
+import { useCrumb } from "@/lib/breadcrumb"
+import { MatchCards, MatchDetail, matchCrumbLabel, type MatchRow } from "@/pages/Matches"
 
 const PAGE = 20
 
@@ -57,6 +58,8 @@ export function MatchList({
   const [error, setError] = useState<string | null>(null)
   const [picked, setPicked] = useState<{ platformId: string; gameId: number } | null>(null)
   const [shown, setShown] = useState(PAGE)
+  const pickedRow = picked ? data?.matches.find((m) => m.platform_id === picked.platformId && m.game_id === picked.gameId) : undefined
+  useCrumb(90, pickedRow ? matchCrumbLabel(pickedRow) : picked ? "單場戰報" : null, () => setPicked(null))
   const key = new URLSearchParams({ limit: "200", ...params }).toString()
 
   useEffect(() => {
