@@ -37,12 +37,15 @@ export function RecordCell({
   wins,
   losses,
   baseline,
+  baselineLabel = "比較基準",
 }: {
   winrate: number | null
   wins: number
   losses: number
   /** 比較基準勝率（0～100），畫成刻度線；不給就不畫 */
   baseline?: number | null
+  /** 刻度線的說明，滑鼠移上去看得到（例如「你的整體勝率」） */
+  baselineLabel?: string
 }) {
   return (
     <div className="flex w-full flex-col justify-center gap-1.5">
@@ -63,11 +66,9 @@ export function RecordCell({
       <div className="relative flex h-1.5 gap-0.5">
         {wins > 0 && <span className="bar-grow rounded-full bg-win" style={{ flexGrow: wins }} />}
         {losses > 0 && <span className="bar-grow rounded-full bg-loss" style={{ flexGrow: losses }} />}
+        <CenterNotch />
         {baseline != null && wins + losses > 0 && (
-          <span
-            className="absolute -inset-y-1 w-0.5 rounded-full bg-foreground"
-            style={{ left: `calc(${pct(baseline / 100)} - 1px)` }}
-          />
+          <BaselineTick ratio={baseline / 100} title={`${baselineLabel} ${baseline.toFixed(1)}%`} />
         )}
       </div>
     </div>
@@ -104,12 +105,8 @@ export function LiftCell({
               style={{ width: pct(winrate / 100) }}
             />
           )}
-          {base !== null && (
-            <span
-              className="absolute -inset-y-1 w-0.5 rounded-full bg-foreground"
-              style={{ left: `calc(${pct(base / 100)} - 1px)` }}
-            />
-          )}
+          <CenterNotch />
+          {base !== null && <BaselineTick ratio={base / 100} title={`所有英雄的勝率 ${base.toFixed(1)}%`} />}
         </div>
       </div>
       {sub && <SubLine>{sub}</SubLine>}
@@ -157,6 +154,23 @@ export function ContrastCell({
         {diffPct === null ? "—" : `${diffPct > 0 ? "+" : ""}${diffPct.toFixed(1)}%`}
       </span>
     </div>
+  )
+}
+
+/** 50% 的位置。勝敗比例條、勝率條一眼會被拿來和「正中間」比，要讓正中間看得見。
+ *  畫在條的下緣外面，不蓋住資料。 */
+function CenterNotch() {
+  return <span aria-hidden className="pointer-events-none absolute left-1/2 top-full mt-0.5 h-1.5 w-0.5 -translate-x-1/2 rounded-full bg-muted-foreground" />
+}
+
+/** 比較基準的刻度線。用介面強調色而不是白色：白色細線在條中間很容易被當成 50% 的中線。 */
+function BaselineTick({ ratio, title }: { ratio: number; title: string }) {
+  return (
+    <span
+      title={title}
+      className="absolute -inset-y-1 w-0.5 rounded-full bg-primary shadow-[0_0_0_1px_var(--card)]"
+      style={{ left: `calc(${pct(ratio)} - 1px)` }}
+    />
   )
 }
 

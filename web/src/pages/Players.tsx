@@ -15,7 +15,7 @@ import { useCrumb } from "@/lib/breadcrumb"
 import { MIN_GAMES, round0 } from "./shared"
 
 /** 「我的戰績」複合格子：勝率 + 勝敗比例條，刻度線是比較基準（你的整體勝率，或和這個人同場的整體勝率）。 */
-const recordColumn = (title: string, baseline: number | null): GridColumn => ({
+const recordColumn = (title: string, baseline: number | null, baselineLabel: string): GridColumn => ({
   key: "teammates.winrate",
   title,
   kind: "metric",
@@ -27,6 +27,7 @@ const recordColumn = (title: string, baseline: number | null): GridColumn => ({
       wins={num0(r, "teammates.wins")}
       losses={num0(r, "teammates.games") - num0(r, "teammates.wins")}
       baseline={baseline}
+      baselineLabel={baselineLabel}
     />
   ),
 })
@@ -34,14 +35,14 @@ const recordColumn = (title: string, baseline: number | null): GridColumn => ({
 const playerColumns = (myWinrate: number | null): GridColumn[] => [
   { key: "teammates.player", title: "玩家", kind: "dimension", flex: 1.6, minWidth: 150 },
   { key: "teammates.games", title: "同場次數", kind: "metric", format: round0, flex: 0.6, minWidth: 88 },
-  recordColumn("我的戰績", myWinrate),
+  recordColumn("我的戰績", myWinrate, "你的整體勝率"),
   { key: "teammates.wins", title: "我方勝場", kind: "metric", hide: true },
 ]
 
 const champColumns = (whoseKey: string, iconKey: string, baseline: number | null): GridColumn[] => [
   { key: whoseKey, title: "英雄", kind: "dimension", iconKey, flex: 1.6, minWidth: 150 },
   { key: "teammates.games", title: "場次", kind: "metric", format: round0, flex: 0.6, minWidth: 72 },
-  recordColumn("戰績", baseline),
+  recordColumn("戰績", baseline, "和這個人同場的整體勝率"),
   { key: "teammates.wins", title: "勝場", kind: "metric", hide: true },
 ]
 

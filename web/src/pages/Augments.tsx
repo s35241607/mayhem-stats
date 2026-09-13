@@ -45,6 +45,7 @@ function buildColumns(rows: CubeRow[], withSynergy: boolean): GridColumn[] {
           wins={num0(r, "participants.wins")}
           losses={num0(r, G) - num0(r, "participants.wins")}
           baseline={avgWr}
+          baselineLabel={withSynergy ? "這隻英雄的整體勝率" : "你的整體勝率"}
         />
       ),
     },

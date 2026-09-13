@@ -59,6 +59,7 @@ function buildColumns(rows: CubeRow[]): GridColumn[] {
           wins={n0(r, "participants.wins")}
           losses={n0(r, "participants.losses")}
           baseline={avgWr}
+          baselineLabel="你的整體勝率"
         />
       ),
     },

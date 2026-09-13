@@ -126,6 +126,9 @@ description: 這個專案前端的主題與動畫規範。只要動到 web/src �
    只比「文字 vs 自己的格子」量不出來，要實際看截圖。
 9. **驗證：畫面上的格子文字逐字和手寫 SQL 對**。Python 比對時注意四捨五入：JS `toFixed` 對剛好一半的值往上捨，
    Python 的格式化是往偶數捨（6.25 → JS「6.3」、Python「6.2」），要用 `Decimal` + `ROUND_HALF_UP`。
+10. **比較基準不能被看成正中間**：勝率條同時畫 `CenterNotch`（條下方灰色 50% 小刻度）和 `BaselineTick`
+    （強調色、帶 `title` 說明是誰的勝率）。`RecordCell` 必須傳 `baselineLabel` 講清楚比的是什麼
+    （例：「你的整體勝率」、「這隻英雄的整體勝率」），不要用白色／前景色畫基準線——使用者會以為那是 50%。
 
 ## 四、交叉篩選（Cross-filter）
 
