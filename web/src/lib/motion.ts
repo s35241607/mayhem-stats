@@ -3,6 +3,16 @@ import { useEffect, useState } from "react"
 /** 換頁進場動畫的長度，和 index.css 的 page-enter 一致。 */
 export const PAGE_ENTER_MS = 200
 
+/** 數字跑動與圖表生長的時長，和 ui-conventions skill 的時長表一致。 */
+export const COUNT_UP_MS = 900
+export const CHART_GROW_MS = 900
+/** 圖表裡依序出現的元素，每個錯開多少、最多錯開到哪。 */
+export const STAGGER_MS = 45
+export const STAGGER_CAP_MS = 500
+
+export const prefersReducedMotion = () =>
+  typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+
 let navigatedAt = 0
 
 /** App 換頁時呼叫，讓重元件知道進場動畫什麼時候結束。 */

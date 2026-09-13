@@ -1,4 +1,6 @@
+import type { CSSProperties } from "react"
 import { ArrowRight } from "lucide-react"
+import { CountUp } from "@/components/CountUp"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -39,7 +41,7 @@ function TopList({
   if (!rows.length) return <EmptyState>還沒有資料。</EmptyState>
   return (
     <div className="space-y-1">
-      {rows.slice(0, 8).map((r) => {
+      {rows.slice(0, 8).map((r, i) => {
         const name = String(r[nameKey] ?? "—")
         const wr = num(r["participants.winrate"]) ?? 0
         const n = num(r["participants.games"]) ?? 0
@@ -47,11 +49,12 @@ function TopList({
           <button
             key={name}
             onClick={() => addDrill(drill(name))}
-            className="flex w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left transition hover:bg-accent"
+            style={{ "--stagger": `${i * 40}ms` } as CSSProperties}
+            className="slide-in flex w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left transition hover:bg-accent"
           >
             <img src={iconUrl(r[iconKey] as string)} alt="" className="size-7 shrink-0 rounded-md bg-icon-tile" />
             <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
-            <span className="text-xs text-muted-foreground">{n} 場</span>
+            <CountUp text={`${n} 場`} className="text-xs text-muted-foreground" />
             <Badge
               variant="outline"
               className={
@@ -62,7 +65,7 @@ function TopList({
                     : "w-[62px] justify-center border-loss/30 bg-loss/10 text-loss"
               }
             >
-              {wr.toFixed(1)}%
+              <CountUp text={`${wr.toFixed(1)}%`} />
             </Badge>
           </button>
         )

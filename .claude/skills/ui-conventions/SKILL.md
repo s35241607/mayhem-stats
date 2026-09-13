@@ -57,24 +57,44 @@ description: 這個專案前端的主題與動畫規範。只要動到 web/src �
 
 ## 二、動畫
 
+動畫分兩種：**版面動畫**（卡片、清單、頁面怎麼出現）和**資料動畫**（數字怎麼跑、圖表怎麼長）。
+只有淡入淡出太單調，資料要讓人看得出「從哪裡長上來」。
+
 ### 規則
 
-1. **只用 CSS 動畫，只動 `opacity` / `transform`。** 這兩個屬性在合成器執行緒跑，主執行緒被 AG Grid 或
-   ECharts 卡住時動畫不會停。不要新增 `motion` / JS 逐幀動畫做進場效果
+1. **版面動畫只用 CSS，只動 `opacity` / `transform`。** 這兩個屬性在合成器執行緒跑，主執行緒被 AG Grid 或
+   ECharts 卡住時動畫不會停。不要用 `motion` / JS 逐幀做進場效果
    （原本用 motion，實測英雄頁切換最長停一格 201ms，動畫跟著停）。
-2. 用現成的 utility（定義在 `index.css`）：
+2. 用現成的 utility（定義在 `index.css`），錯開量用 `style={{ "--stagger": "…ms" }}` 給：
    | class | 用途 | 時長 |
    |---|---|---|
    | `page-enter` | 換頁（App 已套用，頁面不用自己加） | 200ms |
-   | `rise` | 卡片浮現；`Kpi` / `Panel` 已內建，傳 `index` 會依序錯開（`--stagger`，上限 240ms） | 280ms |
-   | `reveal` | 骨架換成真正內容時淡入 | 220ms |
+   | `rise` | 卡片由下浮現；`Kpi` / `Panel` 已內建，傳 `index` 會依序錯開（上限 240ms） | 280ms |
+   | `slide-in` | 清單列由左滑入（對局卡片、最常用清單），每列錯開 30～40ms（上限 400ms） | 320ms |
+   | `reveal` | 沒有自己資料動畫的內容（表格、逐場列表外框）從骨架換上時淡入 | 220ms |
    不要自己另寫時長。需要新的動畫就加 utility 並更新這張表。
-3. **不做離場動畫。** 新頁要等舊頁離場才掛載，查詢會晚送出（實測回訪一頁 280ms 裡 214ms 在等動畫）。
-4. **重元件等進場動畫結束才掛。** AG Grid、ECharts 已經用 `useAfterPageEnter()`（`lib/motion.ts`）處理。
+3. **資料動畫可以用 JS，但有兩個條件**：等換頁進場動畫結束才開始（`useAfterPageEnter()`），
+   而且**不准每一幀都 setState**（七個 KPI × 60 幀 = 420 次重新渲染）。現成的做法：
+   | 對象 | 怎麼做 | 時長 |
+   |---|---|---|
+   | 數字（KPI、清單裡的場次與勝率） | `<CountUp text="45.3%" />`：從 0 或上一次的值跑到目標，逐幀直接改 textContent。字串裡多個數字會一起跑；時間、日期、區間（`21:00`、`0-5`）自動不跑 | 900ms，easeOutExpo |
+   | 長條 | 從軸線長出、依序錯開（`animationDelay: (i) => stagger(i)`）；長條上的數字加 `label.valueAnimation: true` 跟著跑 | 900ms，每根錯開 45ms（上限 500ms） |
+   | 折線 | 由左往右畫（ECharts 預設），比長條慢一點 | 1200ms |
+   | 參考線（平均、50%） | `markLine.animationDelay` 設在主資料長到約 60～70% 時才出現 | 400ms |
+   | 熱力圖格子 | 由左往右一欄一欄掃進來 | 500ms |
+   | 散布點 | 從中心彈出（`backOut`）、依序錯開 | 700ms |
+   時長常數在 `lib/motion.ts`（`COUNT_UP_MS`、`CHART_GROW_MS`、`STAGGER_MS`、`STAGGER_CAP_MS`），
+   預設值由 `ResponsiveChart` 統一套上，個別圖表只加錯開和特例。資料更新（換篩選、換主題）走 450ms 的過渡，
+   不重長一次，所以錯開一律加 `animationDelayUpdate: 0`。
+4. **絕對不要無條件呼叫 ECharts 的 `chart.resize()`。** 它會把進行中的動畫直接跳到終點——
+   原本 `onChartReady` 和 ResizeObserver 都無條件 resize，結果每張圖的生長動畫都被吃掉，長條一出現就是滿的。
+   只在 `chart.getWidth()` 和容器寬度真的不同時才 resize（`ResponsiveChart` 已處理）。
+5. **不做離場動畫。** 新頁要等舊頁離場才掛載，查詢會晚送出（實測回訪一頁 280ms 裡 214ms 在等動畫）。
+6. **重元件等進場動畫結束才掛。** AG Grid、ECharts 已經用 `useAfterPageEnter()`（`lib/motion.ts`）處理。
    新增其他重元件（大型清單、編輯器……）照做，等待期間畫**同高度**的佔位，版面才不會跳。
-5. **骨架與內容等高。** 骨架高度要接近真正內容，否則換上內容時整頁往下推（CLS）。
-6. **尊重「減少動態」。** `index.css` 的 `prefers-reduced-motion` 會把動畫縮成 1ms；新動畫不要繞過它。
-7. 圖表本身的生長動畫在 `ResponsiveChart` 統一設為 480ms，個別圖表不要改回 ECharts 預設的 1 秒。
+7. **骨架與內容等高。** 骨架高度要接近真正內容，否則換上內容時整頁往下推（CLS）。
+8. **尊重「減少動態」。** CSS 那邊由 `index.css` 的 `prefers-reduced-motion` 縮成 1ms；JS 的資料動畫要自己檢查
+   `prefersReducedMotion()`（`CountUp` 直接顯示最終值、`ResponsiveChart` 關掉 ECharts 動畫）。新動畫不要繞過它。
 
 ## 三、驗證
 
@@ -98,6 +118,15 @@ node .claude/skills/ui-conventions/scripts/perf_nav.mjs after.json 9451
 - 改前改後要在同一台機器、同一份資料上量。要量舊版可以 `git stash push -- web`（`web/dist` 有進版控，
   stash 後服務就是舊版），量完 `git stash pop`。
 - 前一次的 Edge 還沒完全關時，同一個除錯埠會連不上——換一個埠號。
+
+### 資料動畫（動到數字或圖表動畫時）
+
+- **數字最終值必須和不跑動畫時一模一樣**：CDP 送 `Emulation.setEmulatedMedia`
+  `{ features: [{ name: "prefers-reduced-motion", value: "reduce" }] }` 讀一次卡片文字，
+  和正常模式等 3 秒後的文字逐字比對（格式化千分位、小數位最容易出錯）。
+- **圖表真的有在長**：在頁面內用 `setTimeout` 每 40ms 對 canvas 取一條 `getImageData`（整條一次讀，
+  不要逐像素讀——那樣一次取樣就要好幾秒），數彩色像素，數量要隨時間遞增到穩定。
+  一出現就是最終值，代表動畫被吃掉了（先查有沒有人呼叫 `resize()`）。
 
 ### 主題（動到顏色、圖表、主題時）
 

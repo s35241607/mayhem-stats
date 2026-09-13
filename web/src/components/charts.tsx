@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import ReactECharts from "echarts-for-react"
 import { useThemeName } from "@/lib/theme"
-import { useAfterPageEnter } from "@/lib/motion"
+import { CHART_GROW_MS, STAGGER_CAP_MS, STAGGER_MS, prefersReducedMotion, useAfterPageEnter } from "@/lib/motion"
+
+/** 依序錯開：第 i 個元素晚多少出現，超過上限就不再往後排。 */
+const stagger = (i: number, step = STAGGER_MS) => Math.min(i * step, STAGGER_CAP_MS)
 
 /** 包一層尺寸觀察。
  *
@@ -9,7 +12,7 @@ import { useAfterPageEnter } from "@/lib/motion"
  * 之後它也不會自己重算——結果就是高度正常、寬度 0 的空白圖。
  * ResizeObserver 在初次佈局與之後每次容器變動時都會觸發，補上這個缺口。
  */
-type EChartsInstance = { resize: () => void }
+type EChartsInstance = { resize: () => void; getWidth: () => number }
 
 function ResponsiveChart({
   option,
@@ -32,7 +35,11 @@ function ResponsiveChart({
     const sync = () => {
       const w = box.clientWidth
       setWidth(w)
-      if (w > 0) instance.current?.resize()
+      // 只在寬度真的變了才 resize：ECharts 的 resize() 會把進行中的動畫直接跳到終點，
+      // ResizeObserver 一掛上就會觸發一次，無條件 resize 等於把每張圖的生長動畫都吃掉
+      // （實測長條一出現就是滿的）。
+      const chart = instance.current
+      if (w > 0 && chart && Math.abs(chart.getWidth() - w) > 1) chart.resize()
     }
     sync()
     const observer = new ResizeObserver(sync)
@@ -49,16 +56,27 @@ function ResponsiveChart({
   }
 
   return (
-    <div ref={boxRef} className="reveal w-full">
+    // 不加淡入：座標軸先出現、資料再從軸線長出來，比整張圖一起淡入更看得出方向
+    <div ref={boxRef} className="w-full">
       <ReactECharts
         // onChartReady 是取得實例的官方途徑；改用元件 ref 拿 getEchartsInstance
         // 在這個版本拿不到東西，resize 會被 optional chaining 靜靜吞掉。
         onChartReady={(chart: EChartsInstance) => {
           instance.current = chart
-          chart.resize()
+          // 建立時量到的寬度不對才補一次 resize（理由同上，無條件呼叫會吃掉生長動畫）
+          const w = boxRef.current?.clientWidth ?? 0
+          if (w > 0 && Math.abs(chart.getWidth() - w) > 1) chart.resize()
         }}
-        // 圖表自己的長條／折線生長動畫：預設 1 秒太拖，和卡片浮現錯開後又顯得慢半拍
-        option={{ animationDuration: 480, animationEasing: "cubicOut", animationDurationUpdate: 300, ...(option as object) } as never}
+        // 進場的生長動畫（長條從軸線長出、折線由左往右畫）；各圖表可以再加依序錯開的 animationDelay。
+        // 資料更新（換篩選、換主題）用較短的過渡，從舊值滑到新值而不是重長一次
+        option={{
+          animationDuration: CHART_GROW_MS,
+          animationEasing: "cubicOut",
+          animationDurationUpdate: 450,
+          animationEasingUpdate: "cubicInOut",
+          ...(option as object),
+          ...(prefersReducedMotion() ? { animation: false } : {}),
+        } as never}
         onEvents={onEvent as never}
         style={{ height, width: "100%" }}
         notMerge
@@ -263,9 +281,15 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
             },
           },
           emphasis: { itemStyle: { color: theme.data, borderColor: theme.text } },
+          // 折線由左往右畫出來，比長條慢一點，讀得出「時間往前走」
+          animationDuration: CHART_GROW_MS + 300,
+          animationEasing: "cubicInOut",
           markLine: {
             silent: true,
             symbol: "none",
+            // 參考線等線畫到一半才淡入，不要一開始就擋在前面
+            animationDelay: CHART_GROW_MS * 0.6,
+            animationDuration: 400,
             data: [{ yAxis: 50 }],
             lineStyle: { color: alpha(theme.muted, 0.5), type: "dashed", width: 1 },
             label: { formatter: "50%", color: theme.muted, fontSize: 10, fontFamily: MONO, position: "insideStartTop" },
@@ -394,6 +418,13 @@ export function Heatmap({
             label: { show: true, formatter: (p: { value: number[] }) => (p.value[2] ? String(p.value[2]) : ""), fontSize: 10, fontFamily: MONO },
             itemStyle: { borderRadius: 5 },
             emphasis: { itemStyle: { borderColor: theme.primary, borderWidth: 2, shadowBlur: 10, shadowColor: alpha(theme.primary, 0.6) } },
+            // 格子由左往右一欄一欄掃進來（資料是週日→週六、每列由左到右排的）
+            animationDuration: 500,
+            animationDelay: (idx: number) => {
+              const x = idx % xLabels.length
+              const wd = Math.floor(idx / xLabels.length)
+              return Math.min(x * (xLabels.length > 12 ? 18 : 70) + wd * 15, STAGGER_CAP_MS + 200)
+            },
           },
         ],
       },
@@ -520,6 +551,9 @@ export function BarChart({
             }
           }),
           barMaxWidth: 18,
+          // 長條從軸線往右長出來，由上往下依序錯開（ordered 是反過來的，最後一個在最上面）
+          animationDelay: (idx: number) => stagger(ordered.length - 1 - idx),
+          animationDelayUpdate: 0,
           // 長條背後的「軌道」，一眼看出離滿格還差多少
           showBackground: true,
           backgroundStyle: { color: alpha(theme.muted, theme.isDark ? 0.06 : 0.08), borderRadius: [0, 4, 4, 0] },
@@ -529,6 +563,9 @@ export function BarChart({
               : {
                   silent: true,
                   symbol: "none",
+                  // 平均線等長條長得差不多了才出現
+                  animationDelay: CHART_GROW_MS * 0.7,
+                  animationDuration: 400,
                   data: [{ xAxis: base }],
                   lineStyle: { color: alpha(theme.primary, 0.7), type: "dashed", width: 1 },
                   label: {
@@ -548,6 +585,8 @@ export function BarChart({
             color: theme.text,
             fontSize: 11,
             fontFamily: MONO,
+            // 數字跟著長條一起從 0 跑上來
+            valueAnimation: true,
             formatter: (p: { value: number }) => `${p.value.toFixed(1)}${suffix}`,
           },
         },
@@ -627,6 +666,11 @@ export function ScatterChart({
           // 2px 卡片色外環：泡泡重疊時仍分得出邊界
           itemStyle: { color: alpha(theme.data, 0.55), borderColor: theme.data, borderWidth: 1.5, shadowBlur: 8, shadowColor: alpha(theme.data, 0.45) },
           emphasis: { itemStyle: { color: theme.data, borderColor: theme.text, shadowBlur: 16 } },
+          // 泡泡從中心彈出來，依序錯開
+          animationEasing: "backOut",
+          animationDuration: 700,
+          animationDelay: (idx: number) => stagger(idx, 20),
+          animationDelayUpdate: 0,
           label: {
             show: true,
             position: "top",
@@ -810,9 +854,14 @@ export function DailyChart({
           // 點的大小跟著場次走，一兩場的那天不會看起來和二十場一樣有份量
           symbolSize: (_v: unknown, p: { dataIndex: number }) =>
             6 + 8 * Math.sqrt((days[p.dataIndex]?.games ?? 0) / maxGames),
+          // 勝率線由左往右畫；下面的場次長條同時一根根長上來，兩者節奏對得上
+          animationDuration: CHART_GROW_MS + 300,
+          animationEasing: "cubicInOut",
           markLine: {
             silent: true,
             symbol: "none",
+            animationDelay: CHART_GROW_MS * 0.7,
+            animationDuration: 400,
             data: [{ yAxis: base }],
             lineStyle: { color: alpha(theme.primary, 0.7), type: "dashed", width: 1 },
             label: {
@@ -843,6 +892,9 @@ export function DailyChart({
             }
           }),
           barMaxWidth: 22,
+          // 從底線往上長，由左到右依序；總錯開時間和上面折線畫完的時間差不多
+          animationDelay: (idx: number) => stagger(idx, Math.min(90, (CHART_GROW_MS + 300) / Math.max(1, days.length))),
+          animationDelayUpdate: 0,
           emphasis: { itemStyle: { shadowBlur: 12, shadowColor: alpha(theme.data, 0.6) } },
         },
       ],

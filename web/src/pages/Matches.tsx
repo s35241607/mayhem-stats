@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react"
+import { Fragment, useEffect, useState, type CSSProperties } from "react"
 import { ChevronLeft, Coins, Swords } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -406,14 +406,17 @@ export function MatchCards({
 }) {
   return (
     <div className="space-y-1.5">
-      {rows.map((m) => {
+      {rows.map((m, i) => {
         const kda = m.deaths === 0 ? "Perfect" : ((m.kills + m.assists) / m.deaths).toFixed(2)
         const kp = m.team_kills ? Math.round(((m.kills + m.assists) / m.team_kills) * 100) : 0
         return (
           <button
             key={`${m.platform_id}:${m.game_id}`}
             onClick={() => onPick({ platformId: m.platform_id, gameId: m.game_id })}
+            // 一列一列滑進來；「再顯示 20 場」時新增的那批從 0 開始錯開，不會等上一批的延遲
+            style={{ "--stagger": `${(i % 20) * 30}ms` } as CSSProperties}
             className={cn(
+              "slide-in",
               // 勝敗靠底色與文字傳達就夠了。先前用高彩度的左側粗邊，
               // 二十列疊起來像斑馬紋，反而蓋過內容。
               "flex w-full flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border px-3 py-2.5 text-left transition",

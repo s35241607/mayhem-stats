@@ -1,55 +1,9 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react"
+import { type CSSProperties, type ReactNode } from "react"
+import { CountUp } from "@/components/CountUp"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 
-/** 數字跑動。單純的視覺回饋，讓數值變化被注意到而不是無聲替換。
- *  非數字（例如「42 勝 56 敗」）就直接顯示，不硬套動畫。 */
-function useCountUp(target: number | null, durationMs = 650) {
-  const [value, setValue] = useState(target ?? 0)
-  const from = useRef(target ?? 0)
-
-  useEffect(() => {
-    if (target === null) return
-    const start = performance.now()
-    const origin = from.current
-    const delta = target - origin
-    if (delta === 0) return
-
-    let raf = 0
-    const tick = (now: number) => {
-      const t = Math.min((now - start) / durationMs, 1)
-      // easeOutCubic：開頭快、結尾穩，讀數字時不會覺得拖
-      const eased = 1 - Math.pow(1 - t, 3)
-      setValue(origin + delta * eased)
-      if (t < 1) raf = requestAnimationFrame(tick)
-      else from.current = target
-    }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
-  }, [target, durationMs])
-
-  return target === null ? null : value
-}
-
-function AnimatedValue({ text }: { text: string }) {
-  // 抓出開頭的數字（含小數與千分位），其餘原樣保留
-  const match = text.match(/^(-?[\d,]+\.?\d*)(.*)$/)
-  const target = match ? Number(match[1].replace(/,/g, "")) : null
-  const suffix = match ? match[2] : ""
-  const decimals = match?.[1].includes(".") ? (match[1].split(".")[1]?.length ?? 0) : 0
-  const animated = useCountUp(Number.isFinite(target as number) ? target : null)
-
-  if (animated === null) return <>{text}</>
-  const shown =
-    decimals > 0 ? animated.toFixed(decimals) : Math.round(animated).toLocaleString()
-  return (
-    <>
-      {shown}
-      {suffix}
-    </>
-  )
-}
 
 /** 卡片上緣一道由中間往兩側淡出的主題色細光，科技感的點綴。不裁切內容（不設 overflow-hidden），
  *  表格的篩選浮層才不會被卡片切掉。 */
@@ -93,15 +47,15 @@ export function Kpi({
           ) : (
             <div
               className={cn(
-                "reveal mt-1 font-mono text-2xl font-bold tabular-nums leading-tight tracking-tight",
+                "mt-1 font-mono text-2xl font-bold tabular-nums leading-tight tracking-tight",
                 tone === "win" && "text-win",
                 tone === "loss" && "text-loss",
               )}
             >
-              <AnimatedValue text={value} />
+              <CountUp text={value} />
             </div>
           )}
-          {hint && <div className="mt-1 text-[11px] text-muted-foreground">{hint}</div>}
+          {hint && <CountUp text={hint} className="mt-1 block text-[11px] text-muted-foreground" />}
         </CardContent>
       </Card>
     </div>
