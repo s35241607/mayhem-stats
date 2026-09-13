@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { iconUrl } from "@/lib/cube"
 import { cn } from "@/lib/utils"
+import { MIN_GAMES } from "@/pages/shared"
 
 ModuleRegistry.registerModules([AllCommunityModule])
 
@@ -111,9 +112,12 @@ export function AgTable({
   emptyHint,
   height = 480,
   fileName = "mayhem",
+  sampleKey,
 }: {
   columns: GridColumn[]
   rows: Row[]
+  /** 場次欄位。給了的話，場次不到 MIN_GAMES 的列會淡化——那幾列的勝率是雜訊。 */
+  sampleKey?: string
   /** 第三個參數是被點的那一列原始資料——用值去反查會在重複值上選錯列。 */
   onDrill?: (column: GridColumn, value: string, row: Row) => void
   emptyHint?: string
@@ -237,6 +241,11 @@ export function AgTable({
           columnDefs={colDefs}
           onGridReady={onGridReady}
           quickFilterText={quickFilter}
+          getRowClass={
+            sampleKey
+              ? (p) => ((Number((p.data as Row)?.[sampleKey]) || 0) < MIN_GAMES ? "opacity-45" : undefined)
+              : undefined
+          }
           // 每欄標題都有篩選器圖示，點開就能設條件
           defaultColDef={{
             filter: true,

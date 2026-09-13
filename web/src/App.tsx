@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { AppShell, type PageId } from "@/components/AppShell"
 import { Skeleton } from "@/components/ui/skeleton"
 import { FilterProvider, useFilters } from "@/lib/filters"
+import { NavContext } from "@/lib/nav"
 import { Dashboard } from "@/pages/Dashboard"
 
 // 每頁各自成為一個 chunk。表格頁才會載入 AG Grid、圖表頁才會載入 ECharts，
@@ -12,7 +13,6 @@ const LOADERS = {
   // 儀表板是每次開啟的第一頁，直接打包進主程式，不走延遲載入。
   dashboard: () => Promise.resolve(Dashboard),
   matches: () => import("@/pages/Matches").then((m) => m.Matches),
-  synergy: () => import("@/pages/Synergy").then((m) => m.Synergy),
   tilt: () => import("@/pages/Tilt").then((m) => m.Tilt),
   losses: () => import("@/pages/Losses").then((m) => m.Losses),
   champions: () => import("@/pages/Champions").then((m) => m.Champions),
@@ -59,6 +59,7 @@ export default function App() {
   return (
     <TooltipProvider delayDuration={200}>
       <FilterProvider>
+        <NavContext.Provider value={setPage}>
         <AppShell page={page} onNavigate={setPage}>
           {/* 換頁只做淡入，不做離場動畫。
               原本用 AnimatePresence mode="wait"：新頁要等舊頁的離場動畫跑完才會掛載，
@@ -77,6 +78,7 @@ export default function App() {
             </Suspense>
           </motion.div>
         </AppShell>
+        </NavContext.Provider>
       </FilterProvider>
     </TooltipProvider>
   )

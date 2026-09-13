@@ -151,6 +151,10 @@ def recent_matches(
     weekday: Optional[int] = None,
     hour_from: Optional[int] = None,
     hour_to: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    with_puuid: Optional[str] = None,
+    relation: Optional[str] = None,
 ):
     """指定帳號的對局清單，預設是本機帳號。
 
@@ -160,6 +164,9 @@ def recent_matches(
     date / weekday / hour_from~hour_to 是給圖表下鑽用的,查的是 matches 裡存好的
     本地時間欄位（hour 是區間,因為熱力圖可以切成「下午」這種粗分組）,
     和 Cube 那邊的分桶是同一份資料,所以圖上點到的格子和這裡列出來的場次一定對得起來。
+
+    date_from / date_to 是全域的期間篩選(本地日期,含頭含尾)。
+    with_puuid + relation(teammate / opponent)列出和某人同隊或對上的場次,給隊友頁下鑽用。
     """
     conn = db.connect()
     try:
@@ -196,6 +203,20 @@ def recent_matches(
         if hour_to is not None:
             slice_sql += " AND m.local_hour <= ?"
             slice_params.append(hour_to)
+        if date_from is not None:
+            slice_sql += " AND m.local_date >= ?"
+            slice_params.append(date_from)
+        if date_to is not None:
+            slice_sql += " AND m.local_date <= ?"
+            slice_params.append(date_to)
+        if with_puuid is not None:
+            same_team = {"teammate": "=", "opponent": "<>"}.get(relation or "", None)
+            slice_sql += f"""
+                AND EXISTS (SELECT 1 FROM match_participants o
+                            WHERE o.platform_id = mp.platform_id AND o.game_id = mp.game_id
+                              AND o.puuid = ? AND o.puuid <> mp.puuid
+                              {f'AND o.team_id {same_team} mp.team_id' if same_team else ''})"""
+            slice_params.append(with_puuid)
         sql += slice_sql
         params.extend(slice_params)
         sql += " ORDER BY m.game_creation DESC LIMIT ? OFFSET ?"
