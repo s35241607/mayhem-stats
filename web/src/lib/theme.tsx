@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, type ReactNode } from "react"
+import { flushSync } from "react-dom"
 
 // 色票依序是：底色、介面強調、勝、敗。勝敗兩極與資料色都跑過 dataviz 的配色驗證（見 index.css 開頭）。
 export const THEMES = [
@@ -49,13 +50,20 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   })
 
   const setTheme = (id: ThemeId) => {
-    apply(id)
     try {
       localStorage.setItem(STORAGE_KEY, id)
     } catch {
       /* 無痕模式等情況存不了就算了，這次仍然生效 */
     }
-    setThemeState(id)
+    const run = () => {
+      apply(id)
+      // View Transition 在 callback 結束時拍新畫面，React 必須同步重畫完，不然拍到的還是舊主題
+      flushSync(() => setThemeState(id))
+    }
+    // 整頁交叉淡化，不是所有顏色同一幀硬換。瀏覽器不支援或使用者要求減少動態時直接換
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+    if (document.startViewTransition && !reduce) document.startViewTransition(run)
+    else run()
   }
 
   const isDark = THEMES.find((t) => t.id === theme)?.dark ?? true

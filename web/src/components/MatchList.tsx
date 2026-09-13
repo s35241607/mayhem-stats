@@ -68,7 +68,7 @@ export function MatchList({
   const wins = matches.filter((m) => m.win).length
 
   return (
-    <div className="space-y-2">
+    <div className="reveal space-y-2">
       <div className="text-xs text-muted-foreground">
         共 {total} 場
         {complete && (

@@ -80,6 +80,8 @@ import sqlite3
 
 ## 截圖與畫面驗證
 
+> 主題配色、動畫、切頁流暢度的規則與驗證腳本在 `ui-conventions` skill。
+
 **不要用內嵌的瀏覽器窗格判斷畫面。** 它失焦時會被節流到 0.3 fps，
 後果是 ECharts 停在 0 寬不產生 canvas、`motion` 的淡入永遠跑不完，
 看起來就像「圖表壞了」，但那是量測環境的問題。
@@ -99,15 +101,9 @@ const edge = spawn("C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe
 
 1. **等內容真的就緒**——招牌文字出現、沒有 `[data-slot="skeleton"]`、
    每個 `div[_echarts_instance_]` 裡都有 `canvas`。
-2. **把動畫的終態設定好**（無頭模式動畫幀也會被節流）：
-
-   ```javascript
-   document.querySelectorAll('[style*="opacity"], [style*="transform"]').forEach(d => {
-     if (d.style.opacity !== "") d.style.opacity = "1"
-     if (d.style.transform !== "") d.style.transform = "none"
-   })
-   window.dispatchEvent(new Event("resize"))
-   ```
+2. **等進場動畫跑完**：動畫都是 CSS（`page-enter` / `rise` / `reveal`，最長約 500ms），
+   換頁後等 1 秒再拍即可，不必再手動改 inline style。長時間跑的無頭分頁可能被當成背景節流，
+   送 `Emulation.setFocusEmulationEnabled { enabled: true }` 固定焦點。
 
 3. **不要用 `captureBeyondViewport: true`**——它會拍到空白的 canvas。
    要拍長頁面就把 viewport 調高再拍。

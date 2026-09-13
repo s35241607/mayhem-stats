@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react"
-import { motion, useInView } from "motion/react"
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
@@ -75,17 +74,9 @@ export function Kpi({
   loading?: boolean
   index?: number
 }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const inView = useInView(ref, { once: true, margin: "-40px" })
-
   return (
-    <motion.div
-      ref={ref}
-      initial={{ opacity: 0, y: 10 }}
-      animate={inView ? { opacity: 1, y: 0 } : {}}
-      // 依序浮現，讓一整排數字看起來是「長出來」而不是同時砸下來
-      transition={{ duration: 0.32, delay: Math.min(index * 0.045, 0.4), ease: "easeOut" }}
-    >
+    // 依序浮現，讓一整排數字看起來是「長出來」而不是同時砸下來。CSS 動畫，理由見 index.css
+    <div className="rise" style={{ "--stagger": `${index * 40}ms` } as CSSProperties}>
       <Card
         className={cn(
           "group relative gap-0 overflow-hidden py-4 transition-colors duration-200",
@@ -102,7 +93,7 @@ export function Kpi({
           ) : (
             <div
               className={cn(
-                "mt-1 font-mono text-2xl font-bold tabular-nums leading-tight tracking-tight",
+                "reveal mt-1 font-mono text-2xl font-bold tabular-nums leading-tight tracking-tight",
                 tone === "win" && "text-win",
                 tone === "loss" && "text-loss",
               )}
@@ -113,7 +104,7 @@ export function Kpi({
           {hint && <div className="mt-1 text-[11px] text-muted-foreground">{hint}</div>}
         </CardContent>
       </Card>
-    </motion.div>
+    </div>
   )
 }
 
@@ -132,17 +123,8 @@ export function Panel({
   children: ReactNode
   index?: number
 }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const inView = useInView(ref, { once: true, margin: "-60px" })
-
   return (
-    <motion.div
-      ref={ref}
-      initial={{ opacity: 0, y: 12 }}
-      animate={inView ? { opacity: 1, y: 0 } : {}}
-      transition={{ duration: 0.35, delay: Math.min(index * 0.05, 0.3), ease: "easeOut" }}
-      className={className}
-    >
+    <div className={cn("rise", className)} style={{ "--stagger": `${index * 50}ms` } as CSSProperties}>
       <Card className="relative h-full gap-3">
         <EdgeLight />
         {title && (
@@ -160,7 +142,7 @@ export function Panel({
         )}
         <CardContent className="min-w-0">{children}</CardContent>
       </Card>
-    </motion.div>
+    </div>
   )
 }
 

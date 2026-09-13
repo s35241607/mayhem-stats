@@ -446,6 +446,55 @@
   --font-mono: "Cascadia Code", "JetBrains Mono", Consolas, ui-monospace, monospace;
 }
 
+/* ─────────────────────────────────────────── 動畫
+ *
+ * 一律用 CSS 關鍵影格，只動 opacity / transform。這兩個屬性由合成器執行緒處理，
+ * 主執行緒被 AG Grid 掛載、ECharts 初始化卡住時，動畫照樣順——原本用 motion 在 JS 裡
+ * 逐幀推，實測英雄頁切換時最長一格停了 201ms，動畫也跟著停。
+ * 規則與時長對照在 .claude/skills/ui-conventions/SKILL.md。
+ */
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes reveal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@utility page-enter {
+  animation: page-enter 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+/* 卡片依序浮現。延遲由元件用 --stagger 給，超過上限就不再往後排，免得最後幾張等太久 */
+@utility rise {
+  animation: rise 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: min(var(--stagger, 0ms), 240ms);
+}
+/* 骨架換成真正內容時淡入，而不是瞬間跳出來 */
+@utility reveal {
+  animation: reveal 220ms ease-out both;
+}
+
+/* 主題切換：View Transition 的交叉淡化，比預設的 250ms 稍短 */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 220ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 1ms !important;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

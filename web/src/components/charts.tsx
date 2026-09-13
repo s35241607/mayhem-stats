@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import ReactECharts from "echarts-for-react"
 import { useThemeName } from "@/lib/theme"
+import { useAfterPageEnter } from "@/lib/motion"
 
 /** 包一層尺寸觀察。
  *
@@ -23,6 +24,7 @@ function ResponsiveChart({
   const boxRef = useRef<HTMLDivElement>(null)
   const instance = useRef<EChartsInstance | null>(null)
   const [width, setWidth] = useState(0)
+  const enterDone = useAfterPageEnter()
 
   useEffect(() => {
     const box = boxRef.current
@@ -41,12 +43,13 @@ function ResponsiveChart({
   // 寬度還是 0 就先不要建立圖表。ECharts 在掛載當下量寬度,量到 0 就不會產生
   // canvas,而且之後只能靠 resize 救回來——分頁在背景時瀏覽器會把 ResizeObserver
   // 一起節流,那個 resize 可能好幾秒後才來,圖就一直是空白的。
-  if (width === 0) {
+  // 也等換頁進場動畫跑完才建立（見 lib/motion.ts），佔位的高度和圖一樣，版面不跳。
+  if (width === 0 || !enterDone) {
     return <div ref={boxRef} className="w-full" style={{ height }} />
   }
 
   return (
-    <div ref={boxRef} className="w-full">
+    <div ref={boxRef} className="reveal w-full">
       <ReactECharts
         // onChartReady 是取得實例的官方途徑；改用元件 ref 拿 getEchartsInstance
         // 在這個版本拿不到東西，resize 會被 optional chaining 靜靜吞掉。
@@ -54,7 +57,8 @@ function ResponsiveChart({
           instance.current = chart
           chart.resize()
         }}
-        option={option as never}
+        // 圖表自己的長條／折線生長動畫：預設 1 秒太拖，和卡片浮現錯開後又顯得慢半拍
+        option={{ animationDuration: 480, animationEasing: "cubicOut", animationDurationUpdate: 300, ...(option as object) } as never}
         onEvents={onEvent as never}
         style={{ height, width: "100%" }}
         notMerge

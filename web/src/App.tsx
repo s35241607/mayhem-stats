@@ -1,11 +1,11 @@
 import { lazy, Suspense, useEffect, useState, type ComponentType } from "react"
-import { motion } from "motion/react"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { AppShell, type PageId } from "@/components/AppShell"
 import { Skeleton } from "@/components/ui/skeleton"
 import { FilterProvider, useFilters } from "@/lib/filters"
 import { NavContext } from "@/lib/nav"
 import { ThemeProvider } from "@/lib/theme"
+import { markNavigation } from "@/lib/motion"
 import { Dashboard } from "@/pages/Dashboard"
 
 // 每頁各自成為一個 chunk。表格頁才會載入 AG Grid、圖表頁才會載入 ECharts，
@@ -52,7 +52,11 @@ function usePrefetchPages() {
 }
 
 export default function App() {
-  const [page, setPage] = useState<PageId>("dashboard")
+  const [page, setPageState] = useState<PageId>("dashboard")
+  const setPage = (next: PageId) => {
+    markNavigation()
+    setPageState(next)
+  }
   const Page = RESOLVED[page] ?? PAGES[page]
   usePrefetchPages()
 
@@ -66,19 +70,14 @@ export default function App() {
           {/* 換頁只做淡入，不做離場動畫。
               原本用 AnimatePresence mode="wait"：新頁要等舊頁的離場動畫跑完才會掛載，
               查詢也就晚了這麼久才送出。實測回訪一頁總共約 280ms，其中 214ms 是在等動畫。
-              分頁在背景、動畫幀被瀏覽器節流時，這段等待還會拉長到好幾秒。 */}
-          <motion.div
-            key={page}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.18, ease: "easeOut" }}
-          >
+              淡入用 CSS（page-enter），不用 motion：JS 驅動的動畫會被同時掛載的表格卡住。 */}
+          <div key={page} className="page-enter">
             <Suspense fallback={<Skeleton className="h-[420px] w-full" />}>
               <AfterAccountReady>
                 <Page />
               </AfterAccountReady>
             </Suspense>
-          </motion.div>
+          </div>
         </AppShell>
         </NavContext.Provider>
       </FilterProvider>

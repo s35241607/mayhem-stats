@@ -22,6 +22,7 @@ import { iconUrl } from "@/lib/cube"
 import { cn } from "@/lib/utils"
 import { MIN_GAMES } from "@/pages/shared"
 import { useThemeName } from "@/lib/theme"
+import { useAfterPageEnter } from "@/lib/motion"
 
 ModuleRegistry.registerModules([AllCommunityModule])
 
@@ -135,6 +136,8 @@ export function AgTable({
   fileName?: string
 }) {
   const theme = useGridTheme()
+  // 掛載 AG Grid 是切頁時最大的長任務（60～130ms），等進場動畫跑完才掛，見 lib/motion.ts
+  const enterDone = useAfterPageEnter()
   const apiRef = useRef<GridApi | null>(null)
   const [quickFilter, setQuickFilter] = useState("")
 
@@ -250,6 +253,11 @@ export function AgTable({
 
       {/* 列數少時（例如下鑽到只剩一列）不要硬撐滿，否則下方是一大片空白 */}
       <div style={{ height: Math.min(height, ROW_H * (rows.length + 1) + FILTER_ROW_H + 18) }}>
+        {!enterDone ? (
+          // 同高度的佔位，掛上表格時版面不跳
+          <div className="h-full rounded-lg border bg-card" />
+        ) : (
+        <div className="reveal h-full">
         <AgGridReact
           theme={theme}
           rowData={rows}
@@ -300,6 +308,8 @@ export function AgTable({
             orCondition: "或",
           }}
         />
+        </div>
+        )}
       </div>
 
       <p className="text-[11px] text-muted-foreground">
