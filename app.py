@@ -386,6 +386,17 @@ def track_account(body: TrackRequest):
 
 CUBE_BASE = "http://127.0.0.1:4000/cubejs-api/v1"
 
+# 共用連線池。原本每個請求 requests.get 一次，等於每次都重新建 TCP 連線。
+# 實測同一個已快取的查詢，代理比直連 Cube 多出的時間 30ms -> 2ms。
+# requests.Session 底下的 urllib3 連線池可以多執行緒共用。
+cube_http = requests.Session()
+cube_http.mount("http://", requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=16))
+
+# 不需要「採集到新對局後重播查詢來暖快取」——試過、量過、還原了：
+# refresh key 變了之後，Cube 只有在大約 15 秒內的第一個請求會回舊結果（同時背景重算），
+# 50 秒、180 秒後第一次查詢都已經是新資料（在完全沒有重播的狀態下實測）。
+# 打完一場到打開頁面通常不止 15 秒，重播換不到可見的好處。
+
 
 @app.api_route("/api/cube/{path:path}", methods=["GET", "POST"])
 async def cube_proxy(path: str, request: Request):
@@ -407,12 +418,12 @@ async def cube_proxy(path: str, request: Request):
         if request.method == "POST":
             body = await request.json()
             resp = await asyncio.to_thread(
-                lambda: requests.post(url, json=body, timeout=60)
+                lambda: cube_http.post(url, json=body, timeout=60)
             )
         else:
             params = dict(request.query_params)
             resp = await asyncio.to_thread(
-                lambda: requests.get(url, params=params, timeout=60)
+                lambda: cube_http.get(url, params=params, timeout=60)
             )
     except requests.exceptions.RequestException as exc:
         return JSONResponse(

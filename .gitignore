@@ -13,7 +13,9 @@ autostart.log.old
 # Cube 語意層
 cube/node_modules/
 cube/.cubestore/
+# 輪替出來的舊 log 也要擋：內容有完整查詢，包含 puuid 與同場玩家的 Riot ID
 cube/cube.log
+cube/cube.log.*
 cube/.env
 
 # 前端。web/dist 刻意「不」忽略——它有進版控，執行期才不需要裝 npm，
