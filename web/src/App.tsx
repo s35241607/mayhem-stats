@@ -5,6 +5,7 @@ import { AppShell, type PageId } from "@/components/AppShell"
 import { Skeleton } from "@/components/ui/skeleton"
 import { FilterProvider, useFilters } from "@/lib/filters"
 import { NavContext } from "@/lib/nav"
+import { ThemeProvider } from "@/lib/theme"
 import { Dashboard } from "@/pages/Dashboard"
 
 // 每頁各自成為一個 chunk。表格頁才會載入 AG Grid、圖表頁才會載入 ECharts，
@@ -57,6 +58,7 @@ export default function App() {
 
   // 側邊欄收合時的標籤靠 Tooltip 顯示，需要這層 Provider（這版 shadcn 不再內建）
   return (
+    <ThemeProvider>
     <TooltipProvider delayDuration={200}>
       <FilterProvider>
         <NavContext.Provider value={setPage}>
@@ -81,6 +83,7 @@ export default function App() {
         </NavContext.Provider>
       </FilterProvider>
     </TooltipProvider>
+    </ThemeProvider>
   )
 }
 

@@ -5,6 +5,9 @@ import {
   ModuleRegistry,
   themeQuartz,
   colorSchemeDark,
+  colorSchemeLight,
+  type CellClickedEvent,
+  type CellDoubleClickedEvent,
   type ColDef,
   type GridApi,
   type GridReadyEvent,
@@ -18,6 +21,7 @@ import { Badge } from "@/components/ui/badge"
 import { iconUrl } from "@/lib/cube"
 import { cn } from "@/lib/utils"
 import { MIN_GAMES } from "@/pages/shared"
+import { useThemeName } from "@/lib/theme"
 
 ModuleRegistry.registerModules([AllCommunityModule])
 
@@ -48,12 +52,14 @@ const RARITY: Record<string, string> = {
 /** 讀專案的 CSS 變數餵給 AG Grid 的 Theming API，
  *  這樣表格會跟著 shadcn 主題走，不用另外維護一份配色。 */
 function useGridTheme() {
+  // 主題切換後要重算：參數是當下從 CSS 變數讀出來的快照
+  const { theme, isDark } = useThemeName()
   return useMemo(() => {
     const css = (name: string, fallback: string) => {
       if (typeof window === "undefined") return fallback
       return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
     }
-    return themeQuartz.withPart(colorSchemeDark).withParams({
+    return themeQuartz.withPart(isDark ? colorSchemeDark : colorSchemeLight).withParams({
       backgroundColor: css("--card", "#1f2839"),
       foregroundColor: css("--foreground", "#eef1f8"),
       borderColor: css("--border", "rgba(255,255,255,0.11)"),
@@ -67,7 +73,7 @@ function useGridTheme() {
       accentColor: css("--primary", "#ff6a3d"),
       // 篩選輸入框預設是透明無框，在深色底上等於看不見，
       // 使用者根本不會發現那格可以打字。這裡對齊 shadcn 的 input 樣式。
-      inputBackgroundColor: "rgba(255,255,255,0.04)",
+      inputBackgroundColor: css("--muted", "rgba(255,255,255,0.04)"),
       inputBorder: { color: css("--border", "rgba(255,255,255,0.14)"), width: 1, style: "solid" },
       inputFocusBorder: { color: css("--primary", "#ff6a3d"), width: 1, style: "solid" },
       inputBorderRadius: 6,
@@ -81,7 +87,8 @@ function useGridTheme() {
       wrapperBorderRadius: 8,
       cellHorizontalPadding: 12,
     })
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- theme 不在函式裡用到，但它變了 CSS 變數就變了
+  }, [theme, isDark])
 }
 
 function DimensionCell({ params, column }: { params: ICellRendererParams; column: GridColumn }) {
@@ -113,9 +120,12 @@ export function AgTable({
   height = 480,
   fileName = "mayhem",
   sampleKey,
+  drillOn = "dblclick",
 }: {
   columns: GridColumn[]
   rows: Row[]
+  /** 維度格要單擊還是雙擊才下鑽。下鑽是頁內展開面板（不改全域條件）時用單擊比較直覺。 */
+  drillOn?: "click" | "dblclick"
   /** 場次欄位。給了的話，場次不到 MIN_GAMES 的列會淡化——那幾列的勝率是雜訊。 */
   sampleKey?: string
   /** 第三個參數是被點的那一列原始資料——用值去反查會在重複值上選錯列。 */
@@ -185,6 +195,11 @@ export function AgTable({
       }),
     [columns],
   )
+
+  const handleDrill = (e: CellClickedEvent | CellDoubleClickedEvent) => {
+    const col = columns.find((c) => c.key === e.colDef.colId)
+    if (col?.kind === "dimension" && e.value != null) onDrill?.(col, String(e.value), e.data as Row)
+  }
 
   const onGridReady = useCallback((e: GridReadyEvent) => {
     apiRef.current = e.api
@@ -261,11 +276,8 @@ export function AgTable({
           suppressCellFocus={false}
           animateRows
           rowSelection={{ mode: "multiRow", checkboxes: false, headerCheckbox: false }}
-          onCellDoubleClicked={(e) => {
-            const col = columns.find((c) => c.key === e.colDef.colId)
-            if (col?.kind === "dimension" && e.value != null)
-              onDrill?.(col, String(e.value), e.data as Row)
-          }}
+          onCellClicked={drillOn === "click" ? handleDrill : undefined}
+          onCellDoubleClicked={drillOn === "dblclick" ? handleDrill : undefined}
           localeText={{
             noRowsToShow: "沒有資料",
             filterOoo: "篩選…",
@@ -291,7 +303,8 @@ export function AgTable({
       </div>
 
       <p className="text-[11px] text-muted-foreground">
-        點欄位標題排序，標題下方的輸入框可逐欄篩選（數值欄支援大於／小於／區間）；雙擊維度儲存格會下鑽該項目。
+        點欄位標題排序，標題下方的輸入框可逐欄篩選（數值欄支援大於／小於／區間）
+        {onDrill ? `；${drillOn === "click" ? "點" : "雙擊"}維度儲存格會下鑽該項目。` : "。"}
       </p>
     </div>
   )

@@ -45,6 +45,7 @@ import { useCollectorStatus } from "@/hooks/useCube"
 import { DATE_RANGES, useFilters } from "@/lib/filters"
 import { MAYHEM_QUEUE_ID } from "@/lib/cube"
 import { AccountSwitcher, ViewingOtherBanner } from "@/components/AccountSwitcher"
+import { ThemeSwitcher } from "@/components/ThemeSwitcher"
 
 export type PageId =
   | "dashboard"
@@ -283,7 +284,8 @@ export function AppShell({
         </SidebarFooter>
       </Sidebar>
 
-      <SidebarInset>
+      {/* 透明底：讓 body 的主題光暈與格線透出來 */}
+      <SidebarInset className="bg-transparent">
         <header className="sticky top-0 z-20 flex flex-col gap-3 border-b bg-background/85 px-5 py-3 backdrop-blur">
           <div className="flex flex-wrap items-center gap-3">
             <SidebarTrigger className="-ml-1" />
@@ -293,6 +295,7 @@ export function AppShell({
               <p className="truncate text-xs text-muted-foreground">{meta.caption}</p>
             </div>
             <GlobalFilters />
+            <ThemeSwitcher />
           </div>
         </header>
 

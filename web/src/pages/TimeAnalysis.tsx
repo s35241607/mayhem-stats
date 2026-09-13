@@ -157,7 +157,6 @@ export function TimeAnalysis() {
           <MatchList
             params={{ ...matchParams(), ...sliceParams(slice) }}
             puuid={account?.puuid}
-            fileName={`matches-${sliceLabel(slice).replace(/[ :]/g, "")}`}
           />
         </Panel>
       )}

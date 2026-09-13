@@ -4,9 +4,68 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* 這個工具固定深色。:root 與 .dark 給同一組值，避免使用者系統偏好造成半亮半暗。 */
+/* ─────────────────────────────────────────── 主題
+ *
+ * 由 <html data-theme="..."> 切換（見 src/lib/theme.tsx）。
+ * 圖表的勝／敗／資料色是發散配色的兩極 + 單一系列色，每組都跑過 dataviz 的
+ * validate_palette.js（色盲模擬 ΔE、一般視力 ΔE、對卡片底色的對比）——
+ * 要改色請重跑驗證，不要憑感覺換：
+ *   node scripts/validate_palette.js "<勝>,<敗>,<資料>" --mode dark --surface "<卡片色>" --pairs all
+ * 勝敗兩極不再用紅綠：綠／紅在紅綠色盲下幾乎分不出來。
+ */
+
+/* 霓虹（預設）：深藍黑底、青色介面強調 */
 :root,
-.dark {
+[data-theme="neon"] {
+  color-scheme: dark;
+  --background: #070b16;
+  --foreground: #e6f0ff;
+  --card: #0d1526;
+  --card-foreground: #e6f0ff;
+  --popover: #0f182b;
+  --popover-foreground: #e6f0ff;
+  --primary: #22d3ee;
+  --primary-foreground: #03121a;
+  --secondary: #152036;
+  --secondary-foreground: #e6f0ff;
+  --muted: #152036;
+  --muted-foreground: #8397b9;
+  --accent: #17233b;
+  --accent-foreground: #e6f0ff;
+  --destructive: #f0506e;
+  --border: rgb(125 185 255 / 13%);
+  --input: rgb(125 185 255 / 17%);
+  --ring: #22d3ee;
+  --radius: 0.65rem;
+
+  --win: #129bc9;
+  --loss: #e3437c;
+  --data: #8272f2;
+  --prismatic: #b58cff;
+  --gold: #f2c14e;
+  --silver: #b9c4d6;
+  --glow: rgb(34 211 238 / 9%);
+  --grid-line: rgb(125 185 255 / 4%);
+
+  --chart-1: #8272f2;
+  --chart-2: #129bc9;
+  --chart-3: #22d3ee;
+  --chart-4: #b58cff;
+  --chart-5: #f2c14e;
+
+  --sidebar: #0a1121;
+  --sidebar-foreground: #e6f0ff;
+  --sidebar-primary: #22d3ee;
+  --sidebar-primary-foreground: #03121a;
+  --sidebar-accent: #132038;
+  --sidebar-accent-foreground: #e6f0ff;
+  --sidebar-border: rgb(125 185 255 / 11%);
+  --sidebar-ring: #22d3ee;
+}
+
+/* 熔岩：原本的橘色主題 */
+[data-theme="lava"] {
+  color-scheme: dark;
   --background: oklch(0.16 0.021 258);
   --foreground: oklch(0.96 0.006 260);
   --card: oklch(0.20 0.023 259);
@@ -25,18 +84,19 @@
   --border: oklch(1 0 0 / 11%);
   --input: oklch(1 0 0 / 14%);
   --ring: oklch(0.72 0.175 42);
-  --radius: 0.65rem;
 
-  /* 戰績語意色 */
-  --win: oklch(0.80 0.16 168);
-  --loss: oklch(0.70 0.18 22);
+  --win: #20a3a8;
+  --loss: #e0564e;
+  --data: #9a7be8;
   --prismatic: oklch(0.74 0.17 305);
   --gold: oklch(0.83 0.14 88);
   --silver: oklch(0.82 0.02 260);
+  --glow: oklch(0.72 0.175 42 / 7%);
+  --grid-line: oklch(1 0 0 / 3%);
 
-  --chart-1: oklch(0.72 0.175 42);
-  --chart-2: oklch(0.70 0.14 235);
-  --chart-3: oklch(0.80 0.16 168);
+  --chart-1: #9a7be8;
+  --chart-2: #20a3a8;
+  --chart-3: oklch(0.72 0.175 42);
   --chart-4: oklch(0.74 0.17 305);
   --chart-5: oklch(0.83 0.14 88);
 
@@ -48,6 +108,100 @@
   --sidebar-accent-foreground: oklch(0.96 0.006 260);
   --sidebar-border: oklch(1 0 0 / 11%);
   --sidebar-ring: oklch(0.72 0.175 42);
+}
+
+/* 終端：黑綠底、螢光綠強調 */
+[data-theme="matrix"] {
+  color-scheme: dark;
+  --background: #040906;
+  --foreground: #d8f5e4;
+  --card: #0b140f;
+  --card-foreground: #d8f5e4;
+  --popover: #0e1812;
+  --popover-foreground: #d8f5e4;
+  --primary: #3ee08f;
+  --primary-foreground: #02130a;
+  --secondary: #122019;
+  --secondary-foreground: #d8f5e4;
+  --muted: #122019;
+  --muted-foreground: #80a590;
+  --accent: #15261d;
+  --accent-foreground: #d8f5e4;
+  --destructive: #ef5a4f;
+  --border: rgb(90 255 160 / 12%);
+  --input: rgb(90 255 160 / 16%);
+  --ring: #3ee08f;
+
+  --win: #17a874;
+  --loss: #df5f2e;
+  --data: #7c83ec;
+  --prismatic: #b390ff;
+  --gold: #e6c34a;
+  --silver: #a9bdb1;
+  --glow: rgb(62 224 143 / 8%);
+  --grid-line: rgb(90 255 160 / 4%);
+
+  --chart-1: #7c83ec;
+  --chart-2: #17a874;
+  --chart-3: #3ee08f;
+  --chart-4: #b390ff;
+  --chart-5: #e6c34a;
+
+  --sidebar: #08100b;
+  --sidebar-foreground: #d8f5e4;
+  --sidebar-primary: #3ee08f;
+  --sidebar-primary-foreground: #02130a;
+  --sidebar-accent: #13221a;
+  --sidebar-accent-foreground: #d8f5e4;
+  --sidebar-border: rgb(90 255 160 / 10%);
+  --sidebar-ring: #3ee08f;
+}
+
+/* 晨光：淺色 */
+[data-theme="daylight"] {
+  color-scheme: light;
+  --background: #f3f6fb;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --secondary: #eaf0f8;
+  --secondary-foreground: #0f172a;
+  --muted: #eaf0f8;
+  --muted-foreground: #5a6a82;
+  --accent: #e6edf7;
+  --accent-foreground: #0f172a;
+  --destructive: #dc2626;
+  --border: rgb(15 23 42 / 10%);
+  --input: rgb(15 23 42 / 14%);
+  --ring: #2563eb;
+
+  --win: #1f6fd1;
+  --loss: #d6395f;
+  --data: #b8740f;
+  --prismatic: #7c4ddb;
+  --gold: #a86b00;
+  --silver: #64748b;
+  --glow: rgb(37 99 235 / 7%);
+  --grid-line: rgb(15 23 42 / 4%);
+
+  --chart-1: #b8740f;
+  --chart-2: #1f6fd1;
+  --chart-3: #2563eb;
+  --chart-4: #7c4ddb;
+  --chart-5: #a86b00;
+
+  --sidebar: #eaf0f8;
+  --sidebar-foreground: #0f172a;
+  --sidebar-primary: #2563eb;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #dde6f2;
+  --sidebar-accent-foreground: #0f172a;
+  --sidebar-border: rgb(15 23 42 / 9%);
+  --sidebar-ring: #2563eb;
 }
 
 @theme inline {
@@ -71,6 +225,7 @@
   --color-ring: var(--ring);
   --color-win: var(--win);
   --color-loss: var(--loss);
+  --color-data: var(--data);
   --color-prismatic: var(--prismatic);
   --color-gold: var(--gold);
   --color-silver: var(--silver);
@@ -91,6 +246,7 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-xl: calc(var(--radius) * 1.4);
+  --font-mono: "Cascadia Code", "JetBrains Mono", Consolas, ui-monospace, monospace;
 }
 
 @layer base {
@@ -102,5 +258,12 @@
     font-family: -apple-system, "Segoe UI", "PingFang TC", "Noto Sans TC", Arial, sans-serif;
     font-variant-numeric: tabular-nums;
     margin: 0;
+    /* 科技感的底：頂端一抹主題色光暈 + 極淡的 32px 格線。都走主題變數，淺色主題也適用 */
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -10%, var(--glow), transparent 70%),
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 100% 100%, 32px 32px, 32px 32px;
+    background-attachment: fixed;
   }
 }

@@ -52,6 +52,14 @@ function AnimatedValue({ text }: { text: string }) {
   )
 }
 
+/** 卡片上緣一道由中間往兩側淡出的主題色細光，科技感的點綴。不裁切內容（不設 overflow-hidden），
+ *  表格的篩選浮層才不會被卡片切掉。 */
+function EdgeLight() {
+  return (
+    <span className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-primary/45 to-transparent" />
+  )
+}
+
 export function Kpi({
   label,
   value,
@@ -86,6 +94,7 @@ export function Kpi({
       >
         {/* 滑過時左上角透出一層極淡的主色，作為觸覺回饋 */}
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary/[0.07] to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+        <EdgeLight />
         <CardContent className="relative px-4">
           <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
           {loading ? (
@@ -93,7 +102,7 @@ export function Kpi({
           ) : (
             <div
               className={cn(
-                "mt-1 text-2xl font-bold tabular-nums leading-tight",
+                "mt-1 font-mono text-2xl font-bold tabular-nums leading-tight tracking-tight",
                 tone === "win" && "text-win",
                 tone === "loss" && "text-loss",
               )}
@@ -134,7 +143,8 @@ export function Panel({
       transition={{ duration: 0.35, delay: Math.min(index * 0.05, 0.3), ease: "easeOut" }}
       className={className}
     >
-      <Card className="h-full gap-3">
+      <Card className="relative h-full gap-3">
+        <EdgeLight />
         {title && (
           <CardHeader className="pb-0">
             <div className="flex items-start justify-between gap-3">

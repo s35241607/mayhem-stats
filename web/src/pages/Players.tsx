@@ -187,7 +187,6 @@ function TogetherPanel({
             // 這頁在「全部模式」時仍固定看 Mayhem（見 Players），列表也要跟著，場次才對得上
             params={{ ...matchParams(), ...(queueId ? { queue: queueId } : {}), with_puuid: puuid, relation }}
             puuid={account?.puuid}
-            fileName={`together-${player}-matches`}
           />
         ) : (
           <>

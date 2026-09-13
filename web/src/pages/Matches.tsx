@@ -396,6 +396,76 @@ export function MatchDetail({
 
 // ─────────────────────────────────────────── 對局列表
 
+/** 一場一張卡片。對局紀錄頁和各頁的下鑽列表（英雄、時段、隊友）共用同一種呈現。 */
+export function MatchCards({
+  rows,
+  onPick,
+}: {
+  rows: MatchRow[]
+  onPick: (match: { platformId: string; gameId: number }) => void
+}) {
+  return (
+    <div className="space-y-1.5">
+      {rows.map((m) => {
+        const kda = m.deaths === 0 ? "Perfect" : ((m.kills + m.assists) / m.deaths).toFixed(2)
+        const kp = m.team_kills ? Math.round(((m.kills + m.assists) / m.team_kills) * 100) : 0
+        return (
+          <button
+            key={`${m.platform_id}:${m.game_id}`}
+            onClick={() => onPick({ platformId: m.platform_id, gameId: m.game_id })}
+            className={cn(
+              // 勝敗靠底色與文字傳達就夠了。先前用高彩度的左側粗邊，
+              // 二十列疊起來像斑馬紋，反而蓋過內容。
+              "flex w-full flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border px-3 py-2.5 text-left transition",
+              m.win
+                ? "border-win/20 bg-win/[0.06] hover:bg-win/[0.11]"
+                : "border-loss/20 bg-loss/[0.06] hover:bg-loss/[0.11]",
+            )}
+          >
+            <div className="relative shrink-0">
+              <img src={iconUrl(m.champion_icon)} alt="" className="size-11 rounded-md bg-secondary" />
+              <span className="absolute -bottom-1 -right-1 rounded bg-background px-1 text-[10px] font-bold tabular-nums">
+                {m.champ_level}
+              </span>
+            </div>
+
+            <div className="w-[62px] shrink-0">
+              <div className={cn("text-sm font-bold", m.win ? "text-win" : "text-loss")}>
+                {m.win ? "勝利" : "戰敗"}
+              </div>
+              <div className="text-[11px] text-muted-foreground">{fmtDuration(m.game_duration)}</div>
+            </div>
+
+            <ItemRow items={m.items ?? []} size="size-6" />
+
+            <div className="w-[104px] text-center">
+              <div className="text-sm font-semibold tabular-nums">
+                {m.kills} / <span className="text-loss">{m.deaths}</span> / {m.assists}
+              </div>
+              <div className="text-[11px] text-muted-foreground">
+                KDA {kda} · 參團 {kp}%
+              </div>
+            </div>
+
+            <div className="w-[92px] text-right text-[11px] text-muted-foreground tabular-nums">
+              <div>{m.cs} 補兵</div>
+              <div>{k(m.gold_earned)} 金錢</div>
+            </div>
+
+            <div className="ml-auto text-right">
+              <div className="text-xs text-muted-foreground">{m.champion_name}</div>
+              <div className="text-[11px] text-muted-foreground">{fmtDate(m.game_creation)}</div>
+            </div>
+
+            {m.penta_kills > 0 && <Badge className="bg-gold/20 text-gold">五殺</Badge>}
+            {m.penta_kills === 0 && m.quadra_kills > 0 && <Badge variant="secondary">四殺</Badge>}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 export function Matches() {
   const { queueId, account } = useFilters()
   const [selected, setSelected] = useState<{ platformId: string; gameId: number } | null>(null)
@@ -452,82 +522,7 @@ export function Matches() {
         <EmptyState>這個條件下沒有對局。</EmptyState>
       ) : (
         <>
-          <div className="space-y-1.5">
-            {rows.map((m) => {
-              const kda =
-                m.deaths === 0 ? "Perfect" : ((m.kills + m.assists) / m.deaths).toFixed(2)
-              const kp = m.team_kills
-                ? Math.round(((m.kills + m.assists) / m.team_kills) * 100)
-                : 0
-              return (
-                <button
-                  key={`${m.platform_id}:${m.game_id}`}
-                  onClick={() => setSelected({ platformId: m.platform_id, gameId: m.game_id })}
-                  className={cn(
-                    // 勝敗靠底色與文字傳達就夠了。先前用高彩度的左側粗邊，
-                    // 二十列疊起來像斑馬紋，反而蓋過內容。
-                    "flex w-full flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border px-3 py-2.5 text-left transition",
-                    m.win
-                      ? "border-win/20 bg-win/[0.06] hover:bg-win/[0.11]"
-                      : "border-loss/20 bg-loss/[0.06] hover:bg-loss/[0.11]",
-                  )}
-                >
-                  <div className="relative shrink-0">
-                    <img
-                      src={iconUrl(m.champion_icon)}
-                      alt=""
-                      className="size-11 rounded-md bg-secondary"
-                    />
-                    <span className="absolute -bottom-1 -right-1 rounded bg-background px-1 text-[10px] font-bold tabular-nums">
-                      {m.champ_level}
-                    </span>
-                  </div>
-
-                  <div className="w-[62px] shrink-0">
-                    <div
-                      className={cn(
-                        "text-sm font-bold",
-                        m.win ? "text-win" : "text-loss",
-                      )}
-                    >
-                      {m.win ? "勝利" : "戰敗"}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {fmtDuration(m.game_duration)}
-                    </div>
-                  </div>
-
-                  <ItemRow items={m.items ?? []} size="size-6" />
-
-                  <div className="w-[104px] text-center">
-                    <div className="text-sm font-semibold tabular-nums">
-                      {m.kills} / <span className="text-loss">{m.deaths}</span> / {m.assists}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground">
-                      KDA {kda} · 參團 {kp}%
-                    </div>
-                  </div>
-
-                  <div className="w-[92px] text-right text-[11px] text-muted-foreground tabular-nums">
-                    <div>{m.cs} 補兵</div>
-                    <div>{k(m.gold_earned)} 金錢</div>
-                  </div>
-
-                  <div className="ml-auto text-right">
-                    <div className="text-xs text-muted-foreground">{m.champion_name}</div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {fmtDate(m.game_creation)}
-                    </div>
-                  </div>
-
-                  {m.penta_kills > 0 && <Badge className="bg-gold/20 text-gold">五殺</Badge>}
-                  {m.penta_kills === 0 && m.quadra_kills > 0 && (
-                    <Badge variant="secondary">四殺</Badge>
-                  )}
-                </button>
-              )
-            })}
-          </div>
+          <MatchCards rows={rows} onPick={setSelected} />
 
           <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
             <span>

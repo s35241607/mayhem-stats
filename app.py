@@ -155,6 +155,7 @@ def recent_matches(
     date_to: Optional[str] = None,
     with_puuid: Optional[str] = None,
     relation: Optional[str] = None,
+    champion: Optional[str] = None,
 ):
     """指定帳號的對局清單，預設是本機帳號。
 
@@ -167,6 +168,7 @@ def recent_matches(
 
     date_from / date_to 是全域的期間篩選(本地日期,含頭含尾)。
     with_puuid + relation(teammate / opponent)列出和某人同隊或對上的場次,給隊友頁下鑽用。
+    champion 是英雄名稱(和 Cube 的 champions.name 同一份對照),給英雄頁下鑽用。
     """
     conn = db.connect()
     try:
@@ -217,6 +219,10 @@ def recent_matches(
                               AND o.puuid = ? AND o.puuid <> mp.puuid
                               {f'AND o.team_id {same_team} mp.team_id' if same_team else ''})"""
             slice_params.append(with_puuid)
+        if champion is not None:
+            # 用子查詢而不是 dc.name:下面的計數查詢沒有 join dim_champions
+            slice_sql += " AND mp.champion_id IN (SELECT id FROM dim_champions WHERE name = ?)"
+            slice_params.append(champion)
         sql += slice_sql
         params.extend(slice_params)
         sql += " ORDER BY m.game_creation DESC LIMIT ? OFFSET ?"

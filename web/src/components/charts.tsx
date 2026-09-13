@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import ReactECharts from "echarts-for-react"
+import { useThemeName } from "@/lib/theme"
 
 /** 包一層尺寸觀察。
  *
@@ -102,37 +103,99 @@ const readableOn = (color: string) => {
   return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? "#0f1520" : "#eef1f8"
 }
 
-/** 從 CSS 變數讀主題色，讓圖表跟著 shadcn 的主題走，不要另外寫死一組色。 */
+/** 從 CSS 變數讀主題色，讓圖表跟著 shadcn 的主題走，不要另外寫死一組色。
+ *
+ *  一律轉成 rgba() 再交給 ECharts。原始值是 oklch()，靜態填色看起來正常，但滑鼠一移到
+ *  長條或點上，zrender 要替 hover 狀態做顏色內插、解析不了 oklch，直接拋出
+ *  「Cannot read properties of undefined (reading 'colorStops')」——例外發生在事件
+ *  處理途中，接在後面的 click 也跟著不觸發：每日圖點某天一直沒有反應就是這個原因。 */
 function cssVar(name: string, fallback: string) {
   if (typeof window === "undefined") return fallback
-  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
-  return value || fallback
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
+  try {
+    const canvas = document.createElement("canvas")
+    canvas.width = canvas.height = 1
+    const ctx = canvas.getContext("2d", { willReadFrequently: true })!
+    ctx.fillStyle = value
+    ctx.fillRect(0, 0, 1, 1)
+    const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data
+    return `rgba(${r},${g},${b},${+(a / 255).toFixed(3)})`
+  } catch {
+    return fallback
+  }
 }
 
+/** 發散配色的中點：去掉色相、只留亮度的灰。
+ *  不能直接用主題的灰字色——霓虹主題的灰字偏藍，混出來的「中性」格會和勝方的藍色撞在一起。 */
+const neutralGray = (theme: { card: string; muted: string }, t: number) => {
+  const [r, g, b] = toRgb(theme.muted)
+  const l = Math.round(0.299 * r + 0.587 * g + 0.114 * b)
+  return mix(theme.card, `rgb(${l},${l},${l})`, t)
+}
+
+/** 同一個顏色換透明度。ECharts 的漸層、光暈都要 rgba，不能直接疊 CSS 的 / 語法。 */
+const alpha = (color: string, a: number) => {
+  const [r, g, b] = toRgb(color)
+  return `rgba(${r},${g},${b},${a})`
+}
+
+const MONO = '"Cascadia Code", "JetBrains Mono", Consolas, ui-monospace, monospace'
+
 function useTheme() {
+  // 依主題名稱重算：切換主題時 <html data-theme> 已先寫好，這裡讀到的就是新主題的變數
+  const { theme: name, isDark } = useThemeName()
   return useMemo(
     () => ({
+      name,
+      isDark,
       text: cssVar("--foreground", "#eef1f8"),
       muted: cssVar("--muted-foreground", "#8d96ac"),
       border: cssVar("--border", "rgba(255,255,255,0.11)"),
       card: cssVar("--card", "#1f2839"),
-      primary: cssVar("--primary", "#ff6a3d"),
-      win: cssVar("--win", "#3ee0a4"),
-      loss: cssVar("--loss", "#ff6b6b"),
-      accent2: cssVar("--chart-2", "#5fb3ef"),
+      primary: cssVar("--primary", "#22d3ee"),
+      win: cssVar("--win", "#129bc9"),
+      loss: cssVar("--loss", "#e3437c"),
+      /** 單一系列（勝率走勢、場次、散布點）的資料色。和勝／敗兩極不同色，不會被誤讀成好壞。 */
+      data: cssVar("--data", "#8272f2"),
     }),
-    [],
+    [name, isDark],
   )
 }
 
-function baseTooltip(theme: ReturnType<typeof useTheme>) {
+type Theme = ReturnType<typeof useTheme>
+
+function baseTooltip(theme: Theme) {
   return {
-    backgroundColor: theme.card,
-    borderColor: theme.border,
+    backgroundColor: alpha(theme.card, 0.92),
+    borderColor: alpha(theme.primary, 0.35),
+    borderWidth: 1,
     textStyle: { color: theme.text, fontSize: 12 },
     padding: [8, 12],
+    extraCssText: `backdrop-filter: blur(8px); border-radius: 8px; box-shadow: 0 0 0 1px ${alpha(theme.primary, 0.08)}, 0 10px 30px rgba(0,0,0,${theme.isDark ? 0.45 : 0.12});`,
   }
 }
+
+/** 座標軸共用樣式：數字用等寬字、格線用虛線且很淡——資料是主角，框線退到背景。 */
+const axisLabel = (theme: Theme, extra: Record<string, unknown> = {}) => ({
+  color: theme.muted,
+  fontSize: 10,
+  fontFamily: MONO,
+  ...extra,
+})
+const splitLine = (theme: Theme) => ({ lineStyle: { color: alpha(theme.muted, 0.14), type: [3, 4] } })
+
+/** 由左（或下）到右（或上）淡入的漸層：長條根部半透明、末端實色，帶一點「發光」的科技感。 */
+const fade = (color: string, horizontal: boolean, from = 0.35) => ({
+  type: "linear",
+  x: 0,
+  y: horizontal ? 0 : 1,
+  x2: horizontal ? 1 : 0,
+  y2: 0,
+  colorStops: [
+    { offset: 0, color: alpha(color, from) },
+    { offset: 1, color: alpha(color, 1) },
+  ],
+})
 
 const WEEKDAYS = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"]
 
@@ -161,34 +224,44 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
       // time 軸會依實際日期定位，沒打球的日子自然留白，不會把有間隔的兩天畫成相鄰
       xAxis: {
         type: "time",
-        axisLine: { lineStyle: { color: theme.border } },
-        axisLabel: { color: theme.muted, fontSize: 11 },
+        axisLine: { lineStyle: { color: alpha(theme.muted, 0.3) } },
+        axisLabel: axisLabel(theme),
         splitLine: { show: false },
       },
       yAxis: {
         type: "value",
         min: 0,
         max: 100,
-        axisLabel: { color: theme.muted, fontSize: 11, formatter: "{value}%" },
-        splitLine: { lineStyle: { color: theme.border } },
+        axisLabel: axisLabel(theme, { formatter: "{value}%" }),
+        splitLine: splitLine(theme),
       },
       series: [
         {
           type: "line",
-          smooth: false,
+          smooth: 0.25,
           data: points.map((p) => [p.date, p.winrate]),
-          lineStyle: { color: theme.accent2, width: 2 },
-          itemStyle: { color: theme.accent2 },
+          lineStyle: { color: theme.data, width: 2, shadowBlur: 12, shadowColor: alpha(theme.data, 0.6) },
+          itemStyle: { color: theme.card, borderColor: theme.data, borderWidth: 2 },
           // 點的大小代表當天場次，避免只打一場的 0%／100% 看起來跟 20 場一樣重
           symbolSize: (_: unknown, params: { dataIndex: number }) =>
-            6 + 12 * Math.sqrt(points[params.dataIndex].games / maxGames),
-          areaStyle: { color: theme.accent2, opacity: 0.1 },
+            8 + 10 * Math.sqrt(points[params.dataIndex].games / maxGames),
+          areaStyle: {
+            color: {
+              type: "linear",
+              x: 0, y: 0, x2: 0, y2: 1,
+              colorStops: [
+                { offset: 0, color: alpha(theme.data, 0.32) },
+                { offset: 1, color: alpha(theme.data, 0) },
+              ],
+            },
+          },
+          emphasis: { itemStyle: { color: theme.data, borderColor: theme.text } },
           markLine: {
             silent: true,
             symbol: "none",
             data: [{ yAxis: 50 }],
-            lineStyle: { color: theme.muted, type: "dashed", width: 1 },
-            label: { show: false },
+            lineStyle: { color: alpha(theme.muted, 0.5), type: "dashed", width: 1 },
+            label: { formatter: "50%", color: theme.muted, fontSize: 10, fontFamily: MONO, position: "insideStartTop" },
           },
         },
       ],
@@ -241,8 +314,8 @@ export function Heatmap({
     // 空格也要畫出來,否則會分不清「沒打過」和「打過但勝率中庸」。
     const byKey = new Map(cells.map((c) => [`${c.weekday}:${c.x}`, c]))
     // 空格要看得出來是「格子」，否則 168 格的版面會散掉，也分不清沒打過和打過但普通
-    const empty = mix(theme.card, theme.muted, 0.28)
-    const neutral = mix(theme.card, theme.muted, 0.85)
+    const empty = neutralGray(theme, 0.14)
+    const neutral = neutralGray(theme, 0.5)
 
     const data = []
     for (let wd = 0; wd < 7; wd++) {
@@ -259,8 +332,11 @@ export function Heatmap({
           value: [x, wd, games, cell?.winrate ?? null, adjusted],
           itemStyle: {
             color,
+            // 2px 的卡片色縫隙把格子分開；選中的格子用介面強調色描邊並發光
             borderColor: isSelected ? theme.primary : theme.card,
-            borderWidth: isSelected ? 2 : 1,
+            borderWidth: 2,
+            shadowBlur: isSelected ? 12 : 0,
+            shadowColor: alpha(theme.primary, 0.7),
           },
           label: { color: games ? readableOn(color) : "transparent" },
         })
@@ -292,7 +368,7 @@ export function Heatmap({
           type: "category",
           data: xLabels,
           splitArea: { show: false },
-          axisLabel: { color: theme.muted, fontSize: xLabels.length > 12 ? 10 : 12, interval: 0 },
+          axisLabel: axisLabel(theme, { fontSize: xLabels.length > 12 ? 10 : 11, interval: 0 }),
           axisLine: { show: false },
           axisTick: { show: false },
         },
@@ -308,9 +384,9 @@ export function Heatmap({
           {
             type: "heatmap",
             data,
-            label: { show: true, formatter: (p: { value: number[] }) => (p.value[2] ? String(p.value[2]) : ""), fontSize: 10 },
-            itemStyle: { borderRadius: 3 },
-            emphasis: { itemStyle: { borderColor: theme.primary, borderWidth: 2 } },
+            label: { show: true, formatter: (p: { value: number[] }) => (p.value[2] ? String(p.value[2]) : ""), fontSize: 10, fontFamily: MONO },
+            itemStyle: { borderRadius: 5 },
+            emphasis: { itemStyle: { borderColor: theme.primary, borderWidth: 2, shadowBlur: 10, shadowColor: alpha(theme.primary, 0.6) } },
           },
         ],
       },
@@ -334,8 +410,8 @@ export function Heatmap({
 }
 
 /** 自己畫圖例。ECharts 的 visualMap 會用 zrender 內插主題色,而它解析不了 oklch。 */
-function HeatLegend({ base, theme }: { base: number; theme: ReturnType<typeof useTheme> }) {
-  const neutral = mix(theme.card, theme.muted, 0.85)
+function HeatLegend({ base, theme }: { base: number; theme: Theme }) {
+  const neutral = neutralGray(theme, 0.5)
   const steps = [-1, -0.6, -0.3, 0, 0.3, 0.6, 1]
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
@@ -387,7 +463,7 @@ export function BarChart({
       (totalGames
         ? data.reduce((a, d) => a + d.value * d.games, 0) / totalGames
         : data.reduce((a, d) => a + d.value, 0) / Math.max(1, data.length))
-    const neutral = mix(theme.card, theme.muted, 0.9)
+    const neutral = neutralGray(theme, 0.5)
     // 顏色和熱力圖同一套規則：場次少的先往平均收縮，不會因為兩場全勝就通紅通綠
     const tint = (d: BarDatum) => {
       const adj = shrunk(d.games, d.value, base)
@@ -411,27 +487,35 @@ export function BarChart({
       },
       xAxis: {
         type: "value",
-        axisLabel: { color: theme.muted, fontSize: 11 },
-        splitLine: { lineStyle: { color: theme.border } },
+        axisLabel: axisLabel(theme),
+        splitLine: splitLine(theme),
       },
       yAxis: {
         type: "category",
         data: ordered.map((d) => d.label),
         axisLabel: { color: theme.text, fontSize: 12 },
-        axisLine: { lineStyle: { color: theme.border } },
+        axisLine: { lineStyle: { color: alpha(theme.muted, 0.3) } },
         axisTick: { show: false },
       },
       series: [
         {
           type: "bar",
-          data: ordered.map((d) => ({
-            value: d.value,
-            itemStyle: {
-              color: colorBy === "flat" ? theme.primary : tint(d),
-              borderRadius: [0, 4, 4, 0],
-            },
-          })),
-          barMaxWidth: 22,
+          data: ordered.map((d) => {
+            const color = colorBy === "flat" ? theme.data : tint(d)
+            return {
+              value: d.value,
+              itemStyle: {
+                // 根部半透明、末端實色：長條像一道光往外打，而不是一塊平塗的色塊
+                color: fade(color, true),
+                borderRadius: [0, 4, 4, 0],
+              },
+              emphasis: { itemStyle: { color, shadowBlur: 14, shadowColor: alpha(color, 0.7) } },
+            }
+          }),
+          barMaxWidth: 18,
+          // 長條背後的「軌道」，一眼看出離滿格還差多少
+          showBackground: true,
+          backgroundStyle: { color: alpha(theme.muted, theme.isDark ? 0.06 : 0.08), borderRadius: [0, 4, 4, 0] },
           markLine:
             colorBy === "flat"
               ? undefined
@@ -439,11 +523,12 @@ export function BarChart({
                   silent: true,
                   symbol: "none",
                   data: [{ xAxis: base }],
-                  lineStyle: { color: theme.muted, type: "dashed", width: 1 },
+                  lineStyle: { color: alpha(theme.primary, 0.7), type: "dashed", width: 1 },
                   label: {
                     formatter: `平均 ${base.toFixed(1)}${suffix}`,
-                    color: theme.muted,
+                    color: theme.primary,
                     fontSize: 10,
+                    fontFamily: MONO,
                     // 預設會沿著線轉成直的，壓在長條上很難讀
                     rotate: 0,
                     position: "end",
@@ -453,8 +538,9 @@ export function BarChart({
           label: {
             show: true,
             position: "right",
-            color: theme.muted,
+            color: theme.text,
             fontSize: 11,
+            fontFamily: MONO,
             formatter: (p: { value: number }) => `${p.value.toFixed(1)}${suffix}`,
           },
         },
@@ -516,23 +602,24 @@ export function ScatterChart({
         nameLocation: "middle",
         nameGap: 28,
         nameTextStyle: { color: theme.muted, fontSize: 11 },
-        axisLabel: { color: theme.muted, fontSize: 11 },
-        splitLine: { lineStyle: { color: theme.border } },
+        axisLabel: axisLabel(theme),
+        splitLine: splitLine(theme),
       },
       yAxis: {
         type: "value",
         name: yName,
         nameTextStyle: { color: theme.muted, fontSize: 11 },
-        axisLabel: { color: theme.muted, fontSize: 11 },
-        splitLine: { lineStyle: { color: theme.border } },
+        axisLabel: axisLabel(theme),
+        splitLine: splitLine(theme),
       },
       series: [
         {
           type: "scatter",
           data: points.map((p) => ({ name: p.label, value: [p.x, p.y, p.size] })),
           symbolSize: (v: number[]) => 8 + 26 * Math.sqrt(v[2] / maxSize),
-          itemStyle: { color: theme.accent2, opacity: 0.75, borderColor: theme.card },
-          emphasis: { itemStyle: { color: theme.primary, opacity: 1 } },
+          // 2px 卡片色外環：泡泡重疊時仍分得出邊界
+          itemStyle: { color: alpha(theme.data, 0.55), borderColor: theme.data, borderWidth: 1.5, shadowBlur: 8, shadowColor: alpha(theme.data, 0.45) },
+          emphasis: { itemStyle: { color: theme.data, borderColor: theme.text, shadowBlur: 16 } },
           label: {
             show: true,
             position: "top",
@@ -619,7 +706,7 @@ export type DayDatum = { date: string; games: number; winrate: number | null }
 
 /** 一天一組：長條是場次，折線是勝率。
  *
- *  兩個指標量級差很多（場次個位數、勝率 0~100），所以分兩個 y 軸。
+ *  兩個指標量級差很多（場次個位數、勝率 0~100），所以上下分成兩個座標區、共用日期軸。
  *  場次少的那天勝率本來就跳，折線的點會跟著場次縮小,提醒那天別多看。 */
 export function DailyChart({
   days,
@@ -637,80 +724,116 @@ export function DailyChart({
     const total = days.reduce((a, d) => a + d.games, 0)
     const wins = days.reduce((a, d) => a + (d.games * (d.winrate ?? 0)) / 100, 0)
     const base = total ? (wins / total) * 100 : 50
+    const labels = days.map((d) => d.date.slice(5))
+    // 上下兩個座標區共用同一條日期軸。不用雙 y 軸：兩個刻度疊在同一張圖上，
+    // 讀者會不自覺去比「長條頂端和折線誰高」，而那個比較沒有意義。
+    const xAxisBase = {
+      type: "category",
+      data: labels,
+      axisTick: { show: false },
+      axisLine: { lineStyle: { color: alpha(theme.muted, 0.3) } },
+    }
     return {
-      grid: { left: 40, right: 44, top: 16, bottom: 48 },
+      axisPointer: { link: [{ xAxisIndex: "all" }], lineStyle: { color: alpha(theme.primary, 0.5) } },
+      grid: [
+        { left: 44, right: 16, top: 20, height: "46%" },
+        { left: 44, right: 16, top: "68%", bottom: 30 },
+      ],
       tooltip: {
         trigger: "axis",
         ...baseTooltip(theme),
+        axisPointer: { type: "shadow", shadowStyle: { color: alpha(theme.primary, 0.06) } },
         formatter: (ps: { dataIndex: number }[]) => {
           const d = days[ps[0].dataIndex]
           const w = Math.round(((d.winrate ?? 0) / 100) * d.games)
           return `${d.date}<br/>${d.games} 場 · ${w} 勝 ${d.games - w} 敗<br/>勝率 ${(d.winrate ?? 0).toFixed(1)}%<br/><span style="opacity:.7">點一下看這天的每一場</span>`
         },
       },
-      xAxis: {
-        type: "category",
-        data: days.map((d) => d.date.slice(5)),
-        axisLabel: { color: theme.muted, fontSize: 10, rotate: days.length > 12 ? 45 : 0 },
-        axisLine: { lineStyle: { color: theme.border } },
-        axisTick: { show: false },
-      },
+      xAxis: [
+        { ...xAxisBase, gridIndex: 0, axisLabel: { show: false } },
+        { ...xAxisBase, gridIndex: 1, axisLabel: axisLabel(theme, { rotate: days.length > 12 ? 45 : 0 }) },
+      ],
       yAxis: [
         {
           type: "value",
-          name: "場次",
-          nameTextStyle: { color: theme.muted, fontSize: 10 },
-          max: Math.ceil(maxGames * 1.25),
-          axisLabel: { color: theme.muted, fontSize: 10 },
-          splitLine: { lineStyle: { color: theme.border } },
+          gridIndex: 0,
+          name: "勝率",
+          nameTextStyle: { color: theme.muted, fontSize: 10, align: "left" },
+          min: 0,
+          max: 100,
+          interval: 50,
+          axisLabel: axisLabel(theme, { formatter: "{value}%" }),
+          splitLine: splitLine(theme),
         },
         {
           type: "value",
-          name: "勝率",
-          nameTextStyle: { color: theme.muted, fontSize: 10 },
-          min: 0,
-          max: 100,
-          axisLabel: { color: theme.muted, fontSize: 10, formatter: "{value}%" },
-          splitLine: { show: false },
+          gridIndex: 1,
+          name: "場次",
+          nameTextStyle: { color: theme.muted, fontSize: 10, align: "left" },
+          max: Math.ceil(maxGames * 1.15),
+          splitNumber: 2,
+          axisLabel: axisLabel(theme),
+          splitLine: splitLine(theme),
         },
       ],
       series: [
         {
-          type: "bar",
-          name: "場次",
-          data: days.map((d) => ({
-            value: d.games,
-            itemStyle: {
-              color: selected === d.date ? theme.primary : mix(theme.card, theme.muted, 0.9),
-              borderRadius: [3, 3, 0, 0],
-            },
-          })),
-          barMaxWidth: 26,
-        },
-        {
           type: "line",
           name: "勝率",
-          yAxisIndex: 1,
+          xAxisIndex: 0,
+          yAxisIndex: 0,
           data: days.map((d) => d.winrate),
-          smooth: false,
+          smooth: 0.25,
           connectNulls: true,
-          lineStyle: { color: theme.primary, width: 2 },
-          itemStyle: { color: theme.primary },
+          lineStyle: { color: theme.data, width: 2, shadowBlur: 10, shadowColor: alpha(theme.data, 0.55) },
+          itemStyle: { color: theme.card, borderColor: theme.data, borderWidth: 2 },
+          areaStyle: {
+            color: {
+              type: "linear",
+              x: 0, y: 0, x2: 0, y2: 1,
+              colorStops: [
+                { offset: 0, color: alpha(theme.data, 0.25) },
+                { offset: 1, color: alpha(theme.data, 0) },
+              ],
+            },
+          },
           // 點的大小跟著場次走，一兩場的那天不會看起來和二十場一樣有份量
           symbolSize: (_v: unknown, p: { dataIndex: number }) =>
-            4 + 8 * Math.sqrt((days[p.dataIndex]?.games ?? 0) / maxGames),
+            6 + 8 * Math.sqrt((days[p.dataIndex]?.games ?? 0) / maxGames),
           markLine: {
             silent: true,
             symbol: "none",
             data: [{ yAxis: base }],
-            lineStyle: { color: theme.muted, type: "dashed", width: 1 },
+            lineStyle: { color: alpha(theme.primary, 0.7), type: "dashed", width: 1 },
             label: {
               formatter: `整體 ${base.toFixed(1)}%`,
-              color: theme.muted,
+              color: theme.primary,
               fontSize: 10,
+              fontFamily: MONO,
               position: "insideEndTop",
             },
           },
+        },
+        {
+          type: "bar",
+          name: "場次",
+          xAxisIndex: 1,
+          yAxisIndex: 1,
+          data: days.map((d) => {
+            const picked = selected === d.date
+            const color = picked ? theme.primary : theme.data
+            return {
+              value: d.games,
+              itemStyle: {
+                color: fade(color, false, picked ? 0.6 : 0.25),
+                borderRadius: [4, 4, 0, 0],
+                shadowBlur: picked ? 14 : 0,
+                shadowColor: alpha(theme.primary, 0.7),
+              },
+            }
+          }),
+          barMaxWidth: 22,
+          emphasis: { itemStyle: { shadowBlur: 12, shadowColor: alpha(theme.data, 0.6) } },
         },
       ],
     }
@@ -719,7 +842,7 @@ export function DailyChart({
   return (
     <ResponsiveChart
       option={option}
-      height={260}
+      height={280}
       onEvent={
         onPick ? { click: (p: { dataIndex?: number }) => {
           const d = days[p.dataIndex ?? -1]
