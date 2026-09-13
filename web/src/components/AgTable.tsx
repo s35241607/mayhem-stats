@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react"
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react"
 import { AgGridReact } from "ag-grid-react"
 import {
   AllCommunityModule,
@@ -37,6 +37,13 @@ export type GridColumn = {
   /** 自訂這一格的好壞方向。勝率欄以外的欄位若也要上色就給這個——
    *  例如「敗局相差」看的是各指標自己的方向，不是數字大小。 */
   tone?: (value: number, row: Row) => "good" | "bad" | null
+  /** 複合格子：一格放多個數字（見 components/cells.tsx）。
+   *  key 仍是這欄的排序與篩選依據，所以要選「主數字」當 key。 */
+  cell?: (row: Row) => ReactNode
+  /** 隱藏欄：畫面上不顯示，但匯出 CSV 仍會帶出。複合格子吃掉的原始欄位放這裡。 */
+  hide?: boolean
+  flex?: number
+  minWidth?: number
 }
 
 type Row = Record<string, unknown>
@@ -122,7 +129,10 @@ export function AgTable({
   fileName = "mayhem",
   sampleKey,
   drillOn = "dblclick",
+  rowHeight = ROW_H,
 }: {
+  /** 複合格子有兩行內容，要把列高調高（建議 54） */
+  rowHeight?: number
   columns: GridColumn[]
   rows: Row[]
   /** 維度格要單擊還是雙擊才下鑽。下鑽是頁內展開面板（不改全域條件）時用單擊比較直覺。 */
@@ -158,9 +168,10 @@ export function AgTable({
           filterParams: { buttons: ["reset"], closeOnApply: true },
           // 全部欄位一起彈性分攤容器寬度，維度欄佔兩份。
           // 固定寬度會讓欄位一多就超出容器、逼出橫向捲軸。
-          flex: isMetric ? 1 : 2,
-          minWidth: isMetric ? 96 : 170,
-          headerClass: isMetric ? "ag-right-aligned-header" : undefined,
+          flex: col.flex ?? (isMetric ? 1 : 2),
+          minWidth: col.minWidth ?? (isMetric ? 96 : 170),
+          hide: col.hide,
+          headerClass: isMetric && !col.cell ? "ag-right-aligned-header" : undefined,
           // 排序照原始數值，不受格式化字串影響
           comparator: isMetric
             ? (a: unknown, b: unknown) => (Number(a) || 0) - (Number(b) || 0)
@@ -174,11 +185,13 @@ export function AgTable({
                 return `${col.format ? col.format(n) : n}${col.suffix ?? ""}`
               }
             : undefined,
-          cellRenderer:
-            col.kind === "dimension"
+          cellRenderer: col.cell
+            ? (p: ICellRendererParams) => col.cell!(p.data as Row)
+            : col.kind === "dimension"
               ? (p: ICellRendererParams) => <DimensionCell params={p} column={col} />
               : undefined,
           cellClass: (p) => {
+            if (col.cell) return "rich-cell"
             if (!isMetric) return "font-medium"
             // 數字靠右才比得出位數。colDef.type 的 rightAligned 在這個版本
             // 沒有套到儲存格上，所以直接給 class。
@@ -213,6 +226,8 @@ export function AgTable({
       fileName: `${fileName}-${new Date().toISOString().slice(0, 10)}.csv`,
       // 匯出原始數值而非格式化字串，貼進試算表才能直接運算
       processCellCallback: (p) => p.value,
+      // 隱藏欄（複合格子吃掉的原始數字）也要匯出
+      allColumns: true,
     })
 
   if (!rows.length) {
@@ -252,7 +267,7 @@ export function AgTable({
       </div>
 
       {/* 列數少時（例如下鑽到只剩一列）不要硬撐滿，否則下方是一大片空白 */}
-      <div style={{ height: Math.min(height, ROW_H * (rows.length + 1) + FILTER_ROW_H + 18) }}>
+      <div style={{ height: Math.min(height, ROW_H + rowHeight * rows.length + FILTER_ROW_H + 18) }}>
         {!enterDone ? (
           // 同高度的佔位，掛上表格時版面不跳
           <div className="h-full rounded-lg border bg-card" />
@@ -261,6 +276,7 @@ export function AgTable({
         <AgGridReact
           theme={theme}
           rowData={rows}
+          rowHeight={rowHeight}
           columnDefs={colDefs}
           onGridReady={onGridReady}
           quickFilterText={quickFilter}

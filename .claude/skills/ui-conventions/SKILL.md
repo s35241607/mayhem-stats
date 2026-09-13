@@ -72,6 +72,7 @@ description: 這個專案前端的主題與動畫規範。只要動到 web/src �
    | `rise` | 卡片由下浮現；`Kpi` / `Panel` 已內建，傳 `index` 會依序錯開（上限 240ms） | 280ms |
    | `slide-in` | 清單列由左滑入（對局卡片、最常用清單），每列錯開 30～40ms（上限 400ms） | 320ms |
    | `reveal` | 沒有自己資料動畫的內容（表格、逐場列表外框）從骨架換上時淡入 | 220ms |
+   | `bar-grow` | 表格格子裡的迷你資料條從左邊長出（`scaleX`） | 600ms |
    不要自己另寫時長。需要新的動畫就加 utility 並更新這張表。
 3. **資料動畫可以用 JS，但有兩個條件**：等換頁進場動畫結束才開始（`useAfterPageEnter()`），
    而且**不准每一幀都 setState**（七個 KPI × 60 幀 = 420 次重新渲染）。現成的做法：
@@ -96,7 +97,22 @@ description: 這個專案前端的主題與動畫規範。只要動到 web/src �
 8. **尊重「減少動態」。** CSS 那邊由 `index.css` 的 `prefers-reduced-motion` 縮成 1ms；JS 的資料動畫要自己檢查
    `prefersReducedMotion()`（`CountUp` 直接顯示最終值、`ResponsiveChart` 關掉 ECharts 動畫）。新動畫不要繞過它。
 
-## 三、驗證
+## 三、表格的複合格子
+
+一格一個數字的寬表格，改成「一格 = 主數字 + 補充 + 迷你圖」。元件在 `components/cells.tsx`：
+`RecordCell`（勝率 + 勝敗比例條）、`StatCell`（主數字 + 一行補充）、`BarCell`（數字 + 資料條 + 平均刻度 + 補充）。
+範例是英雄頁（`pages/Champions.tsx` 的 `buildColumns`）。
+
+1. **欄位的 `key` 放主數字**，AgTable 用它排序與篩選；`cell: (row) => <RecordCell … />` 決定畫什麼。
+2. **被合併的原始欄位留成 `hide: true`**：畫面不顯示，匯出 CSV 仍帶出（AgTable 匯出時 `allColumns: true`）。
+3. 有複合格子的表格設 `rowHeight={54}`。所有格子已由 `index.css` 垂直置中，單行格子不會黏在上緣。
+4. **補充文字不准被截斷**：窄視窗（1150px）也要放得下。量法：`.rich-cell .truncate` 的 `scrollWidth > clientWidth`
+   數量要是 0。放不下就縮短字（整數百分比、去掉空白），或把補充移到另一行——不要只靠 `…` 和 hover title。
+5. 資料條的最大值只取樣本夠（`MIN_GAMES`）的列，免得一場的極端值把整欄壓扁；平均線用依場次加權的平均。
+6. **驗證：畫面上的格子文字逐字和手寫 SQL 對**。Python 比對時注意四捨五入：JS `toFixed` 對剛好一半的值往上捨，
+   Python 的格式化是往偶數捨（6.25 → JS「6.3」、Python「6.2」），要用 `Decimal` + `ROUND_HALF_UP`。
+
+## 四、驗證
 
 服務要先在 `127.0.0.1:5057` 跑著（重啟方式見 `verify-change` skill）。前端改動要先 `cd web && npm run build`。
 

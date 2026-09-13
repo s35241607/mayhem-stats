@@ -483,6 +483,27 @@
   animation: slide-in 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
   animation-delay: min(var(--stagger, 0ms), 400ms);
 }
+/* 表格格子裡的迷你資料條從左邊長出來（只動 transform） */
+@keyframes bar-grow {
+  from { transform: scaleX(0); }
+  to { transform: none; }
+}
+@utility bar-grow {
+  transform-origin: left center;
+  animation: bar-grow 600ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+/* AG Grid 所有格子垂直置中：列高調高（複合格子 54px）時，單行的格子才不會黏在上緣 */
+.ag-cell {
+  display: flex;
+  align-items: center;
+}
+.ag-cell.text-right {
+  justify-content: flex-end;
+}
+/* 複合格子兩行內容，行高不要沿用單行的列高 */
+.ag-cell.rich-cell {
+  line-height: 1.25;
+}
 /* 骨架換成真正內容時淡入，而不是瞬間跳出來 */
 @utility reveal {
   animation: reveal 220ms ease-out both;

@@ -1,4 +1,5 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
+import { BarCell, RecordCell, StatCell } from "@/components/cells"
 import { Filter, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -11,18 +12,92 @@ import { num, type CubeRow } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 import { MIN_GAMES, round0, round1, round2 } from "./shared"
 
-const COLUMNS: GridColumn[] = [
-  { key: "champions.name", title: "英雄", kind: "dimension", iconKey: "champions.icon_path" },
-  { key: "participants.games", title: "場次", kind: "metric", format: round0 },
-  { key: "participants.wins", title: "勝場", kind: "metric", format: round0 },
-  { key: "participants.losses", title: "敗場", kind: "metric", format: round0 },
-  { key: "participants.winrate", title: "勝率", kind: "metric", format: round1, suffix: "%" },
-  { key: "participants.kda", title: "KDA", kind: "metric", format: round2 },
-  { key: "participants.dpm", title: "每分鐘傷害", kind: "metric", format: round0 },
-  { key: "participants.gpm", title: "每分鐘經濟", kind: "metric", format: round0 },
-  { key: "participants.kill_participation", title: "參團率", kind: "metric", format: round1, suffix: "%" },
-  { key: "participants.damage_share", title: "傷害佔比", kind: "metric", format: round1, suffix: "%" },
+const MEASURES = [
+  "participants.games",
+  "participants.wins",
+  "participants.losses",
+  "participants.winrate",
+  "participants.kda",
+  "participants.avg_kills",
+  "participants.avg_deaths",
+  "participants.avg_assists",
+  "participants.dpm",
+  "participants.gpm",
+  "participants.kill_participation",
+  "participants.damage_share",
 ]
+
+const n0 = (r: Record<string, unknown>, k: string) => num(r[k] as string | number | null) ?? 0
+const opt = (r: Record<string, unknown>, k: string) => num(r[k] as string | number | null)
+
+/** 10 欄一格一個數字 → 5 欄複合格子。被合併的原始欄位留成隱藏欄，匯出 CSV 仍帶得出來。
+ *  資料條的最大值與平均線依目前資料算，所以欄位定義要跟著資料重建。 */
+function buildColumns(rows: CubeRow[]): GridColumn[] {
+  // 最大值只看樣本夠的英雄，免得一場打出 5000 的把整欄的條壓扁
+  const solid = rows.filter((r) => n0(r, "participants.games") >= MIN_GAMES)
+  const pool = solid.length ? solid : rows
+  const maxDpm = Math.max(1, ...pool.map((r) => n0(r, "participants.dpm")))
+  const totalGames = rows.reduce((a, r) => a + n0(r, "participants.games"), 0)
+  const avgDpm = totalGames
+    ? rows.reduce((a, r) => a + n0(r, "participants.dpm") * n0(r, "participants.games"), 0) / totalGames
+    : null
+
+  return [
+    { key: "champions.name", title: "英雄", kind: "dimension", iconKey: "champions.icon_path", flex: 1.6, minWidth: 160 },
+    { key: "participants.games", title: "場次", kind: "metric", format: round0, flex: 0.6, minWidth: 80 },
+    {
+      key: "participants.winrate",
+      title: "戰績",
+      kind: "metric",
+      flex: 1.5,
+      minWidth: 170,
+      cell: (r) => (
+        <RecordCell
+          winrate={opt(r, "participants.winrate")}
+          wins={n0(r, "participants.wins")}
+          losses={n0(r, "participants.losses")}
+        />
+      ),
+    },
+    {
+      key: "participants.kda",
+      title: "KDA",
+      kind: "metric",
+      flex: 1.2,
+      minWidth: 165,
+      cell: (r) => (
+        <StatCell
+          main={opt(r, "participants.kda")?.toFixed(2) ?? "—"}
+          sub={`${round1(n0(r, "participants.avg_kills"))}/${round1(n0(r, "participants.avg_deaths"))}/${round1(n0(r, "participants.avg_assists"))} · 參團 ${Math.round(n0(r, "participants.kill_participation"))}%`}
+        />
+      ),
+    },
+    {
+      key: "participants.dpm",
+      title: "輸出（每分鐘傷害）",
+      kind: "metric",
+      flex: 2,
+      minWidth: 230,
+      cell: (r) => (
+        <BarCell
+          value={opt(r, "participants.dpm")}
+          max={maxDpm}
+          reference={avgDpm}
+          label={round0(n0(r, "participants.dpm"))}
+          sub={`傷害佔 ${round1(n0(r, "participants.damage_share"))}% · 經濟 ${round0(n0(r, "participants.gpm"))}`}
+        />
+      ),
+    },
+    { key: "participants.wins", title: "勝場", kind: "metric", hide: true },
+    { key: "participants.losses", title: "敗場", kind: "metric", hide: true },
+    { key: "participants.avg_kills", title: "平均擊殺", kind: "metric", hide: true },
+    { key: "participants.avg_deaths", title: "平均死亡", kind: "metric", hide: true },
+    { key: "participants.avg_assists", title: "平均助攻", kind: "metric", hide: true },
+    { key: "participants.kill_participation", title: "參團率", kind: "metric", hide: true },
+    { key: "participants.gpm", title: "每分鐘經濟", kind: "metric", hide: true },
+    { key: "participants.damage_share", title: "傷害佔比", kind: "metric", hide: true },
+  ]
+}
 
 /** 點了某隻英雄之後：摘要 + 這隻英雄的每一場（和對局紀錄頁同樣的卡片）。 */
 function ChampionPanel({ row, onClose }: { row: CubeRow; onClose: () => void }) {
@@ -89,13 +164,15 @@ export function Champions() {
   const [picked, setPicked] = useState<string | null>(null)
   const { rows, loading, error } = useCube(
     apply({
-      measures: COLUMNS.filter((c) => c.kind === "metric").map((c) => c.key),
+      measures: MEASURES,
       dimensions: ["champions.name", "champions.icon_path"],
       order: { "participants.games": "desc" },
       limit: 200,
     }),
   )
   const pickedRow = picked ? rows.find((r) => r["champions.name"] === picked) : undefined
+  // 欄位定義只在資料換了才重建，不然每次重畫 AG Grid 都會重新套欄位
+  const columns = useMemo(() => buildColumns(rows), [rows])
 
   // 和增幅頁同一個結構：上面是樣本夠的勝率排行，下面是完整表格
   const top: BarDatum[] = rows
@@ -111,7 +188,7 @@ export function Champions() {
   const table = (
     <Panel
       title="英雄表現"
-      caption={`點英雄看這隻英雄的每一場；場次不到 ${MIN_GAMES} 的列會淡化，樣本太小的勝率是雜訊`}
+      caption={`點英雄看這隻英雄的每一場。輸出條的長度對應最高的英雄，細線是依場次加權的平均；場次不到 ${MIN_GAMES} 的列會淡化。欄位標題可排序（戰績依勝率、輸出依每分鐘傷害），匯出 CSV 含所有原始欄位`}
     >
       {loading ? (
         <Skeleton className="h-[520px] w-full" />
@@ -119,7 +196,8 @@ export function Champions() {
         <div className="text-sm text-destructive">{error}</div>
       ) : (
         <AgTable
-          columns={COLUMNS}
+          columns={columns}
+          rowHeight={54}
           rows={rows}
           height={560}
           sampleKey="participants.games"
