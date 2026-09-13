@@ -195,7 +195,7 @@ export function Augments() {
           <AgTable
             columns={champion ? [...BASE_COLUMNS, ...SYNERGY_COLUMNS] : BASE_COLUMNS}
             rows={tableRows}
-            emptyHint={`這隻英雄還沒有任何增幅出現 ${MIN_ON_CHAMPION} 次以上。`}
+            emptyHint={champion ? `這隻英雄還沒有任何增幅出現 ${MIN_ON_CHAMPION} 次以上。` : undefined}
             height={520}
             sampleKey="participants.games"
             fileName={champion ? `augments-${champion}` : "augments"}

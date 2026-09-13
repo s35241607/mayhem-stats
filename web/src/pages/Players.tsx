@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Check, Radar, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -30,14 +30,28 @@ type Picked = { player: string; puuid: string; relation: string }
 
 /** 在下鑽面板裡直接追蹤這個人，不必切到「追蹤對象」頁再找一次。 */
 function TrackButton({ puuid }: { puuid: string }) {
-  const { players, account } = useFilters()
-  const initially = players.find((p) => p.puuid === puuid)?.tracked === 1
-  const [tracked, setTracked] = useState(initially)
+  const { account } = useFilters()
+  // 狀態每次向後端問。不能用 FilterProvider 的 players：那份只在開頁時載入一次，
+  // 這裡切換過之後收起再打開，會顯示成切換前的狀態。
+  const [tracked, setTracked] = useState<boolean | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/accounts")
+      .then((r) => r.json())
+      .then((d: { tracked: { puuid: string }[] }) => {
+        if (!cancelled) setTracked(d.tracked.some((a) => a.puuid === puuid))
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [puuid])
+
   // 只有在看自己的數據時才提供：追蹤名單是「我要一併採集誰」，不是別人的
-  if (!account?.is_me) return null
+  if (!account?.is_me || tracked === null) return null
 
   const toggle = async () => {
     setBusy(true)
@@ -262,21 +276,49 @@ function PlayerTable({
     filters.push({ member: "matches.queue_id", operator: "equals", values: [queueId] })
   }
 
-  const { rows, loading, error } = useCube({
+  // 一個人 = 一個 puuid，下鑽也是用 puuid 查。場次只按 puuid 分組——若連名字一起分組，
+  // 改過名的人會拆成好幾列：點「舊名字 5 場」那列，面板卻顯示合計 15 場。
+  // 也不能拆開後在前端相加：對手動輒上千人，limit 會把某人場次少的舊名字那列截掉而少算。
+  const time = timeFilter("matches.played_at")
+  const { rows: all, loading, error } = useCube({
     measures: ["teammates.games", "teammates.wins", "teammates.winrate"],
-    // puuid 一起帶出來：下鑽要用它查逐場列表和追蹤，名字可能改過、不是唯一鍵
-    dimensions: ["teammates.player", "teammates.puuid"],
+    dimensions: ["teammates.puuid"],
     filters,
-    ...timeFilter("matches.played_at"),
+    ...time,
     order: { "teammates.games": "desc" },
     limit: 50,
   })
+  // 「同場 2 次以上」不能寫成 Cube 的指標篩選：值以字串送進去，SQLite 的
+  // COUNT(...) >= '2' 是整數比字串、永遠為假，整張表會變空。
+  const rows = all.filter((r) => (num(r["teammates.games"]) ?? 0) >= 2)
 
-  const meaningful = rows.filter((r) => Number(r["teammates.games"]) >= 2)
+  // 名字另外查，只查要顯示的這幾個人；改過名的取同場最多次的那個
+  const ids = rows.map((r) => String(r["teammates.puuid"]))
+  const names = useCube(
+    ids.length
+      ? {
+          measures: ["teammates.games"],
+          dimensions: ["teammates.puuid", "teammates.player"],
+          filters: [...filters, { member: "teammates.puuid", operator: "equals", values: ids }],
+          ...time,
+          order: { "teammates.games": "desc" },
+          limit: 500,
+        }
+      : null,
+  )
+  const nameOf = new Map<string, string>()
+  for (const r of names.rows) {
+    const id = String(r["teammates.puuid"])
+    if (!nameOf.has(id)) nameOf.set(id, String(r["teammates.player"] ?? "—"))
+  }
+  const meaningful = rows.map((r) => ({
+    ...r,
+    "teammates.player": nameOf.get(String(r["teammates.puuid"])) ?? "…",
+  }))
 
   return (
     <Panel title={title} caption={caption}>
-      {loading ? (
+      {loading || names.loading ? (
         <Skeleton className="h-[380px] w-full" />
       ) : error ? (
         <div className="text-sm text-destructive">{error}</div>
