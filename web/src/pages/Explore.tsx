@@ -259,7 +259,7 @@ export function Explore() {
       }
       return (
         <BarChart
-          data={rows.slice(0, 24).map((r) => ({
+          data={rows.map((r) => ({
             label: String(r[dims[0]] ?? "—"),
             value: num(r[activeMeasures[0]]) ?? 0,
             games: num(r["participants.games"]) ?? num(r["teammates.games"]) ?? 0,
@@ -476,9 +476,9 @@ export function Explore() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {["20", "50", "100", "500", "2000"].map((n) => (
+                {["20", "50", "100", "500", "2000", "50000"].map((n) => (
                   <SelectItem key={n} value={n}>
-                    {n} 筆
+                    {n === "50000" ? "全部" : `${n} 筆`}
                   </SelectItem>
                 ))}
               </SelectContent>

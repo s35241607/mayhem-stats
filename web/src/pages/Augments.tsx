@@ -16,7 +16,7 @@ import { useCube } from "@/hooks/useCube"
 import { num, type CubeRow } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 import { useCrumb } from "@/lib/breadcrumb"
-import { MIN_GAMES, round0, round1 } from "./shared"
+import { MIN_GAMES, NO_LIMIT, round0, round1 } from "./shared"
 
 const ALL = "__all__"
 
@@ -126,7 +126,7 @@ export function Augments() {
       measures: ["participants.games"],
       dimensions: ["champions.name"],
       order: { "participants.games": "desc" },
-      limit: 200,
+      limit: NO_LIMIT,
     }),
   )
 
@@ -148,7 +148,7 @@ export function Augments() {
           ? [{ member: "champions.name", operator: "equals", values: [champion] }]
           : [],
       order: { "participants.games": "desc" },
-      limit: 300,
+      limit: NO_LIMIT,
     }),
   )
 
@@ -156,7 +156,7 @@ export function Augments() {
   const baselineQuery = apply({
     measures: ["participants.games", "participants.winrate"],
     dimensions: ["augments.name"],
-    limit: 500,
+    limit: NO_LIMIT,
   })
   const baseline = useCube(
     champion
@@ -173,7 +173,7 @@ export function Augments() {
       ]),
     )
   
-    // 單一英雄的樣本通常只有個位數，所以選了英雄時什麼都不藏，全部列出來、場次少的淡化。
+    // 單一英雄的樣本通常只有個位數，所以選了英雄時什麼都不藏，全部列出來。
     // 排序用場次而不是加成：依加成排的話，最上面會整排是「1 場 1 勝 → +50pp」這種雜訊。
     // 想看加成排行點欄位標題就能換。
     return champion
@@ -198,12 +198,11 @@ export function Augments() {
   const columns = useMemo(() => buildColumns(tableRows, !!champion), [tableRows, champion])
 
   // 全部英雄時圖表只放樣本夠的，否則整張圖都是 1 場 100% 的雜訊。
-  // 單一英雄時幾乎沒有增幅到得了門檻，圖會永遠是空的——改成畫最常選的幾個，
+  // 單一英雄時幾乎沒有增幅到得了門檻，圖會永遠是空的——改成全部都畫，
   // 長條顏色本來就會依場次往平均收斂，1 場全勝不會被畫成深綠。
   const chartMin = champion ? 1 : MIN_GAMES
   const top: BarDatum[] = rows
     .filter((r) => (num(r["participants.games"]) ?? 0) >= chartMin)
-    .slice(0, 14)
     .map((r) => ({
       label: String(r["augments.name"] ?? "—"),
       value: num(r["participants.winrate"]) ?? 0,
@@ -247,8 +246,8 @@ export function Augments() {
         title={champion ? `${champion} 最常選的增幅` : "勝率排行"}
         caption={
           champion
-            ? "這隻英雄上選過最多次的 14 個增幅，依勝率排列。樣本多半只有一兩場，長條顏色已依場次往平均收斂——滑過長條看場次"
-            : `僅計入 ${MIN_GAMES} 場以上的增幅。點一根長條（或表格的一列）會列出選了它的每一場，表格與長條也會互相亮起`
+            ? "這隻英雄選過的每個增幅，依勝率排列，超過 14 個時在圖上捲動。樣本多半只有一兩場，長條顏色已依場次往平均收斂——滑過長條看場次"
+            : `僅計入 ${MIN_GAMES} 場以上的增幅，超過 14 個時在圖上捲動。點一根長條（或表格的一列）會列出選了它的每一場，表格與長條也會互相亮起`
         }
       >
         {loading ? (
@@ -275,8 +274,8 @@ export function Augments() {
         title={champion ? `${champion} 的增幅契合度` : "全部增幅"}
         caption={
           champion
-            ? `這隻英雄選過的全部增幅，依場次排序（點「加成」標題可改依加成排）。加成 = 在這隻英雄上的勝率 − 在所有英雄上的勝率：有些增幅本來就強、在誰身上都好，加成才看得出「特別適合這隻英雄」。場次不到 ${MIN_GAMES} 的列會淡化，那是線索不是結論。`
-            : `這份資料只有你自己拿得到——Riot 對 Mayhem 封鎖了公開 API，任何第三方網站都算不出增幅勝率。場次不到 ${MIN_GAMES} 的列會淡化。`
+            ? `這隻英雄選過的全部增幅，依場次排序（點「加成」標題可改依加成排）。加成 = 在這隻英雄上的勝率 − 在所有英雄上的勝率：有些增幅本來就強、在誰身上都好，加成才看得出「特別適合這隻英雄」。場次少的列看場次欄判斷，那是線索不是結論。`
+            : `這份資料只有你自己拿得到——Riot 對 Mayhem 封鎖了公開 API，任何第三方網站都算不出增幅勝率。`
         }
       >
         {loading || (champion && baseline.loading) ? (
@@ -292,7 +291,6 @@ export function Augments() {
             rows={tableRows}
             emptyHint={champion ? "這個條件下這隻英雄還沒有增幅紀錄。" : undefined}
             height={520}
-            sampleKey="participants.games"
             fileName={champion ? `augments-${champion}` : "augments"}
             onDrill={(_col, value) =>
               addDrill({

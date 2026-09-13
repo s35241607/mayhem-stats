@@ -322,14 +322,15 @@ def recent_matches(
                 )
 
         count_sql = """
-            SELECT COUNT(*) AS n FROM match_participants mp
+            SELECT COUNT(*) AS n, COALESCE(SUM(mp.win), 0) AS wins FROM match_participants mp
             JOIN matches m ON m.platform_id = mp.platform_id AND m.game_id = mp.game_id
             WHERE mp.puuid = ?
         """
         count_sql += slice_sql
-        total = conn.execute(count_sql, [subject, *slice_params]).fetchone()["n"]
+        counts = conn.execute(count_sql, [subject, *slice_params]).fetchone()
 
-        return {"matches": matches, "total": total}
+        # wins 是整個條件的勝場，不只這一頁：列表是捲動分批載入的，勝敗摘要不能只算已載入的部分
+        return {"matches": matches, "total": counts["n"], "wins": counts["wins"]}
     finally:
         conn.close()
 

@@ -11,7 +11,7 @@ import { useCube } from "@/hooks/useCube"
 import { iconUrl, num, type CubeRow } from "@/lib/cube"
 import { useFilters, type Drill } from "@/lib/filters"
 import { useNavigate } from "@/lib/nav"
-import { BLOCKS, MIN_GAMES, WEEKDAYS, round0, round1, round2, toBlocks } from "./shared"
+import { BLOCKS, MIN_GAMES, NO_LIMIT, WEEKDAYS, round0, round1, round2, toBlocks } from "./shared"
 
 /** 儀表板只放總覽。細節各有分頁，這裡的每張卡右上角都連過去——
  *  原本儀表板和分頁各畫一份一樣的熱力圖、每日趨勢、勝率長條。 */
@@ -97,7 +97,7 @@ export function Dashboard() {
     apply({
       measures: ["participants.games", "participants.winrate"],
       dimensions: ["matches.local_date"],
-      limit: 400,
+      limit: NO_LIMIT,
     }),
   )
 

@@ -1,13 +1,13 @@
-import { Fragment, useEffect, useState, type CSSProperties } from "react"
+import { Fragment, useEffect, useMemo, useState, type CSSProperties } from "react"
 import { ChevronLeft, Coins, Swords } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Panel, EmptyState } from "@/components/primitives"
+import { Panel } from "@/components/primitives"
 import { iconUrl } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
-import { useCrumb } from "@/lib/breadcrumb"
+import { MatchList } from "@/components/MatchList"
 import { cn } from "@/lib/utils"
 
 type Item = { slot: number; item_id: number; name: string | null; icon_path: string | null }
@@ -476,88 +476,24 @@ export function MatchCards({
 
 export function Matches() {
   const { queueId, account } = useFilters()
-  const [selected, setSelected] = useState<{ platformId: string; gameId: number } | null>(null)
-  const [rows, setRows] = useState<MatchRow[] | null>(null)
-  const [total, setTotal] = useState(0)
-  const [offset, setOffset] = useState(0)
-  const pageSize = 20
-  const selectedRow = selected ? rows?.find((m) => m.platform_id === selected.platformId && m.game_id === selected.gameId) : undefined
-  useCrumb(90, selectedRow ? matchCrumbLabel(selectedRow) : selected ? "單場戰報" : null, () => setSelected(null))
-
-  useEffect(() => {
-    setOffset(0)
-    setSelected(null)
-  }, [account?.puuid])
-
-  useEffect(() => {
-    if (!account) return
-    setRows(null)
-    const params = new URLSearchParams({
-      limit: String(pageSize),
-      offset: String(offset),
-      puuid: account.puuid,
-    })
-    if (queueId) params.set("queue", queueId)
-    fetch(`/api/matches?${params}`)
-      .then((r) => r.json())
-      .then((d) => {
-        setRows(d.matches)
-        setTotal(d.total)
-      })
-  }, [queueId, offset, account])
-
-  if (selected) {
-    return (
-      <MatchDetail
-        platformId={selected.platformId}
-        gameId={selected.gameId}
-        puuid={account?.puuid}
-        onBack={() => setSelected(null)}
-      />
-    )
-  }
+  const params = useMemo(() => {
+    const p: Record<string, string> = {}
+    if (account) p.puuid = account.puuid
+    if (queueId) p.queue = queueId
+    return p
+  }, [account, queueId])
 
   return (
-    <Panel
-      title={`近期對戰（共 ${total} 場）`}
-      caption="點任一列看完整戰報"
-    >
-      {!rows ? (
+    <Panel title="近期對戰" caption="由新到舊列出全部場次，捲到底會自動載入更多；點任一場看完整戰報">
+      {account ? (
+        // key：換帳號時整個列表重來（清掉開著的戰報與捲動位置）
+        <MatchList key={account.puuid} params={params} puuid={account.puuid} />
+      ) : (
         <div className="space-y-2">
           {Array.from({ length: 8 }).map((_, i) => (
             <Skeleton key={i} className="h-16 w-full" />
           ))}
         </div>
-      ) : !rows.length ? (
-        <EmptyState>這個條件下沒有對局。</EmptyState>
-      ) : (
-        <>
-          <MatchCards rows={rows} onPick={setSelected} />
-
-          <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
-            <span>
-              第 {offset + 1}–{Math.min(offset + pageSize, total)} 場，共 {total} 場
-            </span>
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={offset === 0}
-                onClick={() => setOffset(Math.max(0, offset - pageSize))}
-              >
-                上一頁
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={offset + pageSize >= total}
-                onClick={() => setOffset(offset + pageSize)}
-              >
-                下一頁
-              </Button>
-            </div>
-          </div>
-        </>
       )}
     </Panel>
   )

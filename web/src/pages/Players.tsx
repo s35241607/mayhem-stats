@@ -12,7 +12,7 @@ import { useCube } from "@/hooks/useCube"
 import { MAYHEM_QUEUE_ID, num, type CubeFilter } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 import { useCrumb } from "@/lib/breadcrumb"
-import { MIN_GAMES, round0 } from "./shared"
+import { MIN_GAMES, NO_LIMIT, round0 } from "./shared"
 
 /** 「我的戰績」複合格子：勝率 + 勝敗比例條，刻度線是比較基準（你的整體勝率，或和這個人同場的整體勝率）。 */
 const recordColumn = (title: string, baseline: number | null, baselineLabel: string): GridColumn => ({
@@ -150,7 +150,7 @@ function TogetherPanel({
         : ["teammates.other_champion", "teammates.other_champion_icon"],
     filters: role ? [...filters, { member: "champion_roles.name", operator: "equals", values: [role] }] : filters,
     order: { "teammates.games": "desc" },
-    limit: 200,
+    limit: NO_LIMIT,
     ...time,
   })
 
@@ -277,11 +277,10 @@ function TogetherPanel({
                     rowHeight={54}
                     rows={champRows}
                     height={360}
-                    sampleKey="teammates.games"
                     fileName={`together-${player}-${side}`}
                   />
                   <p className="mt-2 text-[11px] text-muted-foreground">
-                    戰績條上的刻度線是和這個人同場的整體勝率。{champRows.length} 隻英雄裡有 {thin} 隻不到 {MIN_GAMES} 場（已淡化）——那幾列的勝率只是
+                    戰績條上的刻度線是和這個人同場的整體勝率。{champRows.length} 隻英雄裡有 {thin} 隻不到 {MIN_GAMES} 場——那幾列的勝率只是
                     「還沒輸過」或「還沒贏過」，別當結論。上面的定位分組才是這個資料量問得出答案的粒度。
                   </p>
                 </>
@@ -327,34 +326,27 @@ function PlayerTable({
 
   // 一個人 = 一個 puuid，下鑽也是用 puuid 查。場次只按 puuid 分組——若連名字一起分組，
   // 改過名的人會拆成好幾列：點「舊名字 5 場」那列，面板卻顯示合計 15 場。
-  // 也不能拆開後在前端相加：對手動輒上千人，limit 會把某人場次少的舊名字那列截掉而少算。
+  // 全部列出（同場 1 次的也列），依場次排序；AG Grid 只渲染看得到的列，幾千人捲動也不卡。
   const time = timeFilter("matches.played_at")
-  const { rows: all, loading, error } = useCube({
+  const { rows, loading, error } = useCube({
     measures: ["teammates.games", "teammates.wins", "teammates.winrate"],
     dimensions: ["teammates.puuid"],
     filters,
     ...time,
     order: { "teammates.games": "desc" },
-    limit: 50,
+    limit: NO_LIMIT,
   })
-  // 「同場 2 次以上」不能寫成 Cube 的指標篩選：值以字串送進去，SQLite 的
-  // COUNT(...) >= '2' 是整數比字串、永遠為假，整張表會變空。
-  const rows = all.filter((r) => (num(r["teammates.games"]) ?? 0) >= 2)
 
-  // 名字另外查，只查要顯示的這幾個人；改過名的取同場最多次的那個
-  const ids = rows.map((r) => String(r["teammates.puuid"]))
-  const names = useCube(
-    ids.length
-      ? {
-          measures: ["teammates.games"],
-          dimensions: ["teammates.puuid", "teammates.player"],
-          filters: [...filters, { member: "teammates.puuid", operator: "equals", values: ids }],
-          ...time,
-          order: { "teammates.games": "desc" },
-          limit: 500,
-        }
-      : null,
-  )
+  // 名字另外查（同樣的條件、全部的人）；改過名的取同場最多次的那個。
+  // 不用「puuid 在這些人裡面」的篩選：幾百個 puuid 塞進查詢字串會超過網址長度上限。
+  const names = useCube({
+    measures: ["teammates.games"],
+    dimensions: ["teammates.puuid", "teammates.player"],
+    filters,
+    ...time,
+    order: { "teammates.games": "desc" },
+    limit: NO_LIMIT,
+  })
   const nameOf = new Map<string, string>()
   for (const r of names.rows) {
     const id = String(r["teammates.puuid"])
@@ -379,7 +371,7 @@ function PlayerTable({
             rows={meaningful}
             height={420}
             fileName={`players-${relation}`}
-            emptyHint="還沒有同場 2 次以上的對象。"
+            emptyHint="這個條件下沒有同場過的人。"
             onDrill={(_col, value, row) =>
               onPick({ player: value, puuid: String(row["teammates.puuid"]), relation })
             }

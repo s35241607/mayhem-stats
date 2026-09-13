@@ -8,7 +8,7 @@ import { num, type CubeFilter } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 import { useCrumb } from "@/lib/breadcrumb"
 import { DrillPanel } from "@/components/MatchList"
-import { MIN_GAMES } from "./shared"
+import { MIN_GAMES, NO_LIMIT } from "./shared"
 
 /** 下鑽的分組。kind 同時是 /api/matches 的參數名。 */
 type TiltFocus = { kind: "prev_result" | "session_stage" | "game_of_day"; value: string; label: string }
@@ -54,7 +54,7 @@ export function Tilt() {
           dimensions: ["my_games.game_of_day"],
           filters,
           ...time,
-          limit: 40,
+          limit: NO_LIMIT,
         }
       : null,
   )

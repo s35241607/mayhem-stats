@@ -11,7 +11,7 @@ import { useCube } from "@/hooks/useCube"
 import { num, type CubeRow } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 import { useCrumb } from "@/lib/breadcrumb"
-import { MIN_GAMES, round0, round1, round2 } from "./shared"
+import { MIN_GAMES, NO_LIMIT, round0, round1, round2 } from "./shared"
 
 const MEASURES = [
   "participants.games",
@@ -172,7 +172,7 @@ export function Champions() {
       measures: MEASURES,
       dimensions: ["champions.name", "champions.icon_path"],
       order: { "participants.games": "desc" },
-      limit: 200,
+      limit: NO_LIMIT,
     }),
   )
   const pickedRow = picked ? rows.find((r) => r["champions.name"] === picked) : undefined
@@ -182,7 +182,6 @@ export function Champions() {
   // 和增幅頁同一個結構：上面是樣本夠的勝率排行，下面是完整表格
   const top: BarDatum[] = rows
     .filter((r) => (num(r["participants.games"]) ?? 0) >= MIN_GAMES)
-    .slice(0, 14)
     .map((r) => ({
       label: String(r["champions.name"] ?? "—"),
       value: num(r["participants.winrate"]) ?? 0,
@@ -193,7 +192,7 @@ export function Champions() {
   const table = (
     <Panel
       title="英雄表現"
-      caption={`點英雄看這隻英雄的每一場。輸出條的長度對應最高的英雄，戰績條與輸出條上的刻度線是你的整體水準；場次不到 ${MIN_GAMES} 的列會淡化。欄位標題可排序（戰績依勝率、輸出依每分鐘傷害），匯出 CSV 含所有原始欄位`}
+      caption={`點英雄看這隻英雄的每一場。輸出條的長度對應最高的英雄，戰績條與輸出條上的刻度線是你的整體水準。欄位標題可排序（戰績依勝率、輸出依每分鐘傷害），匯出 CSV 含所有原始欄位`}
     >
       {loading ? (
         <Skeleton className="h-[520px] w-full" />
@@ -205,7 +204,6 @@ export function Champions() {
           rowHeight={54}
           rows={rows}
           height={560}
-          sampleKey="participants.games"
           fileName="champions"
           drillOn="click"
           onDrill={(_col, value) => {
@@ -221,7 +219,7 @@ export function Champions() {
     <div className="space-y-4">
       {pickedRow && <ChampionPanel key={picked} row={pickedRow} onClose={() => setPicked(null)} />}
 
-      <Panel title="勝率排行" caption={`僅計入 ${MIN_GAMES} 場以上的英雄，點長條也能看那隻英雄的每一場`}>
+      <Panel title="勝率排行" caption={`僅計入 ${MIN_GAMES} 場以上的英雄，超過 14 隻時在圖上捲動。點長條也能看那隻英雄的每一場`}>
         {loading ? (
           <Skeleton className="h-[320px] w-full" />
         ) : top.length ? (

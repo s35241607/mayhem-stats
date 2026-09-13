@@ -19,7 +19,7 @@ import { useCube } from "@/hooks/useCube"
 import { num } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 import { useCrumb } from "@/lib/breadcrumb"
-import { BLOCKS, WEEKDAYS, toBlocks } from "./shared"
+import { BLOCKS, NO_LIMIT, WEEKDAYS, toBlocks } from "./shared"
 
 type Grain = "hour" | "block"
 
@@ -46,7 +46,7 @@ export function TimeAnalysis() {
     apply({
       measures: ["participants.games", "participants.winrate"],
       dimensions: ["matches.local_date"],
-      limit: 400,
+      limit: NO_LIMIT,
     }),
   )
 

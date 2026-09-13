@@ -484,6 +484,10 @@ function HeatLegend({ base, theme }: { base: number; theme: Theme }) {
 
 export type BarDatum = { label: string; value: number; games: number }
 
+/** 橫條圖一次顯示幾根；超過就在圖內捲動（滾輪或右側捲軸），不截掉後面的資料。
+ *  不用「整張圖長高、外面包捲動容器」：一百多根的 canvas 有好幾千像素高，記憶體吃很兇。 */
+const BAR_VISIBLE = 14
+
 export function BarChart({
   data,
   suffix = "",
@@ -503,6 +507,11 @@ export function BarChart({
   onPick?: (label: string) => void
 }) {
   const theme = useTheme()
+  const scroll = data.length > BAR_VISIBLE
+  // 捲到哪裡要記住：點長條會改 selected、option 重建（notMerge），不記的話每點一下就跳回最上面。
+  // 資料換了才回到最上面。
+  const zoom = useRef<{ data: BarDatum[]; start: number; end: number } | null>(null)
+  if (zoom.current?.data !== data) zoom.current = { data, start: 100 * (1 - BAR_VISIBLE / Math.max(data.length, 1)), end: 100 }
 
   const option = useMemo(() => {
     const ordered = [...data].reverse() // ECharts 的 y 軸由下往上
@@ -523,7 +532,30 @@ export function BarChart({
     }
     return {
       // 有平均線時上緣要留位置給它的標籤，否則會被切掉
-      grid: { left: 8, right: 56, top: colorBy === "flat" ? 8 : 20, bottom: 8, containLabel: true },
+      grid: { left: 8, right: scroll ? 76 : 56, top: colorBy === "flat" ? 8 : 20, bottom: 8, containLabel: true },
+      dataZoom: scroll
+        ? [
+            // 最上面（ordered 的尾端）是第一根，預設停在那裡
+            { type: "inside", yAxisIndex: 0, start: zoom.current!.start, end: zoom.current!.end, zoomOnMouseWheel: false, moveOnMouseWheel: true, moveOnMouseMove: false },
+            {
+              type: "slider",
+              yAxisIndex: 0,
+              start: zoom.current!.start,
+              end: zoom.current!.end,
+              right: 6,
+              width: 10,
+              zoomLock: true,
+              showDetail: false,
+              showDataShadow: false,
+              brushSelect: false,
+              borderColor: "transparent",
+              backgroundColor: alpha(theme.muted, theme.isDark ? 0.08 : 0.1),
+              fillerColor: alpha(theme.primary, 0.35),
+              handleSize: 0,
+              moveHandleSize: 0,
+            },
+          ]
+        : undefined,
       tooltip: {
         ...baseTooltip(theme),
         formatter: (p: { name: string; value: number; dataIndex: number }) => {
@@ -613,13 +645,27 @@ export function BarChart({
         },
       ],
     }
-  }, [data, suffix, colorBy, baseline, selected, theme])
+    // zoom 用 ref 讀，刻意不放進依賴：捲動本身不該觸發重建
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, suffix, colorBy, baseline, selected, theme, scroll])
+
+  const onEvent = useMemo(() => {
+    const events: Record<string, (p: never) => void> = {}
+    if (onPick) events.click = (p: { name?: string }) => p.name && onPick(p.name)
+    if (scroll) {
+      events.datazoom = (p: { start?: number; end?: number; batch?: { start: number; end: number }[] }) => {
+        const z = p.batch?.[0] ?? p
+        if (zoom.current && z.start !== undefined && z.end !== undefined) Object.assign(zoom.current, { start: z.start, end: z.end })
+      }
+    }
+    return Object.keys(events).length ? events : undefined
+  }, [onPick, scroll])
 
   return (
     <ResponsiveChart
       option={option}
-      height={Math.max(180, data.length * 34)}
-      onEvent={onPick ? { click: (p: { name?: string }) => p.name && onPick(p.name) } : undefined}
+      height={Math.max(180, Math.min(data.length, BAR_VISIBLE) * 34)}
+      onEvent={onEvent}
     />
   )
 }
