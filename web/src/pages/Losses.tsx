@@ -74,11 +74,10 @@ export function Losses() {
     }),
   )
 
-  const byParty = useCube(
+  const byDuration = useCube(
     apply({
       measures: ["participants.games", "participants.winrate"],
-      dimensions: ["participants.party_size"],
-      order: { "participants.party_size": "asc" },
+      dimensions: ["matches.duration_bucket"],
       limit: 10,
     }),
   )
@@ -97,8 +96,8 @@ export function Losses() {
     return { group: m.group, label: m.label, win: w, loss: l, diffPct, higherIsBetter: m.higherIsBetter }
   })
 
-  const partyBars: BarDatum[] = byParty.rows.map((r) => ({
-    label: `${r["participants.party_size"]} 人`,
+  const durationBars: BarDatum[] = byDuration.rows.map((r) => ({
+    label: String(r["matches.duration_bucket"] ?? "—"),
     value: num(r["participants.winrate"]) ?? 0,
     games: num(r["participants.games"]) ?? 0,
   }))
@@ -164,19 +163,20 @@ export function Losses() {
                 「隊內佔比」那一組比較接近可以自省的部分：如果輸的時候你的佔比反而變高，
                 代表拖住的不是你；反過來就是你自己在輸的局裡也縮了。
               </p>
+              <p>和朋友一起打會不會贏，在「隊友 / 對手」頁最上方。</p>
             </div>
           </>
         )}
       </Panel>
 
       <Panel
-        title="同隊朋友數與勝率"
-        caption="我方隊伍裡有幾個追蹤中的朋友。這是開打前就決定的事，比賽中的數字沒辦法反過來影響它，所以這裡的關聯比上面那張表可信。"
+        title="對局長度與勝率"
+        caption="和上面的「平均局長」是同一件事的分組版。注意因果方向：贏的時候通常推得快，所以短局勝率高多半是結果、不是原因"
       >
-        {byParty.loading ? (
+        {byDuration.loading ? (
           <Skeleton className="h-[220px] w-full" />
-        ) : partyBars.length ? (
-          <BarChart data={partyBars} suffix="%" />
+        ) : durationBars.length ? (
+          <BarChart data={durationBars} suffix="%" />
         ) : (
           <EmptyState>還沒有資料。</EmptyState>
         )}

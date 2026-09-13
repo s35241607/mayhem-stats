@@ -1,14 +1,20 @@
+import { useState } from "react"
 import { Skeleton } from "@/components/ui/skeleton"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Kpi, Panel, EmptyState } from "@/components/primitives"
 import { BarChart, type BarDatum } from "@/components/charts"
 import { useCube } from "@/hooks/useCube"
 import { num, type CubeFilter } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
+import { MIN_GAMES } from "./shared"
 
 const STAGE_ORDER = ["第 1-2 場", "第 3-5 場", "第 6-9 場", "第 10 場以後"]
 
 export function Tilt() {
-  const { queueId, dateRange, subjectFilter } = useFilters()
+  const { queueId, subjectFilter, timeFilter } = useFilters()
+  // 「一天打到第幾場」原本畫成分段、逐場兩張並排的圖。同一個維度的粗細兩種，
+  // 改成和時段頁「四時段／逐小時」一樣用切換鈕。
+  const [grain, setGrain] = useState<"stage" | "index">("stage")
 
   // my_games 是自己的 cube，沒有 participants.is_me，所以不套 apply()，
   // 改用 subjectFilter 指定要看誰的對局序列。
@@ -16,16 +22,13 @@ export function Tilt() {
   if (queueId) {
     filters.push({ member: "my_games.queue_id", operator: "equals", values: [queueId] })
   }
-  const timeDimensions =
-    dateRange !== "all"
-      ? [{ dimension: "my_games.played_at", dateRange }]
-      : undefined
+  const time = timeFilter("my_games.played_at")
 
   const byPrev = useCube({
     measures: ["my_games.games", "my_games.wins", "my_games.winrate"],
     dimensions: ["my_games.prev_result"],
     filters,
-    ...(timeDimensions ? { timeDimensions } : {}),
+    ...time,
     limit: 10,
   })
 
@@ -33,17 +36,21 @@ export function Tilt() {
     measures: ["my_games.games", "my_games.winrate"],
     dimensions: ["my_games.session_stage"],
     filters,
-    ...(timeDimensions ? { timeDimensions } : {}),
+    ...time,
     limit: 10,
   })
 
-  const byIndex = useCube({
-    measures: ["my_games.games", "my_games.winrate"],
-    dimensions: ["my_games.game_of_day"],
-    filters,
-    ...(timeDimensions ? { timeDimensions } : {}),
-    limit: 40,
-  })
+  const byIndex = useCube(
+    grain === "index"
+      ? {
+          measures: ["my_games.games", "my_games.winrate"],
+          dimensions: ["my_games.game_of_day"],
+          filters,
+          ...time,
+          limit: 40,
+        }
+      : null,
+  )
 
   const pick = (label: string) =>
     byPrev.rows.find((r) => r["my_games.prev_result"] === label)
@@ -77,8 +84,11 @@ export function Tilt() {
       value: num(r["my_games.winrate"]) ?? 0,
       games: num(r["my_games.games"]) ?? 0,
     }))
-    .filter((r) => r.games >= 3)
+    .filter((r) => r.games >= MIN_GAMES)
     .sort((a, b) => a.index - b.index)
+
+  const dayChart = grain === "stage" ? byStage : byIndex
+  const dayBars = grain === "stage" ? stageBars : indexBars
 
   return (
     <div className="space-y-4">
@@ -127,27 +137,36 @@ export function Tilt() {
         )}
       </Panel>
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <Panel title="一天打到第幾場開始變差" caption="以當天的第幾場分組">
-          {byStage.loading ? (
-            <Skeleton className="h-[220px] w-full" />
-          ) : stageBars.length ? (
-            <BarChart data={stageBars} suffix="%" />
-          ) : (
-            <EmptyState>還沒有資料。</EmptyState>
-          )}
-        </Panel>
-
-        <Panel title="逐場拆解" caption="只列出累積 3 場以上的場次序號">
-          {byIndex.loading ? (
-            <Skeleton className="h-[220px] w-full" />
-          ) : indexBars.length ? (
-            <BarChart data={indexBars} suffix="%" />
-          ) : (
-            <EmptyState>單一場次序號還沒累積到 3 場。</EmptyState>
-          )}
-        </Panel>
-      </div>
+      <Panel
+        title="一天打到第幾場開始變差"
+        caption={
+          grain === "stage"
+            ? "以當天的第幾場分組，樣本集中、比較看得出趨勢"
+            : `逐場拆開，只列出累積 ${MIN_GAMES} 場以上的場次序號`
+        }
+        action={
+          <ToggleGroup
+            type="single"
+            size="sm"
+            variant="outline"
+            value={grain}
+            onValueChange={(v) => v && setGrain(v as "stage" | "index")}
+          >
+            <ToggleGroupItem value="stage">分段</ToggleGroupItem>
+            <ToggleGroupItem value="index">逐場</ToggleGroupItem>
+          </ToggleGroup>
+        }
+      >
+        {dayChart.loading ? (
+          <Skeleton className="h-[220px] w-full" />
+        ) : dayBars.length ? (
+          <BarChart data={dayBars} suffix="%" />
+        ) : (
+          <EmptyState>
+            {grain === "stage" ? "還沒有資料。" : `單一場次序號還沒累積到 ${MIN_GAMES} 場，切回「分段」看看。`}
+          </EmptyState>
+        )}
+      </Panel>
 
       <p className="text-xs leading-relaxed text-muted-foreground">
         「前一場」是同一個模式內、時間上的前一場——這樣切是為了讓上方的模式篩選有意義，

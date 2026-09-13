@@ -6,7 +6,8 @@ cubes:
   # subject_puuid 指定要以誰為視角,否則會把所有人的視角混在一起。
   - name: teammates
     sql: >
-      SELECT me.platform_id, me.game_id, me.participant_id, me.win,
+      SELECT me.rowid * 16 + other.participant_id AS row_key,
+             me.platform_id, me.game_id, me.participant_id, me.win,
              me.champion_id AS subject_champion_id,
              me.puuid      AS subject_puuid,
              other.puuid   AS other_puuid,
@@ -39,9 +40,15 @@ cubes:
         relationship: many_to_one
 
     dimensions:
+      # 整數主鍵。「我這一列」的 rowid 決定了是誰的哪一場，再加上對方的
+      # participant_id（1～10，小於 16）就唯一。
+      #
+      # 不能用字串串接：一對多 join（例如英雄定位）時 Cube 會先撈主鍵再 join 回
+      # 這張自我 join 的衍生表，字串運算式用不到索引，等於「所有人 × 所有同場者」
+      # 逐列比字串。實測定位拆解 530ms -> 14ms，而且原本會隨資料量平方成長。
       - name: id
-        sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id || ':' || {CUBE}.subject_puuid || ':' || {CUBE}.other_puuid"
-        type: string
+        sql: "{CUBE}.row_key"
+        type: number
         primary_key: true
 
       - name: subject_puuid

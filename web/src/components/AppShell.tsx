@@ -11,7 +11,6 @@ import {
   X,
   Circle,
   ScrollText,
-  Link2,
   Activity,
   Radar,
   TrendingDown,
@@ -52,7 +51,6 @@ export type PageId =
   | "matches"
   | "champions"
   | "augments"
-  | "synergy"
   | "players"
   | "time"
   | "tilt"
@@ -73,7 +71,6 @@ const NAV: { group: string; items: { id: PageId; label: string; icon: typeof Zap
     items: [
       { id: "champions", label: "英雄", icon: Swords },
       { id: "augments", label: "增幅裝置", icon: Sparkles },
-      { id: "synergy", label: "增幅契合度", icon: Link2 },
       { id: "players", label: "隊友 / 對手", icon: Users },
       { id: "time", label: "時段", icon: CalendarClock },
       { id: "tilt", label: "節奏與連敗", icon: Activity },
@@ -92,13 +89,12 @@ const NAV: { group: string; items: { id: PageId; label: string; icon: typeof Zap
 const PAGE_TITLES: Record<PageId, { title: string; caption: string }> = {
   dashboard: { title: "儀表板", caption: "整體表現與趨勢的一頁式總覽" },
   matches: { title: "對局紀錄", caption: "逐場瀏覽，點進去看完整戰報" },
-  synergy: { title: "增幅契合度", caption: "哪些增幅特別適合哪隻英雄" },
   tilt: { title: "節奏與連敗", caption: "上一場的結果與當日場次，對表現的影響" },
   losses: { title: "敗因分析", caption: "輸的時候，哪些數字和贏的時候不一樣" },
   champions: { title: "英雄", caption: "每個英雄的場次、勝率與輸出表現" },
-  augments: { title: "增幅裝置", caption: "各增幅的選取率與勝率——第三方網站拿不到的資料" },
-  players: { title: "隊友 / 對手", caption: "和誰同隊會贏、遇到誰會輸" },
-  time: { title: "時段", caption: "星期與時段的表現分佈" },
+  augments: { title: "增幅裝置", caption: "各增幅的勝率，以及在特定英雄上的契合度" },
+  players: { title: "隊友 / 對手", caption: "和朋友一起打會不會贏、和誰同隊會贏、遇到誰會輸" },
+  time: { title: "時段", caption: "每天、星期與時段的表現分佈" },
   explore: { title: "自由探索", caption: "自選維度與指標，做任意組合的分析" },
   tracked: { title: "追蹤對象", caption: "除了自己以外，還要一併採集誰的戰績" },
 }

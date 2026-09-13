@@ -19,12 +19,28 @@ export type Player = {
 }
 
 export const DATE_RANGES = [
-  { value: "all", label: "全部期間" },
-  { value: "last 7 days", label: "最近 7 天" },
-  { value: "last 14 days", label: "最近 14 天" },
-  { value: "last 30 days", label: "最近 30 天" },
-  { value: "last 90 days", label: "最近 90 天" },
+  { value: "all", label: "全部期間", days: 0 },
+  { value: "last 7 days", label: "最近 7 天", days: 7 },
+  { value: "last 14 days", label: "最近 14 天", days: 14 },
+  { value: "last 30 days", label: "最近 30 天", days: 30 },
+  { value: "last 90 days", label: "最近 90 天", days: 90 },
 ] as const
+
+const localDate = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+
+/** 期間換成「含今天」的本地日期區間 [起, 迄]。
+ *
+ *  不能直接把 "last 7 days" 丟給 Cube：它解析成「昨天往回 7 天」，不含今天
+ *  （實測 9/13 查到的是 9/6～9/12）——今天剛打完的場次在任何期間篩選下都會消失。
+ *  每次呼叫都重算，畫面開著跨過午夜也不會停在前一天。 */
+export function dateBounds(range: string): [string, string] | null {
+  const days = DATE_RANGES.find((r) => r.value === range)?.days ?? 0
+  if (!days) return null
+  const today = new Date()
+  const from = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (days - 1))
+  return [localDate(from), localDate(today)]
+}
 
 type FilterState = {
   /** 帳號清單載入完成（或確定載不到）之前是 false。
@@ -50,6 +66,10 @@ type FilterState = {
   apply: (query: CubeQuery, scope?: "account" | "all") => CubeQuery
   /** 以 participants 以外的 cube 查詢時，用這個取得「主角」的篩選條件。 */
   subjectFilter: (member: string) => CubeFilter[]
+  /** 不走 apply() 的查詢用這個套期間：回傳要展開進查詢的 timeDimensions。 */
+  timeFilter: (dimension: string) => Pick<CubeQuery, "timeDimensions">
+  /** 逐場列表（/api/matches）用的期間參數，和 Cube 那邊是同一個區間。 */
+  matchParams: () => Record<string, string>
 }
 
 const FilterContext = createContext<FilterState | null>(null)
@@ -114,6 +134,23 @@ export function FilterProvider({ children }: { children: ReactNode }) {
       subjectFilter: (member) =>
         account ? [{ member, operator: "equals", values: [account.puuid] }] : [],
 
+      timeFilter: (dimension) => {
+        const bounds = dateBounds(dateRange)
+        return bounds ? { timeDimensions: [{ dimension, dateRange: bounds }] } : {}
+      },
+
+      matchParams: () => {
+        const bounds = dateBounds(dateRange)
+        const params: Record<string, string> = {}
+        if (account) params.puuid = account.puuid
+        if (queueId) params.queue = queueId
+        if (bounds) {
+          params.date_from = bounds[0]
+          params.date_to = bounds[1]
+        }
+        return params
+      },
+
       apply: (query, scope = "account") => {
         const scoped = scope === "all" ? baseline.filter((f) => f.member !== "participants.puuid") : baseline
         const merged: CubeQuery = {
@@ -125,12 +162,13 @@ export function FilterProvider({ children }: { children: ReactNode }) {
           ],
         }
 
-        if (dateRange !== "all") {
+        const bounds = dateBounds(dateRange)
+        if (bounds) {
           const existing = query.timeDimensions ?? []
           // 已經有時間維度（例如趨勢圖要按天分組）就補上區間，否則另外加一個純篩選用的
           merged.timeDimensions = existing.length
-            ? existing.map((td) => ({ ...td, dateRange }))
-            : [{ dimension: "matches.played_at", dateRange }]
+            ? existing.map((td) => ({ ...td, dateRange: bounds }))
+            : [{ dimension: "matches.played_at", dateRange: bounds }]
         }
 
         return merged

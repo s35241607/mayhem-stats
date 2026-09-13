@@ -1,16 +1,78 @@
+import { ArrowRight } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Kpi, Panel, EmptyState } from "@/components/primitives"
-import { BarChart, Heatmap, HOURS_24, TrendChart, type BarDatum, type HeatCell, type TrendPoint } from "@/components/charts"
+import { TrendChart, type TrendPoint } from "@/components/charts"
+import type { PageId } from "@/components/AppShell"
 import { useCube } from "@/hooks/useCube"
-import { iconUrl, num } from "@/lib/cube"
-import { useFilters } from "@/lib/filters"
-import { round0, round1, round2 } from "./shared"
+import { iconUrl, num, type CubeRow } from "@/lib/cube"
+import { useFilters, type Drill } from "@/lib/filters"
+import { useNavigate } from "@/lib/nav"
+import { BLOCKS, MIN_GAMES, WEEKDAYS, round0, round1, round2, toBlocks } from "./shared"
 
-const SHAKY = 5
+/** 儀表板只放總覽。細節各有分頁，這裡的每張卡右上角都連過去——
+ *  原本儀表板和分頁各畫一份一樣的熱力圖、每日趨勢、勝率長條。 */
+function SeeAll({ page, label = "看全部" }: { page: PageId; label?: string }) {
+  const go = useNavigate()
+  return (
+    <Button size="sm" variant="ghost" className="h-7 shrink-0 text-xs" onClick={() => go(page)}>
+      {label}
+      <ArrowRight className="size-3.5" />
+    </Button>
+  )
+}
+
+/** 最常用的英雄／增幅：一列一個，點了就下鑽。 */
+function TopList({
+  rows,
+  nameKey,
+  iconKey,
+  drill,
+}: {
+  rows: CubeRow[]
+  nameKey: string
+  iconKey: string
+  drill: (name: string) => Drill
+}) {
+  const { addDrill } = useFilters()
+  if (!rows.length) return <EmptyState>還沒有資料。</EmptyState>
+  return (
+    <div className="space-y-1">
+      {rows.slice(0, 8).map((r) => {
+        const name = String(r[nameKey] ?? "—")
+        const wr = num(r["participants.winrate"]) ?? 0
+        const n = num(r["participants.games"]) ?? 0
+        return (
+          <button
+            key={name}
+            onClick={() => addDrill(drill(name))}
+            className="flex w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left transition hover:bg-accent"
+          >
+            <img src={iconUrl(r[iconKey] as string)} alt="" className="size-7 shrink-0 rounded-md bg-secondary" />
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
+            <span className="text-xs text-muted-foreground">{n} 場</span>
+            <Badge
+              variant="outline"
+              className={
+                n < MIN_GAMES
+                  ? "w-[62px] justify-center text-muted-foreground"
+                  : wr >= 50
+                    ? "w-[62px] justify-center border-win/30 bg-win/10 text-win"
+                    : "w-[62px] justify-center border-loss/30 bg-loss/10 text-loss"
+              }
+            >
+              {wr.toFixed(1)}%
+            </Badge>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
 
 export function Dashboard() {
-  const { apply, addDrill } = useFilters()
+  const { apply } = useFilters()
 
   const totals = useCube(
     apply({
@@ -27,10 +89,11 @@ export function Dashboard() {
     }),
   )
 
+  // 和時段頁同一個查詢（按採集時存好的本地日期分組），兩頁的每日數字保證一樣，快取也共用
   const daily = useCube(
     apply({
       measures: ["participants.games", "participants.winrate"],
-      timeDimensions: [{ dimension: "matches.played_at", granularity: "day" }],
+      dimensions: ["matches.local_date"],
       limit: 400,
     }),
   )
@@ -40,19 +103,20 @@ export function Dashboard() {
       measures: ["participants.games", "participants.winrate"],
       dimensions: ["champions.name", "champions.icon_path"],
       order: { "participants.games": "desc" },
-      limit: 40,
+      limit: 200,
     }),
   )
 
   const augments = useCube(
     apply({
       measures: ["participants.games", "participants.winrate"],
-      dimensions: ["augments.name"],
+      dimensions: ["augments.name", "augments.icon_path"],
       order: { "participants.games": "desc" },
-      limit: 60,
+      limit: 8,
     }),
   )
 
+  // 和時段頁的熱力圖同一個查詢，這裡只摘要成兩句話
   const heat = useCube(
     apply({
       measures: ["participants.games", "participants.winrate"],
@@ -71,31 +135,26 @@ export function Dashboard() {
 
   const points: TrendPoint[] = daily.rows
     .map((r) => ({
-      date: String(r["matches.played_at.day"] ?? r["matches.played_at"] ?? "").slice(0, 10),
+      date: String(r["matches.local_date"] ?? ""),
       games: num(r["participants.games"]) ?? 0,
       winrate: num(r["participants.winrate"]),
     }))
     .filter((p) => p.date)
+    .sort((a, b) => a.date.localeCompare(b.date))
 
-  const toBars = (rows: typeof champions.rows, nameKey: string): BarDatum[] =>
-    rows
-      .filter((r) => (num(r["participants.games"]) ?? 0) >= SHAKY)
-      .slice(0, 8)
-      .map((r) => ({
-        label: String(r[nameKey] ?? "—"),
-        value: num(r["participants.winrate"]) ?? 0,
-        games: num(r["participants.games"]) ?? 0,
-      }))
-      .sort((a, b) => b.value - a.value)
-
-  const cells: HeatCell[] = heat.rows.map((r) => ({
-    weekday: Number(r["matches.weekday"]),
-    x: Number(r["matches.hour_of_day"]),
-    games: num(r["participants.games"]) ?? 0,
-    winrate: num(r["participants.winrate"]),
-  }))
-
-  const topChampions = champions.rows.slice(0, 8)
+  const blocks = toBlocks(
+    heat.rows.map((r) => ({
+      weekday: Number(r["matches.weekday"]),
+      hour: Number(r["matches.hour_of_day"]),
+      games: num(r["participants.games"]) ?? 0,
+      winrate: num(r["participants.winrate"]),
+    })),
+  )
+  const busiest = [...blocks].sort((a, b) => b.games - a.games)[0]
+  const enough = blocks.filter((b) => b.games >= MIN_GAMES)
+  const best = [...enough].sort((a, b) => (b.winrate ?? 0) - (a.winrate ?? 0))[0]
+  const worst = [...enough].sort((a, b) => (a.winrate ?? 0) - (b.winrate ?? 0))[0]
+  const slotName = (b: { weekday: number; block: number }) => `${WEEKDAYS[b.weekday]} ${BLOCKS[b.block].label}`
 
   return (
     <div className="space-y-4">
@@ -129,6 +188,7 @@ export function Dashboard() {
           className="xl:col-span-2"
           title="每日勝率趨勢"
           caption="橫軸依實際日期，沒打的日子留白；圓點大小代表當天場次"
+          action={<SeeAll page="time" label="逐日下鑽" />}
         >
           {daily.loading ? (
             <Skeleton className="h-[240px] w-full" />
@@ -139,92 +199,62 @@ export function Dashboard() {
           )}
         </Panel>
 
-        <Panel title="最常用英雄" caption="點一列可下鑽">
+        <Panel title="最常用英雄" caption="點一列可下鑽" action={<SeeAll page="champions" />}>
           {champions.loading ? (
             <Skeleton className="h-[240px] w-full" />
-          ) : !topChampions.length ? (
-            <EmptyState>還沒有資料。</EmptyState>
           ) : (
-            <div className="space-y-1">
-              {topChampions.map((r) => {
-                const wr = num(r["participants.winrate"]) ?? 0
-                const n = num(r["participants.games"]) ?? 0
-                return (
-                  <button
-                    key={String(r["champions.name"])}
-                    onClick={() =>
-                      addDrill({
-                        member: "champions.name",
-                        operator: "equals",
-                        values: [String(r["champions.name"])],
-                        label: `英雄：${r["champions.name"]}`,
-                      })
-                    }
-                    className="flex w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left transition hover:bg-accent"
-                  >
-                    <img
-                      src={iconUrl(r["champions.icon_path"] as string)}
-                      alt=""
-                      className="size-7 shrink-0 rounded-md bg-secondary"
-                    />
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                      {String(r["champions.name"])}
-                    </span>
-                    <span className="text-xs text-muted-foreground">{n} 場</span>
-                    <Badge
-                      variant="outline"
-                      className={
-                        n < SHAKY
-                          ? "w-[62px] justify-center text-muted-foreground"
-                          : wr >= 50
-                            ? "w-[62px] justify-center border-win/30 bg-win/10 text-win"
-                            : "w-[62px] justify-center border-loss/30 bg-loss/10 text-loss"
-                      }
-                    >
-                      {wr.toFixed(1)}%
-                    </Badge>
-                  </button>
-                )
-              })}
-            </div>
+            <TopList
+              rows={champions.rows}
+              nameKey="champions.name"
+              iconKey="champions.icon_path"
+              drill={(name) => ({ member: "champions.name", operator: "equals", values: [name], label: `英雄：${name}` })}
+            />
           )}
         </Panel>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <Panel title="英雄勝率" caption={`僅計入 ${SHAKY} 場以上`}>
-          {champions.loading ? (
-            <Skeleton className="h-[260px] w-full" />
-          ) : toBars(champions.rows, "champions.name").length ? (
-            <BarChart data={toBars(champions.rows, "champions.name")} suffix="%" />
+        <Panel title="最常選的增幅" caption="點一列可下鑽" action={<SeeAll page="augments" />}>
+          {augments.loading ? (
+            <Skeleton className="h-[240px] w-full" />
           ) : (
-            <EmptyState>還沒有英雄累積到 {SHAKY} 場。</EmptyState>
+            <TopList
+              rows={augments.rows}
+              nameKey="augments.name"
+              iconKey="augments.icon_path"
+              drill={(name) => ({ member: "augments.name", operator: "equals", values: [name], label: `增幅：${name}` })}
+            />
           )}
         </Panel>
 
-        <Panel title="增幅裝置勝率" caption={`僅計入 ${SHAKY} 場以上`}>
-          {augments.loading ? (
-            <Skeleton className="h-[260px] w-full" />
-          ) : toBars(augments.rows, "augments.name").length ? (
-            <BarChart data={toBars(augments.rows, "augments.name")} suffix="%" />
+        <Panel
+          title="什麼時候打"
+          caption={`以星期 × 四時段分組；比較好壞只看 ${MIN_GAMES} 場以上的時段`}
+          action={<SeeAll page="time" label="看熱力圖" />}
+        >
+          {heat.loading ? (
+            <Skeleton className="h-[240px] w-full" />
+          ) : !busiest ? (
+            <EmptyState>還沒有資料。</EmptyState>
           ) : (
-            <EmptyState>還沒有增幅累積到 {SHAKY} 場。</EmptyState>
+            <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
+              <Kpi label="最常打" value={slotName(busiest)} hint={`${busiest.games} 場`} />
+              <Kpi
+                label="表現最好"
+                value={best ? slotName(best) : "—"}
+                hint={best ? `勝率 ${best.winrate?.toFixed(1)}%・${best.games} 場` : `還沒有時段累積到 ${MIN_GAMES} 場`}
+                tone={best ? "win" : undefined}
+              />
+              <Kpi
+                label="表現最差"
+                value={worst && worst !== best ? slotName(worst) : "—"}
+                hint={worst && worst !== best ? `勝率 ${worst.winrate?.toFixed(1)}%・${worst.games} 場` : undefined}
+                tone={worst && worst !== best ? "loss" : undefined}
+              />
+            </div>
           )}
         </Panel>
       </div>
-
-      <Panel
-        title="星期 × 時段"
-        caption="同一格是所有週日的同一時段加總，不是單一天"
-      >
-        {heat.loading ? (
-          <Skeleton className="h-[300px] w-full" />
-        ) : cells.length ? (
-          <Heatmap cells={cells} xLabels={HOURS_24} />
-        ) : (
-          <EmptyState>還沒有資料。</EmptyState>
-        )}
-      </Panel>
     </div>
   )
 }
