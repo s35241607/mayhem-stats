@@ -16,6 +16,7 @@ cubes:
 
       - name: name
         title: 英雄
+        description: "英雄名稱。"
         sql: name
         type: string
         meta:
@@ -63,6 +64,7 @@ cubes:
 
       - name: name
         title: 增幅裝置
+        description: "增幅裝置名稱。以它分組時一場會出現在最多六個增幅底下，場次請用 count_distinct 的指標。"
         sql: augment_name
         type: string
         meta:
@@ -70,6 +72,7 @@ cubes:
 
       - name: rarity
         title: 增幅稀有度
+        description: "增幅稀有度代號：kBronze、kSilver、kGold、kPrismatic、kEventChoice。"
         sql: augment_rarity
         type: string
         meta:
@@ -108,6 +111,7 @@ cubes:
 
       - name: name
         title: 裝備
+        description: "裝備名稱（對局結束時身上的裝備）。以它分組時一場會展開成多列。"
         sql: item_name
         type: string
         meta:

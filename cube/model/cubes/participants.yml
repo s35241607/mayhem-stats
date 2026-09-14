@@ -45,6 +45,13 @@ cubes:
     # 具名的可重用篩選。定義一次，前端只要送 segment 名稱，
     # 不必自己拼條件——條件的正確性留在模型裡。
     segments:
+      # 給 AI Agent 與外部查詢用：不必先查 puuid 就能鎖定本機帳號。
+      # 不加任何玩家條件的話，一場 10 個人的數據會混在一起，勝率會接近 50%。
+      - name: mine
+        title: 只看本機帳號
+        description: 只算本機帳號（accounts.is_me = 1）的對局表現。問「我」的數字時一定要加這個，或改用 participants.riot_id 指定玩家。
+        sql: "{CUBE}.puuid IN (SELECT puuid FROM accounts WHERE is_me = 1)"
+
       - name: wins_only
         title: 只看勝場
         sql: "{CUBE}.win = 1"
@@ -96,6 +103,7 @@ cubes:
 
       - name: riot_id
         title: 玩家
+        description: "玩家名稱（Riot ID，採集當下的名稱，改名後舊場次仍是舊名）。包含同場其他玩家。"
         sql: riot_id
         type: string
         meta:
@@ -122,6 +130,7 @@ cubes:
 
       - name: team_side
         title: 隊伍
+        description: "藍隊（team_id 100）或紅隊。"
         sql: "CASE WHEN {CUBE}.team_id = 100 THEN '藍隊' ELSE '紅隊' END"
         type: string
         meta:
@@ -136,6 +145,7 @@ cubes:
       # 之後還會變,存下來就會過期。
       - name: party_size
         title: 同隊朋友數
+        description: "我方隊伍裡除了自己之外，有幾個追蹤中的帳號（0-4）。依目前的追蹤名單即時計算。"
         sql: >
           (SELECT COUNT(*) FROM match_participants o
             WHERE o.platform_id = {CUBE}.platform_id AND o.game_id = {CUBE}.game_id
@@ -147,6 +157,7 @@ cubes:
 
       - name: result
         title: 勝負
+        description: "這一場的勝負：勝 / 敗。"
         sql: "CASE WHEN {CUBE}.win = 1 THEN '勝' ELSE '敗' END"
         type: string
         meta:
@@ -154,6 +165,7 @@ cubes:
 
       - name: champ_level
         title: 結束等級
+        description: "對局結束時的英雄等級。"
         sql: champ_level
         type: number
         meta:
@@ -161,6 +173,7 @@ cubes:
 
       - name: death_bucket
         title: 死亡數級距
+        description: "單場死亡數分組：0-5 次、6-10 次、11-15 次、16 次以上。"
         sql: >
           CASE WHEN {CUBE}.deaths <= 5 THEN '0-5 次'
                WHEN {CUBE}.deaths <= 10 THEN '6-10 次'
@@ -182,6 +195,7 @@ cubes:
 
       - name: wins
         title: 勝場
+        description: "獲勝的對局數。"
         sql: "CASE WHEN {CUBE}.win = 1 THEN {CUBE}.platform_id || ':' || {CUBE}.game_id END"
         type: count_distinct
         meta:
@@ -190,6 +204,7 @@ cubes:
 
       - name: losses
         title: 敗場
+        description: "落敗的對局數。"
         sql: "CASE WHEN {CUBE}.win = 0 THEN {CUBE}.platform_id || ':' || {CUBE}.game_id END"
         type: count_distinct
         meta:
@@ -198,6 +213,7 @@ cubes:
 
       - name: winrate
         title: 勝率
+        description: "勝場 ÷ 場次 × 100（%）。場次少於 5 場時多半是雜訊。"
         sql: "100.0 * {wins} / NULLIF({games}, 0)"
         type: number
         format: percent
@@ -209,6 +225,7 @@ cubes:
 
       - name: avg_kills
         title: 平均擊殺
+        description: "每場平均擊殺數。"
         sql: kills
         type: avg
         meta:
@@ -217,6 +234,7 @@ cubes:
 
       - name: avg_deaths
         title: 平均死亡
+        description: "每場平均死亡數，越低越好。"
         sql: deaths
         type: avg
         meta:
@@ -226,6 +244,7 @@ cubes:
 
       - name: avg_assists
         title: 平均助攻
+        description: "每場平均助攻數。"
         sql: assists
         type: avg
         meta:
@@ -234,6 +253,7 @@ cubes:
 
       - name: kda
         title: KDA
+        description: "(平均擊殺 + 平均助攻) ÷ 平均死亡。先各自平均再相除，不是每場 KDA 的平均。"
         sql: "({avg_kills} + {avg_assists}) / NULLIF({avg_deaths}, 0)"
         type: number
         meta:
@@ -243,6 +263,7 @@ cubes:
 
       - name: kill_participation
         title: 參團率
+        description: "每場 (擊殺 + 助攻) ÷ 我方總擊殺 × 100，再取平均（%）。"
         sql: "({CUBE}.kills + {CUBE}.assists) * 100.0 / NULLIF({CUBE}.team_kills, 0)"
         type: avg
         format: percent
@@ -263,6 +284,7 @@ cubes:
 
       - name: pentas
         title: 五殺次數
+        description: "五殺的總次數（加總，不是平均）。"
         sql: penta_kills
         type: sum
         meta:
@@ -288,6 +310,7 @@ cubes:
 
       - name: first_blood_rate
         title: 首殺率
+        description: "親自拿到首殺的場次佔比（%）。"
         sql: >
           100.0 * COUNT(DISTINCT CASE WHEN {CUBE}.first_blood = 1
             THEN {CUBE}.platform_id || ':' || {CUBE}.game_id END)
@@ -301,6 +324,7 @@ cubes:
 
       - name: avg_damage
         title: 平均對英雄傷害
+        description: "每場平均對敵方英雄造成的傷害。"
         sql: dmg_to_champions
         type: avg
         meta:
@@ -319,6 +343,7 @@ cubes:
 
       - name: damage_share
         title: 傷害佔比
+        description: "每場 我對英雄傷害 ÷ 我方五人對英雄傷害總和 × 100，再取平均（%）。"
         sql: "{CUBE}.dmg_to_champions * 100.0 / NULLIF({CUBE}.team_dmg, 0)"
         type: avg
         format: percent
@@ -340,6 +365,7 @@ cubes:
 
       - name: avg_objective_damage
         title: 平均建築傷害
+        description: "每場平均對建築與中立目標造成的傷害。"
         sql: dmg_to_objectives
         type: avg
         meta:
@@ -348,6 +374,7 @@ cubes:
 
       - name: avg_taken
         title: 平均承受傷害
+        description: "每場平均承受的總傷害。"
         sql: dmg_taken
         type: avg
         meta:
@@ -372,6 +399,7 @@ cubes:
 
       - name: avg_mitigated
         title: 平均減免傷害
+        description: "每場平均靠護甲、魔抗、護盾等減免掉的傷害。"
         sql: dmg_mitigated
         type: avg
         meta:
@@ -380,6 +408,7 @@ cubes:
 
       - name: avg_heal
         title: 平均治療量
+        description: "每場平均治療總量（含治療自己與隊友）。"
         sql: total_heal
         type: avg
         meta:
@@ -409,6 +438,7 @@ cubes:
 
       - name: taken_magic_share
         title: 承受魔法佔比
+        description: "承受的傷害裡魔法傷害的比例（%）。偏高代表死在 AP 手上，可考慮補魔抗。"
         sql: "{CUBE}.taken_magic * 100.0 / NULLIF({CUBE}.taken_physical + {CUBE}.taken_magic + {CUBE}.taken_true, 0)"
         type: avg
         format: percent
@@ -430,6 +460,7 @@ cubes:
 
       - name: avg_cc
         title: 平均控場時間
+        description: "每場平均對敵人施加控場的總時間（秒）。"
         sql: cc_duration
         type: avg
         meta:
@@ -439,6 +470,7 @@ cubes:
 
       - name: avg_largest_spree
         title: 平均最高連殺
+        description: "每場最高連續擊殺數的平均。"
         sql: largest_spree
         type: avg
         meta:
@@ -447,6 +479,7 @@ cubes:
 
       - name: avg_turret_kills
         title: 平均推塔數
+        description: "每場平均摧毀的防禦塔數。"
         sql: turret_kills
         type: avg
         meta:
@@ -455,6 +488,7 @@ cubes:
 
       - name: best_crit
         title: 最高單次暴擊
+        description: "範圍內單次暴擊的最高傷害（取最大值，不是平均）。"
         sql: largest_crit
         type: max
         meta:
@@ -472,6 +506,7 @@ cubes:
 
       - name: avg_gold
         title: 平均經濟
+        description: "每場平均獲得的金錢。"
         sql: gold_earned
         type: avg
         meta:
@@ -480,6 +515,7 @@ cubes:
 
       - name: gpm
         title: 每分鐘經濟
+        description: "每分鐘獲得的金錢。每場先除以對局時間再取平均。"
         sql: "{CUBE}.gold_earned * 60.0 / NULLIF({CUBE}.game_duration, 0)"
         type: avg
         meta:
@@ -489,6 +525,7 @@ cubes:
 
       - name: avg_cs
         title: 平均補兵
+        description: "每場平均擊殺小兵數。"
         sql: cs
         type: avg
         meta:
@@ -509,12 +546,14 @@ cubes:
       # 「鎖定單一玩家」時平均才有意義——敗因分析頁一律有帳號篩選。
       - name: avg_team_dmg
         title: 我方總傷害
+        description: "我方五人對英雄傷害總和的每場平均。同隊五人這個值相同，只在鎖定單一玩家時有意義。"
         sql: team_dmg
         type: avg
         meta: { group: 團隊, decimals: 0 }
 
       - name: avg_enemy_dmg
         title: 敵方總傷害
+        description: "敵方五人對英雄傷害總和的每場平均。只在鎖定單一玩家時有意義。"
         sql: enemy_dmg
         type: avg
         meta: { group: 團隊, decimals: 0 }
@@ -528,36 +567,42 @@ cubes:
 
       - name: avg_team_gold
         title: 我方總經濟
+        description: "我方五人獲得金錢總和的每場平均。只在鎖定單一玩家時有意義。"
         sql: team_gold
         type: avg
         meta: { group: 團隊, decimals: 0 }
 
       - name: avg_enemy_gold
         title: 敵方總經濟
+        description: "敵方五人獲得金錢總和的每場平均。只在鎖定單一玩家時有意義。"
         sql: enemy_gold
         type: avg
         meta: { group: 團隊, decimals: 0 }
 
       - name: gold_gap
         title: 經濟差
+        description: "我方總經濟減敵方總經濟。負的代表經濟落後。比較勝敗時請改用每分鐘經濟差。"
         sql: "{avg_team_gold} - {avg_enemy_gold}"
         type: number
         meta: { group: 團隊, decimals: 0, higherIsBetter: true }
 
       - name: avg_team_kills
         title: 我方總擊殺
+        description: "我方總擊殺的每場平均。只在鎖定單一玩家時有意義。"
         sql: team_kills
         type: avg
         meta: { group: 團隊, decimals: 1 }
 
       - name: avg_enemy_kills
         title: 敵方總擊殺
+        description: "敵方總擊殺的每場平均。只在鎖定單一玩家時有意義。"
         sql: enemy_kills
         type: avg
         meta: { group: 團隊, decimals: 1 }
 
       - name: kill_gap
         title: 擊殺差
+        description: "我方總擊殺減敵方總擊殺。負的代表人頭落後。"
         sql: "{avg_team_kills} - {avg_enemy_kills}"
         type: number
         meta: { group: 團隊, decimals: 1, higherIsBetter: true }
@@ -566,36 +611,42 @@ cubes:
       # 15.1 分,光是時間差就會讓敗局的雙方總傷害都變高。要比較勝敗必須除以時間。
       - name: team_dpm
         title: 我方每分鐘傷害
+        description: "我方五人每分鐘對英雄傷害總和。比較勝局與敗局時用這個，不受對局長短影響。"
         sql: "{CUBE}.team_dmg * 60.0 / NULLIF({CUBE}.game_duration, 0)"
         type: avg
         meta: { group: 團隊, decimals: 0 }
 
       - name: enemy_dpm
         title: 敵方每分鐘傷害
+        description: "敵方五人每分鐘對英雄傷害總和。"
         sql: "{CUBE}.enemy_dmg * 60.0 / NULLIF({CUBE}.game_duration, 0)"
         type: avg
         meta: { group: 團隊, decimals: 0 }
 
       - name: dpm_gap
         title: 每分鐘傷害差
+        description: "我方每分鐘傷害減敵方每分鐘傷害。負的代表輸出被壓過去。"
         sql: "{team_dpm} - {enemy_dpm}"
         type: number
         meta: { group: 團隊, decimals: 0, higherIsBetter: true }
 
       - name: team_gpm
         title: 我方每分鐘經濟
+        description: "我方五人每分鐘經濟總和。"
         sql: "{CUBE}.team_gold * 60.0 / NULLIF({CUBE}.game_duration, 0)"
         type: avg
         meta: { group: 團隊, decimals: 0 }
 
       - name: enemy_gpm
         title: 敵方每分鐘經濟
+        description: "敵方五人每分鐘經濟總和。"
         sql: "{CUBE}.enemy_gold * 60.0 / NULLIF({CUBE}.game_duration, 0)"
         type: avg
         meta: { group: 團隊, decimals: 0 }
 
       - name: gpm_gap
         title: 每分鐘經濟差
+        description: "我方每分鐘經濟減敵方每分鐘經濟。負的代表經濟落後。"
         sql: "{team_gpm} - {enemy_gpm}"
         type: number
         meta: { group: 團隊, decimals: 0, higherIsBetter: true }

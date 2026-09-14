@@ -40,6 +40,7 @@ cubes:
 
       - name: name
         title: 英雄定位
+        description: "英雄定位：法師、鬥士、坦克、輔助、刺客、射手。一隻英雄可能屬於兩類，依定位分組時同一場會同時算進兩類。"
         sql: role_name
         type: string
         meta:

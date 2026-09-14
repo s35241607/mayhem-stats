@@ -69,6 +69,9 @@ export function useCubeMeta(): { meta: CubeMeta; loading: boolean; error: string
         const segments: Segment[] = []
 
         for (const cube of data.cubes ?? []) {
+          // view 是給 AI Agent 與外部工具的查詢入口（cube/model/views），成員和 cube 重複，
+          // 列進選單會出現兩份，混選時還會撞到 join 路徑錯誤。前端一律直接查 cube。
+          if (cube.type === "view") continue
           for (const m of cube.measures ?? []) {
             if (m.public === false || HIDDEN.test(m.name) || !isPresentable(m)) continue
             measures.push(m)
@@ -78,7 +81,11 @@ export function useCubeMeta(): { meta: CubeMeta; loading: boolean; error: string
             if (d.type === "time") timeDimensions.push(d)
             else dimensions.push(d)
           }
-          for (const s of cube.segments ?? []) segments.push(s)
+          // 只列對局表現的片段：其他 cube 的片段（例如 teammates.mine）和這頁的查詢接不起來。
+          // mine 也不列，這頁用「分析對象」切換帳號。
+          for (const s of cube.segments ?? []) {
+            if (cube.name === "participants" && !s.name.endsWith(".mine")) segments.push(s)
+          }
         }
 
         const byName = new Map<string, Member>()

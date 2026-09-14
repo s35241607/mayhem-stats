@@ -31,6 +31,17 @@ cubes:
       sql: >
         SELECT (SELECT COALESCE(MAX(ingested_at), 0) FROM matches) || ':' || (SELECT COUNT(*) FROM dim_augments) || ':' || (SELECT group_concat(puuid || is_me || tracked) FROM accounts)
 
+    segments:
+      - name: mine
+        title: 只看本機帳號
+        description: 只算本機帳號（accounts.is_me = 1）的對局序列。
+        sql: "{CUBE}.puuid IN (SELECT puuid FROM accounts WHERE is_me = 1)"
+
+      - name: mayhem
+        title: 只看 ARAM Mayhem
+        description: 只算 ARAM Mayhem（queue_id = 2400）。前一場與當日第幾場本來就在同一模式內計算。
+        sql: "{CUBE}.queue_id = 2400"
+
     dimensions:
       - name: id
         sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id || ':' || {CUBE}.puuid"
@@ -58,6 +69,7 @@ cubes:
       # 而 Cube 會把篩選值綁成字串，宣告成數字的話比較永遠不成立。
       - name: prev_result
         title: 前一場結果
+        description: "同一玩家、同一模式裡的前一場結果：前一場贏 / 前一場輸 / 沒有前一場。"
         meta:
           group: 節奏
         sql: >
@@ -94,6 +106,7 @@ cubes:
     measures:
       - name: games
         title: 場次
+        description: "對局數。"
         sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id"
         type: count_distinct
         meta:
@@ -102,6 +115,7 @@ cubes:
 
       - name: wins
         title: 勝場
+        description: "獲勝的對局數。"
         sql: "CASE WHEN {CUBE}.win = 1 THEN {CUBE}.platform_id || ':' || {CUBE}.game_id END"
         type: count_distinct
         meta:
@@ -110,6 +124,7 @@ cubes:
 
       - name: winrate
         title: 勝率
+        description: "勝場 ÷ 場次 × 100（%）。"
         sql: "100.0 * {wins} / NULLIF({games}, 0)"
         type: number
         format: percent
@@ -120,6 +135,7 @@ cubes:
 
       - name: avg_duration
         title: 平均時長
+        description: "平均對局長度（分鐘）。"
         sql: "{CUBE}.game_duration / 60.0"
         type: avg
         meta:

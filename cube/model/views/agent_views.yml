@@ -1,0 +1,176 @@
+# 給 AI Agent 與外部工具用的查詢入口。
+#
+# 為什麼要有 view：cube 之間不是每一對都能 join（participants 與 teammates 都接到 matches，
+# 但彼此沒有路徑，硬查會出現 "Can't find join path"），而且查「我」的數字一定要鎖定玩家。
+# 這些規則原本要靠查詢的人自己記。每個 view 只收「能一起查」的欄位，並附上鎖定本機帳號
+# 與 Mayhem 模式的 segment，照著 view 查就不會組出錯的查詢。
+#
+# 網站前端不用這些 view（前端直接查 cube，自由探索頁也會把 view 濾掉），改這裡不影響畫面。
+views:
+  - name: my_performance
+    title: 我的對局表現
+    description: >
+      每位玩家每場的表現，可依英雄、定位、增幅、裝備、時間、對局長度分組。
+      問「我」的數字請加 segment mine（只看本機帳號），只看 Mayhem 請加 segment mayhem。
+      不加 mine 也不指定 riot_id 的話，同一場 10 個人的數據會混在一起。
+      以 augment 或 item 分組時一場會出現在多列底下，場次與勝率已用 distinct 計算，不會重複。
+      按天分組用 local_date；用 played_at 篩日期區間時查詢要帶 "timezone": "Asia/Taipei"。
+    cubes:
+      - join_path: participants
+        includes:
+          - mine
+          - wins_only
+          - losses_only
+          - carried
+          - tanked
+          - fed
+          - had_multikill
+          - riot_id
+          - team_side
+          - party_size
+          - result
+          - champ_level
+          - death_bucket
+          - games
+          - wins
+          - losses
+          - winrate
+          - avg_kills
+          - avg_deaths
+          - avg_assists
+          - kda
+          - kill_participation
+          - multikills
+          - pentas
+          - multikill_rate
+          - first_blood_rate
+          - avg_damage
+          - dpm
+          - damage_share
+          - damage_per_gold
+          - avg_objective_damage
+          - avg_taken
+          - tank_share
+          - avg_mitigated
+          - avg_heal
+          - avg_survival
+          - taken_physical_share
+          - taken_magic_share
+          - champion_damage_focus
+          - avg_cc
+          - avg_largest_spree
+          - avg_turret_kills
+          - best_crit
+          - avg_units_healed
+          - avg_gold
+          - gpm
+          - avg_cs
+          - unspent_gold
+          - avg_team_dmg
+          - avg_enemy_dmg
+          - dmg_gap
+          - avg_team_gold
+          - avg_enemy_gold
+          - gold_gap
+          - avg_team_kills
+          - avg_enemy_kills
+          - kill_gap
+          - team_dpm
+          - enemy_dpm
+          - dpm_gap
+          - team_gpm
+          - enemy_gpm
+          - gpm_gap
+
+      - join_path: participants.matches
+        includes:
+          - mayhem
+          - queue_id
+          - patch
+          - played_at
+          - local_date
+          - weekday
+          - hour_of_day
+          - duration_bucket
+          - ended_surrender
+          - avg_duration
+
+      - join_path: participants.champions
+        includes:
+          - name: name
+            alias: champion
+
+      - join_path: participants.champion_roles
+        includes:
+          - name: name
+            alias: champion_role
+
+      - join_path: participants.augments
+        includes:
+          - name: name
+            alias: augment
+          - name: rarity
+            alias: augment_rarity
+          - name: slot
+            alias: augment_slot
+
+      - join_path: participants.items
+        includes:
+          - name: name
+            alias: item
+
+  - name: people_met
+    title: 同場玩家（隊友與對手）
+    description: >
+      「某人的某一場 × 同場的另一位玩家」。用來問和誰同隊比較會贏、遇到誰比較會輸。
+      一定要加 segment mine（以本機帳號為視角），並用 relation 篩選 teammate（同隊）或 opponent（對手）。
+      player 是對方的名稱；my_champion / my_champion_role 是我那場的英雄與定位，other_champion 是對方的英雄。
+      這個 view 不能和 my_performance 的欄位混在同一個查詢。
+    cubes:
+      - join_path: teammates
+        includes:
+          - mine
+          - player
+          - relation
+          - my_champion
+          - other_champion
+          - games
+          - wins
+          - winrate
+
+      - join_path: teammates.matches
+        includes:
+          - mayhem
+          - queue_id
+          - patch
+          - played_at
+          - local_date
+          - weekday
+          - hour_of_day
+          - duration_bucket
+
+      - join_path: teammates.champion_roles
+        includes:
+          - name: name
+            alias: my_champion_role
+
+  - name: session_rhythm
+    title: 連續對局的節奏
+    description: >
+      依時間排序的對局序列，用來問「輸了之後下一場會不會也輸」「一天打越多場是不是越差」。
+      一定要加 segment mine；前一場與當日第幾場都是在同一模式內計算，只看 Mayhem 請加 segment mayhem。
+      這個 view 只有場次、勝率與對局長度，沒有 KDA、傷害等表現數據。
+    cubes:
+      - join_path: my_games
+        includes:
+          - mine
+          - mayhem
+          - queue_id
+          - played_at
+          - prev_result
+          - game_of_day
+          - session_stage
+          - games
+          - wins
+          - winrate
+          - avg_duration

@@ -8,6 +8,12 @@ cubes:
       sql: >
         SELECT (SELECT COALESCE(MAX(ingested_at), 0) FROM matches) || ':' || (SELECT COUNT(*) FROM dim_augments) || ':' || (SELECT group_concat(puuid || is_me || tracked) FROM accounts)
 
+    segments:
+      - name: mayhem
+        title: 只看 ARAM Mayhem
+        description: 只算 ARAM Mayhem（queue_id = 2400）的對局，排除練習模式等其他模式。
+        sql: "{CUBE}.queue_id = 2400"
+
     dimensions:
       - name: id
         sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id"
@@ -28,6 +34,7 @@ cubes:
 
       - name: game_mode
         title: 遊戲模式
+        description: "客戶端回傳的遊戲模式代號，ARAM Mayhem 是 KIWI。篩選模式請用 queue_id。"
         sql: game_mode
         type: string
         meta:
@@ -43,6 +50,7 @@ cubes:
 
       - name: played_at
         title: 對局時間
+        description: "開打時間（UTC 時間戳）。用日期區間篩選時，查詢要帶 \"timezone\": \"Asia/Taipei\"，否則區間邊界會差 8 小時。按天分組請改用 local_date。"
         sql: "datetime({CUBE}.game_creation / 1000, 'unixepoch')"
         type: time
         meta:
@@ -58,6 +66,7 @@ cubes:
       # (實測過:畫面說「最常打 週日 07:00」,實際是週日 15:00。)
       - name: hour_of_day
         title: 時段
+        description: "開打當下的本地小時（0-23）。"
         sql: local_hour
         type: number
         meta:
@@ -85,6 +94,7 @@ cubes:
 
       - name: duration_bucket
         title: 對局長度
+        description: "對局長度分組：< 15 分、15-20 分、20-25 分、25 分以上。"
         meta:
           group: 對局
         sql: >
@@ -105,6 +115,7 @@ cubes:
 
       - name: avg_duration
         title: 平均對局時長
+        description: "平均對局長度（分鐘）。"
         sql: "{CUBE}.game_duration / 60.0"
         type: avg
         meta:
