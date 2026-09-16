@@ -20,10 +20,14 @@ export type Member = {
 
 export type Segment = { name: string; title: string; shortTitle?: string }
 
+/** 模型裡定義好的下鑽路徑（cube 的 hierarchies），levels 是由粗到細的維度。 */
+export type Hierarchy = { name: string; title: string; levels: string[] }
+
 export type CubeMeta = {
   measures: Member[]
   dimensions: Member[]
   segments: Segment[]
+  hierarchies: Hierarchy[]
   timeDimensions: Member[]
   byName: Map<string, Member>
 }
@@ -32,6 +36,7 @@ const EMPTY: CubeMeta = {
   measures: [],
   dimensions: [],
   segments: [],
+  hierarchies: [],
   timeDimensions: [],
   byName: new Map(),
 }
@@ -67,6 +72,7 @@ export function useCubeMeta(): { meta: CubeMeta; loading: boolean; error: string
         const dimensions: Member[] = []
         const timeDimensions: Member[] = []
         const segments: Segment[] = []
+        const hierarchies: Hierarchy[] = []
 
         for (const cube of data.cubes ?? []) {
           // view 是給 AI Agent 與外部工具的查詢入口（cube/model/views），成員和 cube 重複，
@@ -86,12 +92,15 @@ export function useCubeMeta(): { meta: CubeMeta; loading: boolean; error: string
           for (const s of cube.segments ?? []) {
             if (cube.name === "participants" && !s.name.endsWith(".mine")) segments.push(s)
           }
+          for (const h of cube.hierarchies ?? []) {
+            if (h.public !== false) hierarchies.push({ name: h.name, title: h.title ?? h.name, levels: h.levels })
+          }
         }
 
         const byName = new Map<string, Member>()
         for (const m of [...measures, ...dimensions, ...timeDimensions]) byName.set(m.name, m)
 
-        setMeta({ measures, dimensions, timeDimensions, segments, byName })
+        setMeta({ measures, dimensions, timeDimensions, segments, hierarchies, byName })
         setLoading(false)
       })
       .catch((e: Error) => {

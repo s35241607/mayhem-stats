@@ -45,6 +45,33 @@ cubes:
         description: 只看本機帳號（accounts.is_me = 1）和同場其他人的關係。不加的話所有帳號的視角會混在一起。
         sql: "{CUBE}.subject_puuid IN (SELECT puuid FROM accounts WHERE is_me = 1)"
 
+    # 以「人」為主的下鑽路徑，說明同 participants.yml 的 hierarchies。
+    # 這個 cube 和 participants 沒有 join 路徑，所以路徑裡只能放這裡與 matches 的維度。
+    #
+    # 「隊友或對手」不要放第一層：每一場都同時有隊友和對手，兩列的場次與勝率一模一樣，
+    # 點哪個都看不出東西。先挑人或英雄，再拆「同隊時 / 對上時」才有差別。
+    hierarchies:
+      - name: people
+        title: 和誰一起打
+        levels:
+          - teammates.player
+          - teammates.relation
+          - teammates.my_champion
+
+      - name: champion_people
+        title: 這隻英雄和誰一起
+        levels:
+          - teammates.my_champion
+          - teammates.player
+          - teammates.relation
+
+      - name: matchup
+        title: 遇到哪隻英雄
+        levels:
+          - teammates.other_champion
+          - teammates.relation
+          - teammates.my_champion
+
     dimensions:
       # 整數主鍵。「我這一列」的 rowid 決定了是誰的哪一場，再加上對方的
       # participant_id（1～10，小於 16）就唯一。

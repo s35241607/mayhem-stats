@@ -176,6 +176,15 @@ description: 這個專案前端的主題與動畫規範。只要動到 web/src �
 - 點某一層清掉比它深的所有層；點頁名清掉這頁所有聚焦；離開頁面自動清空，不用手動處理。
 - 頁面內原本的「收起」「清除」按鈕保留，麵包屑是額外的統一入口，不是取代。
 
+**自由探索的下鑽路徑與交叉矩陣**（`components/DrillPath.tsx`、`PivotMatrix.tsx`，共用規則在 `lib/drill.ts`）：
+- 預設路徑寫在 `cube/model/cubes/*.yml` 的 `hierarchies`，前端從 `/meta` 讀，不要在前端另寫一份。
+- 維度分兩家：participants 與 teammates 之間沒有 join 路徑，一條路徑／一張矩陣只能用同一家（`dimensionsOf`）。
+  teammates 家族不能走 `apply()`，改用 `useDrillScope`，套不上的全域條件要在畫面上列出來。
+- 走到底的逐場列表：先用同一組條件向 Cube 查 `matches.game_id`，再送 `/api/matches?game_ids=`，
+  不必為每個維度在後端各寫一套 SQL 對應。
+- 新增的維度若是 CASE 或子查詢算出的數字，要宣告成 string 並轉成文字（見 `participants.party_size`），
+  否則點下去 `equals` 永遠查不到東西。
+
 ## 六、驗證
 
 服務要先在 `127.0.0.1:5057` 跑著（重啟方式見 `verify-change` skill）。前端改動要先 `cd web && npm run build`。

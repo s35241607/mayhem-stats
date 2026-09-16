@@ -161,6 +161,11 @@ SESSION_STAGE = {
 }
 
 
+# 下鑽路徑走到最後一層時一次送出的場次上限。對局 id 放在網址裡,
+# 對局 id 目前是 9 位數,1000 個約 10KB——uvicorn(h11)整個請求標頭的上限是 16KB。
+MAX_GAME_IDS = 1000
+
+
 @app.get("/api/matches")
 def recent_matches(
     limit: int = 30,
@@ -181,6 +186,7 @@ def recent_matches(
     prev_result: Optional[str] = None,
     session_stage: Optional[str] = None,
     game_of_day: Optional[int] = None,
+    game_ids: Optional[str] = None,
 ):
     """指定帳號的對局清單，預設是本機帳號。
 
@@ -197,6 +203,8 @@ def recent_matches(
     augment 是增幅名稱;duration 是對局長度分組標籤(同 matches.duration_bucket);
     prev_result / session_stage / game_of_day 是節奏頁的分組(同 my_games 的定義)。
     分組標籤一律查白名單換成條件,不會把字串拼進 SQL。
+    game_ids 是逗號分隔的對局 id,給自由探索的下鑽路徑用:任意維度組合的條件
+    先交給 Cube 查出是哪幾場,這裡只負責列出來,不必為每個維度各寫一套對應的 SQL。
     """
     conn = db.connect()
     try:
@@ -251,6 +259,15 @@ def recent_matches(
             # 用子查詢而不是 dc.name:下面的計數查詢沒有 join dim_champions
             slice_sql += " AND mp.champion_id IN (SELECT id FROM dim_champions WHERE name = ?)"
             slice_params.append(champion)
+        if game_ids is not None:
+            try:
+                ids = [int(x) for x in game_ids.split(",") if x.strip()]
+            except ValueError:
+                return JSONResponse(status_code=400, content={"error": "game_ids 必須是逗號分隔的整數"})
+            if len(ids) > MAX_GAME_IDS:
+                return JSONResponse(status_code=400, content={"error": f"game_ids 最多 {MAX_GAME_IDS} 個"})
+            slice_sql += f" AND m.game_id IN ({','.join('?' for _ in ids) or 'NULL'})"
+            slice_params.extend(ids)
         if augment is not None:
             slice_sql += """
                 AND EXISTS (SELECT 1 FROM participant_augments pa JOIN dim_augments da ON da.id = pa.augment_id

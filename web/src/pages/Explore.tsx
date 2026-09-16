@@ -14,6 +14,9 @@ import {
   ArrowUpDown,
   User,
   Users,
+  Blocks,
+  GitFork,
+  Grid2x2,
 } from "lucide-react"
 import { motion, AnimatePresence } from "motion/react"
 import { Badge } from "@/components/ui/badge"
@@ -31,6 +34,8 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Panel, EmptyState } from "@/components/primitives"
 import { AgTable, type GridColumn } from "@/components/AgTable"
 import { FieldBuilder } from "@/components/FieldBuilder"
+import { DrillPath } from "@/components/DrillPath"
+import { PivotMatrix } from "@/components/PivotMatrix"
 import {
   BarChart,
   Heatmap,
@@ -43,7 +48,9 @@ import {
 } from "@/components/charts"
 import { useCube } from "@/hooks/useCube"
 import { useCubeMeta, groupBy, label } from "@/hooks/useCubeMeta"
+import { useDrillScope } from "@/hooks/useDrillScope"
 import { num, type CubeFilter, type CubeQuery } from "@/lib/cube"
+import { COMPANION, MAX_LEVELS, familyOf, type DrillPick } from "@/lib/drill"
 import { useFilters } from "@/lib/filters"
 import { cn } from "@/lib/utils"
 
@@ -66,12 +73,15 @@ const OPERATORS = [
   { value: "set", label: "有值" },
 ]
 
-/** 帶圖示或稀有度的維度，查詢時要順便把對應欄位撈回來才顯示得出來。 */
-const COMPANION: Record<string, { icon?: string; rarity?: string }> = {
-  "champions.name": { icon: "champions.icon_path" },
-  "augments.name": { icon: "augments.icon_path", rarity: "augments.rarity" },
-  "items.name": { icon: "items.icon_path" },
-}
+/** 三種看法：自己組欄位、一層一層往下鑽、兩個維度交叉。 */
+const MODES = [
+  { value: "free", label: "自由組合", icon: Blocks },
+  { value: "path", label: "下鑽路徑", icon: GitFork },
+  { value: "pivot", label: "交叉矩陣", icon: Grid2x2 },
+] as const
+type Mode = (typeof MODES)[number]["value"]
+
+const DEFAULT_PIVOT = { rows: "champions.name", cols: "matches.duration_bucket" }
 
 type SavedView = {
   id: string
@@ -82,6 +92,11 @@ type SavedView = {
   filters: CubeFilter[]
   viz: Viz
   byDay: boolean
+  // 下面是後來加的，舊的存檔沒有這些欄位
+  mode?: Mode
+  path?: string[]
+  pivotRows?: string
+  pivotCols?: string
 }
 
 const STORAGE_KEY = "mayhem.explore.views"
@@ -146,6 +161,39 @@ export function Explore() {
   const [views, setViews] = useState<SavedView[]>([])
   const [viewName, setViewName] = useState("")
 
+  const [mode, setMode] = useState<Mode>("free")
+  const [path, setPath] = useState<string[] | null>(null)
+  const [picks, setPicks] = useState<DrillPick[]>([])
+  const [extraMeasure, setExtraMeasure] = useState("")
+  const [pivot, setPivot] = useState(DEFAULT_PIVOT)
+  const [pivotMetric, setPivotMetric] = useState("")
+
+  // 還沒選過路徑就用模型裡的第一條預設路徑
+  const activePath = path ?? meta.hierarchies[0]?.levels ?? []
+  const changePath = (next: string[]) => {
+    setPath(next)
+    // 已經點過的條件只在「前面幾層沒變」時保留
+    setPicks((prev) => {
+      const kept: DrillPick[] = []
+      for (const [i, p] of prev.entries()) {
+        if (next[i] !== p.member) break
+        kept.push(p)
+      }
+      return kept
+    })
+  }
+  const drillFamily = familyOf((mode === "pivot" ? pivot.rows : activePath[0]) ?? "participants.")
+  const drillScope = useDrillScope({ family: drillFamily, scope, segments, filters: extraFilters })
+
+  /** 矩陣點一格：路徑前兩層換成矩陣的列與欄，原本後面的層只要同一家、不重複就接上去 */
+  const pickCell = (cellPicks: DrillPick[]) => {
+    const family = familyOf(pivot.rows)
+    const rest = activePath.filter((d) => d !== pivot.rows && d !== pivot.cols && familyOf(d) === family)
+    setPath([pivot.rows, pivot.cols, ...rest].slice(0, MAX_LEVELS))
+    setPicks(cellPicks)
+    setMode("path")
+  }
+
   useEffect(() => setViews(loadViews()), [])
 
   const toggle = (list: string[], set: (v: string[]) => void) => (name: string) =>
@@ -172,7 +220,7 @@ export function Explore() {
     limit: Number(limit),
   }, scope)
 
-  const { rows, loading, error } = useCube(dims.length || byDay ? query : null)
+  const { rows, loading, error } = useCube(mode === "free" && (dims.length || byDay) ? query : null)
 
   const columns: GridColumn[] = useMemo(
     () => [
@@ -223,6 +271,10 @@ export function Explore() {
       filters: extraFilters,
       viz,
       byDay,
+      mode,
+      path: activePath,
+      pivotRows: pivot.rows,
+      pivotCols: pivot.cols,
     }
     const next = [...views.filter((v) => v.name !== view.name), view]
     setViews(next)
@@ -237,6 +289,10 @@ export function Explore() {
     setExtraFilters(v.filters ?? [])
     setViz(v.viz)
     setByDay(v.byDay)
+    setMode(v.mode ?? "free")
+    if (v.path) setPath(v.path)
+    setPicks([])
+    if (v.pivotRows && v.pivotCols) setPivot({ rows: v.pivotRows, cols: v.pivotCols })
   }
 
   const removeView = (id: string) => {
@@ -398,6 +454,7 @@ export function Explore() {
           )}
         </Panel>
 
+        {mode === "free" && (
         <Panel title="欄位配置" caption="拖進區塊即可加入，雙擊也行">
           {metaLoading ? (
             <Skeleton className="h-64 w-full" />
@@ -423,6 +480,35 @@ export function Explore() {
             另外按日期分組（折線圖需要）
           </label>
         </Panel>
+        )}
+
+        {mode === "path" && meta.hierarchies.length > 0 && (
+          <Panel title="預設路徑" caption="定義在語意層；選了之後還能逐層換維度、加減層數">
+            <div className="space-y-1">
+              {meta.hierarchies.map((h) => {
+                const active = h.levels.join() === activePath.join()
+                return (
+                  <button
+                    key={h.name}
+                    onClick={() => {
+                      setPath(h.levels)
+                      setPicks([])
+                    }}
+                    className={cn(
+                      "w-full rounded-md border px-2.5 py-1.5 text-left transition",
+                      active ? "border-primary/50 bg-primary/10" : "border-transparent hover:bg-accent",
+                    )}
+                  >
+                    <div className={cn("text-xs font-medium", active && "text-primary")}>{h.title}</div>
+                    <div className="truncate text-[11px] text-muted-foreground">
+                      {h.levels.map((l) => label(meta.byName.get(l), l)).join(" › ")}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </Panel>
+        )}
 
         {meta.segments.length > 0 && (
           <Panel title="條件片段" caption="模型裡定義好的可重用篩選">
@@ -446,6 +532,7 @@ export function Explore() {
           onChange={setExtraFilters}
         />
 
+        {mode === "free" && (
         <Panel title="排序與筆數">
           <div className="space-y-2">
             <div className="flex gap-2">
@@ -485,6 +572,7 @@ export function Explore() {
             </Select>
           </div>
         </Panel>
+        )}
 
         <Panel title="儲存的檢視" caption="存在瀏覽器裡，隨時叫回同一組設定">
           <div className="mb-2 flex gap-2">
@@ -526,6 +614,52 @@ export function Explore() {
       </div>
 
       <div className="min-w-0 space-y-4">
+        <ToggleGroup
+          type="single"
+          size="sm"
+          variant="outline"
+          value={mode}
+          onValueChange={(v) => v && setMode(v as Mode)}
+        >
+          {MODES.map((m) => (
+            <ToggleGroupItem key={m.value} value={m.value} className="px-3">
+              <m.icon className="size-3.5" />
+              {m.label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+
+        {mode === "path" && (
+          <DrillPath
+            meta={meta}
+            path={activePath}
+            onPathChange={changePath}
+            picks={picks}
+            onPicksChange={setPicks}
+            extraMeasure={extraMeasure}
+            onExtraMeasureChange={setExtraMeasure}
+            scoped={drillScope.scoped}
+            ignored={drillScope.ignored}
+            scopeAll={scope === "all"}
+          />
+        )}
+
+        {mode === "pivot" && (
+          <PivotMatrix
+            meta={meta}
+            rowsDim={pivot.rows}
+            colsDim={pivot.cols}
+            onDimsChange={(rows, cols) => setPivot({ rows, cols })}
+            metric={pivotMetric}
+            onMetricChange={setPivotMetric}
+            scoped={drillScope.scoped}
+            ignored={drillScope.ignored}
+            onPickCell={pickCell}
+          />
+        )}
+
+        {mode === "free" && (
+        <>
         <Panel
           title="結果"
           caption={
@@ -589,6 +723,8 @@ export function Explore() {
             </motion.div>
           )}
         </AnimatePresence>
+        </>
+        )}
       </div>
     </div>
   )

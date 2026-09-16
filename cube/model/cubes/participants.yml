@@ -76,6 +76,31 @@ cubes:
         title: 有拿到多殺
         sql: "{CUBE}.double_kills + {CUBE}.triple_kills + {CUBE}.quadra_kills + {CUBE}.penta_kills > 0"
 
+    # 下鑽路徑的預設組合。自由探索頁的「下鑽路徑」模式直接讀 /meta 裡的 hierarchies，
+    # 在這裡加一條，選單就多一條。每一層只能是維度，可以跨到 join 得到的 cube。
+    # 以誰為主角（帳號、模式、期間）由前端加篩選，不寫在這裡。
+    hierarchies:
+      - name: champion_build
+        title: 英雄怎麼玩
+        levels:
+          - champions.name
+          - augments.name
+          - matches.duration_bucket
+
+      - name: role_champion
+        title: 哪種英雄適合我
+        levels:
+          - champion_roles.name
+          - champions.name
+          - participants.party_size
+
+      - name: when_champion
+        title: 什麼時候玩什麼
+        levels:
+          - matches.weekday
+          - matches.hour_of_day
+          - champions.name
+
     dimensions:
       # 用 SQLite 內建的 rowid,不要用三個欄位串接的字串。
       # 以增幅或裝備為維度、又同時要兩個以上指標時,Cube 會產生一段
@@ -146,12 +171,15 @@ cubes:
       - name: party_size
         title: 同隊朋友數
         description: "我方隊伍裡除了自己之外，有幾個追蹤中的帳號（0-4）。依目前的追蹤名單即時計算。"
+        # 子查詢沒有欄位型別親和性，而 Cube 的篩選值一律綁成字串：宣告成 number 時
+        # equals '1' 永遠為假（下鑽路徑點「1」查到 0 場）。轉成文字、宣告成 string，
+        # 篩選才對得上；值只有 0-4 一位數，排序不受影響。
         sql: >
-          (SELECT COUNT(*) FROM match_participants o
+          CAST((SELECT COUNT(*) FROM match_participants o
             WHERE o.platform_id = {CUBE}.platform_id AND o.game_id = {CUBE}.game_id
               AND o.team_id = {CUBE}.team_id AND o.puuid <> {CUBE}.puuid
-              AND o.puuid IN (SELECT puuid FROM accounts WHERE tracked = 1))
-        type: number
+              AND o.puuid IN (SELECT puuid FROM accounts WHERE tracked = 1)) AS TEXT)
+        type: string
         meta:
           group: 對局
 
