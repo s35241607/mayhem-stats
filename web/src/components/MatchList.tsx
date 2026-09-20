@@ -5,22 +5,69 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { EmptyState, Panel } from "@/components/primitives"
 import { prefersReducedMotion } from "@/lib/motion"
 import { useCrumb } from "@/lib/breadcrumb"
+import { useCube } from "@/hooks/useCube"
+import { useFilters } from "@/lib/filters"
+import type { CubeQuery } from "@/lib/cube"
 import { MatchCards, MatchDetail, matchCrumbLabel, type MatchRow } from "@/pages/Matches"
+
+/** 下鑽走到底時一次最多列出幾場，和後端 /api/matches 的上限一致。 */
+export const MAX_GAME_IDS = 1000
 
 /** 捲動載入時一次抓幾場（後端單次上限 200）。第一批少一點：它和換頁進場動畫同時渲染，
  *  卡片含裝備圖示，一次 50 張會在動畫期間多出長任務；之後捲動載入的批次就不怕。 */
 const FIRST_PAGE = 20
 const PAGE = 50
 
-/** 從圖表下鑽出來的「XX 的每一場」面板。各頁共用，行為一致：出現時捲到看得到的位置、收起就清掉聚焦。 */
+/** 「是哪幾場」交給 Cube 用同一組條件查出來，再送 /api/matches 列出那幾場。
+ *
+ *  條件的定義因此只留在語意層一份。後端不必為每個維度各寫一套 SQL——
+ *  原本節奏頁的「前一場」「當日第幾場」在 app.py 裡有一份手抄的視窗函數，
+ *  哪天語意層改了規則（例如 session 改成依休息時間切），那份副本會無聲地對不上。
+ *  query 要自己帶 dimensions: [<cube>.game_id]，因為維度屬於哪一家 cube 由呼叫端決定。 */
+export function CubeMatchList({
+  query,
+  gameIdKey,
+  listKey,
+}: {
+  query: CubeQuery | null
+  gameIdKey: string
+  /** 換條件時強制重新掛載列表（清掉開著的戰報與捲動位置） */
+  listKey?: string
+}) {
+  const { matchParams, account } = useFilters()
+  const ids = useCube(query)
+  if (ids.loading) return <Skeleton className="h-40 w-full" />
+  if (ids.error) return <div className="text-sm text-destructive">{ids.error}</div>
+  const gameIds = ids.rows.map((r) => String(r[gameIdKey]))
+  if (!gameIds.length) return <EmptyState>這個條件下沒有對局。</EmptyState>
+  return (
+    <div className="space-y-2">
+      {gameIds.length >= MAX_GAME_IDS && (
+        <p className="text-[11px] text-muted-foreground">
+          符合的條件超過 {MAX_GAME_IDS} 場，這裡只列出其中 {MAX_GAME_IDS} 場。縮小期間或再加一個條件就能看全。
+        </p>
+      )}
+      <MatchList key={listKey} params={{ ...matchParams(), game_ids: gameIds.join(",") }} puuid={account?.puuid} />
+    </div>
+  )
+}
+
+/** 從圖表下鑽出來的「XX 的每一場」面板。各頁共用，行為一致：出現時捲到看得到的位置、收起就清掉聚焦。
+ *
+ *  兩種取得方式擇一：`params` 直接送 /api/matches（帳號、模式、期間、英雄這類後端認得的條件），
+ *  或 `query` 先讓 Cube 依語意層的定義查出是哪幾場。新的可下鑽維度一律用後者。 */
 export function DrillPanel({
   title,
   params,
+  query,
+  gameIdKey,
   puuid,
   onClose,
 }: {
   title: string
-  params: Record<string, string>
+  params?: Record<string, string>
+  query?: CubeQuery | null
+  gameIdKey?: string
   puuid?: string
   onClose: () => void
 }) {
@@ -40,7 +87,11 @@ export function DrillPanel({
           </Button>
         }
       >
-        <MatchList params={params} puuid={puuid} />
+        {query !== undefined ? (
+          <CubeMatchList query={query} gameIdKey={gameIdKey!} listKey={title} />
+        ) : (
+          <MatchList params={params!} puuid={puuid} />
+        )}
       </Panel>
     </div>
   )

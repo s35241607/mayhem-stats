@@ -61,6 +61,12 @@ cubes:
         sql: queue_id
         type: number
 
+      # 下鑽用：節奏頁的分組條件交給 Cube 查出是哪幾場，再送 /api/matches 列出來。
+      # 後端因此不需要自己再抄一份「前一場」「當日第幾場」的視窗函數。
+      - name: game_id
+        sql: game_id
+        type: number
+
       - name: played_at
         sql: "datetime({CUBE}.game_creation / 1000, 'unixepoch')"
         type: time

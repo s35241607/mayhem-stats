@@ -7,16 +7,16 @@ import { useCube } from "@/hooks/useCube"
 import { num, type CubeFilter } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 import { useCrumb } from "@/lib/breadcrumb"
-import { DrillPanel } from "@/components/MatchList"
+import { DrillPanel, MAX_GAME_IDS } from "@/components/MatchList"
 import { MIN_GAMES, NO_LIMIT } from "./shared"
 
-/** 下鑽的分組。kind 同時是 /api/matches 的參數名。 */
+/** 下鑽的分組。kind 同時是 my_games 的維度名。 */
 type TiltFocus = { kind: "prev_result" | "session_stage" | "game_of_day"; value: string; label: string }
 
 const STAGE_ORDER = ["第 1-2 場", "第 3-5 場", "第 6-9 場", "第 10 場以後"]
 
 export function Tilt() {
-  const { queueId, subjectFilter, timeFilter, matchParams, account } = useFilters()
+  const { queueId, subjectFilter, timeFilter } = useFilters()
   const [focus, setFocus] = useState<TiltFocus | null>(null)
   useCrumb(10, focus?.label ?? null, () => setFocus(null))
   // 「一天打到第幾場」原本畫成分段、逐場兩張並排的圖。同一個維度的粗細兩種，
@@ -204,10 +204,17 @@ export function Tilt() {
       </Panel>
 
       {focus && (
+        // 「是哪幾場」用和上面圖表同一組條件向 Cube 查，後端不必再抄一份視窗函數
         <DrillPanel
           title={focus.label}
-          params={{ ...matchParams(), [focus.kind]: focus.value }}
-          puuid={account?.puuid}
+          gameIdKey="my_games.game_id"
+          query={{
+            measures: ["my_games.games"],
+            dimensions: ["my_games.game_id"],
+            filters: [...filters, { member: `my_games.${focus.kind}`, operator: "equals", values: [focus.value] }],
+            ...time,
+            limit: MAX_GAME_IDS,
+          }}
           onClose={() => setFocus(null)}
         />
       )}

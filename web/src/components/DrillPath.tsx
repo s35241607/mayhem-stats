@@ -13,7 +13,7 @@ import { EmptyState, Panel } from "@/components/primitives"
 import { AgTable, type GridColumn } from "@/components/AgTable"
 import { RecordCell } from "@/components/cells"
 import { DimensionSelect } from "@/components/DimensionSelect"
-import { MatchList } from "@/components/MatchList"
+import { CubeMatchList, MAX_GAME_IDS } from "@/components/MatchList"
 import { useCube } from "@/hooks/useCube"
 import { label, type CubeMeta } from "@/hooks/useCubeMeta"
 import type { CubeQuery, CubeRow } from "@/lib/cube"
@@ -38,8 +38,6 @@ import {
 import { cn } from "@/lib/utils"
 import { round0 } from "@/pages/shared"
 
-/** 下鑽走到底時，一次最多列出幾場（和後端 /api/matches 的 MAX_GAME_IDS 一致） */
-const MAX_GAME_IDS = 1000
 const TABLE_H = 460
 const NONE = "__none__"
 
@@ -378,17 +376,6 @@ function PathMatches({
   scopeAll: boolean
   meta: CubeMeta
 }) {
-  const { matchParams, account } = useFilters()
-  const ids = useCube(
-    scopeAll
-      ? null
-      : scoped({
-          measures: [`${family}.games`],
-          dimensions: ["matches.game_id"],
-          filters: picks.map(pickFilter),
-          limit: MAX_GAME_IDS,
-        }),
-  )
   if (scopeAll) {
     return (
       <EmptyState>
@@ -396,22 +383,16 @@ function PathMatches({
       </EmptyState>
     )
   }
-  if (ids.loading) return <Skeleton className="h-40 w-full" />
-  if (ids.error) return <div className="text-sm text-destructive">{ids.error}</div>
-  const gameIds = ids.rows.map((r) => String(r["matches.game_id"]))
-  if (!gameIds.length) return <EmptyState>這個條件下沒有對局。</EmptyState>
   return (
-    <div className="space-y-2">
-      {gameIds.length >= MAX_GAME_IDS && (
-        <p className="text-[11px] text-muted-foreground">
-          符合的對局超過 {MAX_GAME_IDS} 場，這裡只列出其中 {MAX_GAME_IDS} 場。再往下鑽一層可以縮小範圍。
-        </p>
-      )}
-      <MatchList
-        key={picks.map((p) => pickLabel(meta, p)).join("|")}
-        params={{ ...matchParams(), game_ids: gameIds.join(",") }}
-        puuid={account?.puuid}
-      />
-    </div>
+    <CubeMatchList
+      gameIdKey="matches.game_id"
+      listKey={picks.map((p) => pickLabel(meta, p)).join("|")}
+      query={scoped({
+        measures: [`${family}.games`],
+        dimensions: ["matches.game_id"],
+        filters: picks.map(pickFilter),
+        limit: MAX_GAME_IDS,
+      })}
+    />
   )
 }

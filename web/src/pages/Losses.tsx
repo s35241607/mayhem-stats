@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { Skeleton } from "@/components/ui/skeleton"
-import { DrillPanel } from "@/components/MatchList"
+import { DrillPanel, MAX_GAME_IDS } from "@/components/MatchList"
 import { Kpi, Panel, EmptyState, QueryError } from "@/components/primitives"
 import { AgTable, type GridColumn } from "@/components/AgTable"
 import { BarChart, type BarDatum } from "@/components/charts"
@@ -81,7 +81,7 @@ const COLUMNS: GridColumn[] = [
 ]
 
 export function Losses() {
-  const { apply, matchParams, account } = useFilters()
+  const { apply } = useFilters()
   const [bucket, setBucket] = useState<string | null>(null)
   useCrumb(10, bucket ? `對局長度 ${bucket}` : null, () => setBucket(null))
 
@@ -211,10 +211,16 @@ export function Losses() {
       </Panel>
 
       {bucket && (
+        // 分組界線只留在語意層（matches.duration_bucket），後端不再各存一份
         <DrillPanel
           title={`對局長度 ${bucket}`}
-          params={{ ...matchParams(), duration: bucket }}
-          puuid={account?.puuid}
+          gameIdKey="matches.game_id"
+          query={apply({
+            measures: ["participants.games"],
+            dimensions: ["matches.game_id"],
+            filters: [{ member: "matches.duration_bucket", operator: "equals", values: [bucket] }],
+            limit: MAX_GAME_IDS,
+          })}
           onClose={() => setBucket(null)}
         />
       )}

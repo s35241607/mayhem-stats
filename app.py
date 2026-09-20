@@ -141,26 +141,6 @@ def _resolve_puuid(conn, puuid: Optional[str]) -> Optional[str]:
     return row["puuid"] if row else None
 
 
-# 下鑽用的分組標籤 → 條件。標籤必須和 Cube 模型裡的字串一字不差。
-DURATION_BUCKETS = {
-    "< 15 分": (0, 900),
-    "15-20 分": (900, 1200),
-    "20-25 分": (1200, 1500),
-    "25 分以上": (1500, 10**9),
-}
-PREV_RESULT = {
-    "沒有前一場": "prev_win IS NULL",
-    "前一場贏": "prev_win = 1",
-    "前一場輸": "prev_win = 0",
-}
-SESSION_STAGE = {
-    "第 1-2 場": "game_of_day <= 2",
-    "第 3-5 場": "game_of_day BETWEEN 3 AND 5",
-    "第 6-9 場": "game_of_day BETWEEN 6 AND 9",
-    "第 10 場以後": "game_of_day >= 10",
-}
-
-
 # 下鑽路徑走到最後一層時一次送出的場次上限。對局 id 放在網址裡,
 # 對局 id 目前是 9 位數,1000 個約 10KB——uvicorn(h11)整個請求標頭的上限是 16KB。
 MAX_GAME_IDS = 1000
@@ -182,10 +162,6 @@ def recent_matches(
     relation: Optional[str] = None,
     champion: Optional[str] = None,
     augment: Optional[str] = None,
-    duration: Optional[str] = None,
-    prev_result: Optional[str] = None,
-    session_stage: Optional[str] = None,
-    game_of_day: Optional[int] = None,
     game_ids: Optional[str] = None,
 ):
     """指定帳號的對局清單，預設是本機帳號。
@@ -200,11 +176,13 @@ def recent_matches(
     date_from / date_to 是全域的期間篩選(本地日期,含頭含尾)。
     with_puuid + relation(teammate / opponent)列出和某人同隊或對上的場次,給隊友頁下鑽用。
     champion 是英雄名稱(和 Cube 的 champions.name 同一份對照),給英雄頁下鑽用。
-    augment 是增幅名稱;duration 是對局長度分組標籤(同 matches.duration_bucket);
-    prev_result / session_stage / game_of_day 是節奏頁的分組(同 my_games 的定義)。
-    分組標籤一律查白名單換成條件,不會把字串拼進 SQL。
-    game_ids 是逗號分隔的對局 id,給自由探索的下鑽路徑用:任意維度組合的條件
-    先交給 Cube 查出是哪幾場,這裡只負責列出來,不必為每個維度各寫一套對應的 SQL。
+    augment 是增幅名稱(和 Cube 的 augments.name 同一份對照),給增幅頁下鑽用。
+
+    game_ids 是逗號分隔的對局 id:條件先交給 Cube 用語意層的定義查出是哪幾場,
+    這裡只負責列出來。**新的可下鑽維度一律走這條路,不要再加參數**——
+    對局長度的界線、節奏頁的「前一場」「當日第幾場」原本在這裡各有一份副本
+    (後者還抄了一次視窗函數),語意層改規則時副本不會跟著動,
+    會變成「圖上 12 場、點進去 9 場」而且沒有人發現。
     """
     conn = db.connect()
     try:
@@ -274,40 +252,6 @@ def recent_matches(
                             WHERE pa.platform_id = mp.platform_id AND pa.game_id = mp.game_id
                               AND pa.participant_id = mp.participant_id AND da.name = ?)"""
             slice_params.append(augment)
-        if duration is not None:
-            # 和 cube/model/cubes/matches.yml 的 duration_bucket 同一組界線(秒)
-            bounds = DURATION_BUCKETS.get(duration)
-            if bounds is None:
-                return JSONResponse(status_code=400, content={"error": f"不認得的對局長度分組: {duration}"})
-            slice_sql += " AND m.game_duration >= ? AND m.game_duration < ?"
-            slice_params.extend(bounds)
-        tilt = []
-        if prev_result is not None:
-            cond = PREV_RESULT.get(prev_result)
-            if cond is None:
-                return JSONResponse(status_code=400, content={"error": f"不認得的前一場結果: {prev_result}"})
-            tilt.append(cond)
-        if session_stage is not None:
-            cond = SESSION_STAGE.get(session_stage)
-            if cond is None:
-                return JSONResponse(status_code=400, content={"error": f"不認得的當日階段: {session_stage}"})
-            tilt.append(cond)
-        if game_of_day is not None:
-            tilt.append(f"game_of_day = {int(game_of_day)}")
-        if tilt:
-            # 視窗函數的算法和 cube/model/cubes/my_games.yml 一致:依模式分區、當日用 local_date。
-            # 先對這個人的全部對局算好「前一場」「當日第幾場」再篩,期間篩選才不會改變前一場是誰。
-            slice_sql += f"""
-                AND (mp.platform_id, mp.game_id) IN (
-                  SELECT platform_id, game_id FROM (
-                    SELECT mp2.platform_id, mp2.game_id,
-                           LAG(mp2.win) OVER (PARTITION BY m2.queue_id ORDER BY m2.game_creation) AS prev_win,
-                           ROW_NUMBER() OVER (PARTITION BY m2.queue_id, m2.local_date ORDER BY m2.game_creation) AS game_of_day
-                    FROM match_participants mp2
-                    JOIN matches m2 ON m2.platform_id = mp2.platform_id AND m2.game_id = mp2.game_id
-                    WHERE mp2.puuid = ?)
-                  WHERE {" AND ".join(tilt)})"""
-            slice_params.append(subject)
         sql += slice_sql
         params.extend(slice_params)
         sql += " ORDER BY m.game_creation DESC LIMIT ? OFFSET ?"
