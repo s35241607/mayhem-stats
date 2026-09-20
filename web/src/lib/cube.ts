@@ -110,6 +110,12 @@ async function load(query: CubeQuery, signal?: AbortSignal): Promise<CubeRow[]> 
 
   for (;;) {
     const res = await fetch(`/api/cube/load?${params}`, { signal })
+    // 公開模式的登入過期（或伺服器重啟）：重新載入就會拿到登入頁，
+    // 不要在畫面上冒出一堆「請先登入」的查詢錯誤
+    if (res.status === 401) {
+      location.reload()
+      throw new Error("請先登入")
+    }
     const payload = await res.json()
 
     if (res.ok && payload.error === CONTINUE_WAIT) {

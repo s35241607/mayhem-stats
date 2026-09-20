@@ -16,6 +16,7 @@ import asyncio
 import hashlib
 import os
 import secrets
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -23,7 +24,7 @@ from typing import Optional
 import requests
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -47,8 +48,14 @@ collector = collector_module.Collector()
 #   2. 其他玩家的 Riot ID 換成穩定代號。同場玩家的名稱是做隊友分析的必要資料,
 #      但那是別人的遊戲帳號,不該因為你把網站開出去就一起公開。
 #
+#   3. 設了 MAYHEM_PASSWORD 的話,外面要先輸入密碼才看得到任何東西。
+#      這一層是必要的:免費的通道服務(ngrok 免費版、Cloudflare Quick Tunnel、
+#      Tailscale Funnel)都給你一個「誰拿到網址誰就能看」的公開網址,
+#      沒有自己的網域就掛不上它們的身分驗證,所以驗證只能做在這裡。
+#
 # 沒設這個變數時行為完全不變,本機使用不受影響。
 PUBLIC = os.environ.get("MAYHEM_PUBLIC", "").strip().lower() in {"1", "true", "yes", "on"}
+PASSWORD = os.environ.get("MAYHEM_PASSWORD", "").strip()
 
 # 代號要跨重啟穩定,否則同一個人每次重開都換一個名字,隊友分析就沒得看了。
 # 隨機鹽只存在本機(不進版控),換掉它等於把所有代號重新洗一次。
@@ -111,6 +118,69 @@ def mask_cube(payload):
     return payload
 
 
+# ── 密碼登入 ────────────────────────────────────────────────────────
+# 只在公開模式且設了密碼時生效。session token 放在記憶體:重啟要重新登入,
+# 換來的是「不必在磁碟上多放一份可以冒充你的東西」。
+SESSION_COOKIE = "mayhem_session"
+SESSION_MAX_AGE = 30 * 86400
+_sessions: dict = {}
+
+# 通道後面的請求來源一律是 127.0.0.1(通道程式自己),所以按來源 IP 限制沒有意義,
+# 改成全域的失敗計數:連續失敗到上限就整站冷卻,把線上暴力猜解壓到不可行。
+LOGIN_MAX_FAILS = 10
+LOGIN_COOLDOWN = 300
+_login_fails: list = []
+
+LOGIN_PAGE = """<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mayhem 戰績</title>
+<style>
+  :root { color-scheme: dark }
+  body { margin:0; min-height:100dvh; display:grid; place-items:center;
+         background:#0e1420; color:#eef1f8;
+         font-family:-apple-system,"Segoe UI","PingFang TC","Noto Sans TC",sans-serif }
+  form { width:min(320px,90vw); display:grid; gap:12px }
+  h1 { font-size:18px; margin:0 0 4px }
+  p { margin:0; font-size:13px; color:#8d96ac }
+  input,button { font:inherit; padding:10px 12px; border-radius:8px; border:1px solid #2a3446 }
+  input { background:#161d2c; color:inherit }
+  button { background:#22d3ee; color:#0e1420; font-weight:600; border:0; cursor:pointer }
+  .err { color:#ff6b6b; font-size:13px; min-height:18px }
+</style></head>
+<body><form id="f">
+  <h1>Mayhem 戰績</h1>
+  <p>這個站台需要密碼。</p>
+  <input id="p" type="password" autocomplete="current-password" autofocus placeholder="密碼">
+  <button>進入</button>
+  <div class="err" id="e"></div>
+</form>
+<script>
+document.getElementById("f").addEventListener("submit", async (ev) => {
+  ev.preventDefault()
+  const e = document.getElementById("e")
+  e.textContent = ""
+  const res = await fetch("/login", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: document.getElementById("p").value }),
+  })
+  if (res.ok) location.replace("/")
+  else e.textContent = (await res.json()).error || "登入失敗"
+})
+</script></body></html>"""
+
+
+def _logged_in(request: Request) -> bool:
+    token = request.cookies.get(SESSION_COOKIE)
+    issued = _sessions.get(token) if token else None
+    if issued is None:
+        return False
+    if time.time() - issued > SESSION_MAX_AGE:
+        _sessions.pop(token, None)
+        return False
+    return True
+
+
 def readonly_error():
     return JSONResponse(
         status_code=403,
@@ -168,6 +238,45 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="ARAM: Mayhem 戰績 BI", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def require_password(request: Request, call_next):
+    """公開模式且設了密碼時,沒登入就什麼都看不到——包含前端本身與圖示。"""
+    if not (PUBLIC and PASSWORD) or request.url.path == "/login" or _logged_in(request):
+        return await call_next(request)
+    if request.url.path.startswith("/api/"):
+        return JSONResponse(status_code=401, content={"error": "請先登入"})
+    return HTMLResponse(LOGIN_PAGE, status_code=401)
+
+
+@app.post("/login")
+async def login(request: Request):
+    if not (PUBLIC and PASSWORD):
+        return JSONResponse(status_code=404, content={"error": "這個站台沒有啟用密碼"})
+    now = time.time()
+    _login_fails[:] = [t for t in _login_fails if now - t < LOGIN_COOLDOWN]
+    if len(_login_fails) >= LOGIN_MAX_FAILS:
+        return JSONResponse(status_code=429, content={"error": "嘗試太多次,請等幾分鐘再試。"})
+    try:
+        supplied = (await request.json()).get("password") or ""
+    except ValueError:
+        supplied = ""
+    # 定時比較:一般的 == 會因為提前返回而洩漏「前幾個字元對了」
+    if not secrets.compare_digest(str(supplied), PASSWORD):
+        _login_fails.append(now)
+        return JSONResponse(status_code=401, content={"error": "密碼不對"})
+    _login_fails.clear()
+    token = secrets.token_urlsafe(32)
+    _sessions[token] = now
+    response = JSONResponse({"ok": True})
+    response.set_cookie(
+        SESSION_COOKIE, token,
+        max_age=SESSION_MAX_AGE, httponly=True, samesite="lax",
+        # 通道那端是 HTTPS,但本機直連是 HTTP;跟著實際協定走,否則本機登入的 cookie 會被瀏覽器丟掉
+        secure=request.headers.get("x-forwarded-proto", request.url.scheme) == "https",
+    )
+    return response
 
 
 WEB_DIST = BASE_DIR / "web" / "dist"
@@ -645,6 +754,12 @@ def icon(path: str):
 if __name__ == "__main__":
     print("=" * 62)
     print(" ARAM: Mayhem 戰績採集 + BI")
+    if PUBLIC:
+        print(" 公開模式:唯讀、其他玩家的名稱已換成代號")
+        print(
+            "  密碼保護:已啟用" if PASSWORD else
+            "  ⚠ 沒有設 MAYHEM_PASSWORD——拿到網址的人就能看到全部內容"
+        )
     print(" 開瀏覽器到 http://127.0.0.1:5057")
     print(" 客戶端開著的時候會自動採集,關掉也不會掉資料(下次開再補)")
     print("=" * 62)

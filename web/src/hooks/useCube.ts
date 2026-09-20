@@ -68,6 +68,8 @@ export function useCollectorStatus(intervalMs = 30000) {
     const load = async () => {
       try {
         const res = await fetch("/api/status")
+        // 登入過期就重新載入，後端會送出登入頁（這支每 30 秒輪詢，最快發現）
+        if (res.status === 401) return location.reload()
         const data = await res.json()
         if (!cancelled) setStatus(data)
       } catch {
