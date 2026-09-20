@@ -214,6 +214,16 @@ tailscale funnel --bg 5058                    # 通道只指向鏡像那個埠
   兩個設定檔都沒有就不啟動：與其開一個沒有鎖的公開網址，不如不要開。
 - `/logout` 可以登出自己；重啟服務則是把所有人的 session 一起作廢。
 
+鏡像和本機服務一樣有排程工作（`MayhemStatsMirror`），登入後 90 秒啟動——
+比本機那份（30 秒）晚，讓 Cube 先起來。不然重開機之後 Funnel 還在、
+但 5058 沒人聽，朋友點進去會拿到 502。
+
+```powershell
+Get-ScheduledTaskInfo -TaskName MayhemStatsMirror    # 看上次執行狀況
+Disable-ScheduledTask -TaskName MayhemStatsMirror    # 暫時停用（下次開機不自動開）
+Unregister-ScheduledTask -TaskName MayhemStatsMirror -Confirm:$false   # 移除
+```
+
 關掉對外：`tailscale funnel --https=443 off`。
 
 另外兩件事：
