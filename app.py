@@ -57,6 +57,23 @@ collector = collector_module.Collector()
 PUBLIC = os.environ.get("MAYHEM_PUBLIC", "").strip().lower() in {"1", "true", "yes", "on"}
 PASSWORD = os.environ.get("MAYHEM_PASSWORD", "").strip()
 
+# 鏡像實例:和本機那份共用同一個資料庫,但只讀。
+#
+#     $env:MAYHEM_PUBLIC="1"; $env:MAYHEM_PASSWORD="…"; $env:MAYHEM_PORT="5058"
+#     $env:MAYHEM_MIRROR="1"; uv run app.py
+#
+# 這樣就能「對外唯讀＋代號、本機照舊可寫＋真名」同時成立——通道只指向鏡像那個埠。
+# 公開模式的旗標是整個行程的(通道進來的請求來源也是 127.0.0.1,分不出誰是誰),
+# 所以要兩種行為就得跑兩個行程。
+#
+# 鏡像不做這三件事,那些都是本機那份的工作:
+#   1. 採集迴圈——兩份同時採集只是重複打客戶端,而且寫入會互相卡。
+#   2. 建表與遷移——同時跑 schema 變更是自找麻煩。
+#   3. 啟動與關閉 Cube——它會沿用 4000 埠上現有的那份;若由鏡像管理,
+#      鏡像一關就把本機那份的語意層也一起帶走。
+MIRROR = os.environ.get("MAYHEM_MIRROR", "").strip().lower() in {"1", "true", "yes", "on"}
+PORT = int(os.environ.get("MAYHEM_PORT", "5057"))
+
 # 代號要跨重啟穩定,否則同一個人每次重開都換一個名字,隊友分析就沒得看了。
 # 隨機鹽只存在本機(不進版控),換掉它等於把所有代號重新洗一次。
 _SALT_FILE = BASE_DIR / ".public_salt"
@@ -190,6 +207,14 @@ def readonly_error():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if MIRROR:
+        # 只讀的鏡像:不建表、不採集、不碰 Cube 的生命週期,查詢直接用 4000 埠上那份。
+        print(f"鏡像模式(唯讀):埠 {PORT},共用本機的資料庫與 Cube")
+        if not cube_process.port_open(cube_process.CUBE_PORT):
+            print("  注意:Cube 沒在跑,分析頁面會查不到東西——請先啟動本機那份服務。")
+        yield
+        return
+
     db.init()
     # Cube 由這裡一併拉起來：開機自動啟動只有一個排程工作，
     # 若要另外顧 Cube，重開機後分析頁面會壞掉而使用者不會馬上發現。
@@ -760,7 +785,7 @@ if __name__ == "__main__":
             "  密碼保護:已啟用" if PASSWORD else
             "  ⚠ 沒有設 MAYHEM_PASSWORD——拿到網址的人就能看到全部內容"
         )
-    print(" 開瀏覽器到 http://127.0.0.1:5057")
+    print(f" 開瀏覽器到 http://127.0.0.1:{PORT}")
     print(" 客戶端開著的時候會自動採集,關掉也不會掉資料(下次開再補)")
     print("=" * 62)
-    uvicorn.run(app, host="127.0.0.1", port=5057)
+    uvicorn.run(app, host="127.0.0.1", port=PORT)

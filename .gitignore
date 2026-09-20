@@ -9,6 +9,8 @@ mayhem.db-shm
 # 開機自動啟動的執行記錄
 autostart.log
 autostart.log.old
+mirror.log
+mirror.log.old
 
 # Cube 語意層
 cube/node_modules/
@@ -29,3 +31,6 @@ icon_cache/
 
 # 公開模式的代號鹽：換掉它所有代號會重洗，不進版控
 .public_salt
+
+# 公開鏡像的密碼，不進版控
+.public_password
