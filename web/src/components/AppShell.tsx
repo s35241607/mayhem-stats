@@ -144,16 +144,20 @@ function CollectorPill() {
           })}
         </div>
       )}
-      <Button
-        size="sm"
-        variant="outline"
-        className="h-7 w-full text-xs"
-        onClick={ingestNow}
-        disabled={ingesting}
-      >
-        <RefreshCw className={ingesting ? "animate-spin" : ""} />
-        {ingesting ? "採集中…" : "立即採集"}
-      </Button>
+      {status.public ? (
+        <div className="text-[11px] text-muted-foreground">唯讀模式（對外開放中）</div>
+      ) : (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 w-full text-xs"
+          onClick={ingestNow}
+          disabled={ingesting}
+        >
+          <RefreshCw className={ingesting ? "animate-spin" : ""} />
+          {ingesting ? "採集中…" : "立即採集"}
+        </Button>
+      )}
     </div>
   )
 }

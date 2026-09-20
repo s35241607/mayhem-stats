@@ -118,6 +118,38 @@ League 客戶端 ──LCU API──> FastAPI（採集器 + 靜態站台）─�
 </details>
 
 <details>
+<summary>想從外面連進來（手機、朋友）</summary>
+
+服務只綁 `127.0.0.1`，所以要從外面連一定得透過通道（Tailscale、ngrok、Cloudflare Tunnel），
+不需要也不應該開 port forwarding。通道那頭「拿到網址的人就是你」，所以**對外開放前先打開公開模式**：
+
+```powershell
+$env:MAYHEM_PUBLIC = "1"
+uv run app.py
+```
+
+公開模式做兩件事：
+
+1. **全站唯讀**——`POST /api/ingest` 與 `POST /api/accounts/track` 一律回 403，畫面上的寫入入口也收起來。
+   採集照常在本機自動跑；要改追蹤名單就在這台電腦上開 `127.0.0.1:5057`。
+2. **其他玩家的 Riot ID 換成穩定代號**（`玩家 A1B2C3`）。同場玩家的名稱是做隊友分析的必要資料，
+   但那是別人的遊戲帳號，不該因為你把網站開出去就一起公開。代號用帶鹽的雜湊，鹽存在 `.public_salt`（不進版控）。
+
+沒設這個變數時行為完全不變。
+
+另外兩件事：
+
+- **Cube 那三個埠的防火牆規則是必做的**（上面「擋掉 Cube 的對外連線」那節）。
+  它的開發模式不驗證身分，4000 埠等於整個資料庫任人讀。用 Tailscale 時尤其重要——
+  tailnet 上的其他裝置也算「外面」。
+- **通道只能指向 5057**，不要指向 4000。
+
+代號不是密碼學等級的匿名：知道鹽、又剛好猜中某個 Riot ID 的人可以自己算來對照。
+它做到的是「回應裡不再帶著別人的遊戲帳號」。真的一點都不能外流，就別開公開網址，用只有自己連得到的通道。
+
+</details>
+
+<details>
 <summary>開機自動啟動（Windows）</summary>
 
 已註冊排程工作 `MayhemStatsCollector`，登入後 30 秒以隱藏視窗啟動，執行 [autostart.pyw](autostart.pyw)。

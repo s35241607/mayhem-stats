@@ -55,6 +55,8 @@ export type CollectorStatus = {
   newestGame: number | null
   lastRun: { at: number; trigger: string; seen: number; new: number } | null
   lastError: string | null
+  /** 對外開放的唯讀模式（後端的 MAYHEM_PUBLIC）：寫入端點會回 403，畫面要把寫入入口收起來 */
+  public?: boolean
 }
 
 /** 採集器狀態，定期輪詢。 */

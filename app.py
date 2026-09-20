@@ -13,6 +13,9 @@
 """
 
 import asyncio
+import hashlib
+import os
+import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -31,6 +34,88 @@ import icons
 
 BASE_DIR = Path(__file__).parent
 collector = collector_module.Collector()
+
+# ── 對外開放模式 ────────────────────────────────────────────────────
+# 服務本身只綁 127.0.0.1,外面要連進來一定是透過通道(Tailscale / ngrok /
+# Cloudflare Tunnel)。通道那頭「拿到網址的人就是你」,所以對外開放前打開這個:
+#
+#     set MAYHEM_PUBLIC=1  &&  uv run app.py        (PowerShell: $env:MAYHEM_PUBLIC=1)
+#
+# 它做兩件事:
+#   1. 全站唯讀——採集與追蹤名單這兩個寫入端點一律回 403。採集照常在本機自動跑,
+#      要改追蹤名單就在這台電腦上開 127.0.0.1:5057。
+#   2. 其他玩家的 Riot ID 換成穩定代號。同場玩家的名稱是做隊友分析的必要資料,
+#      但那是別人的遊戲帳號,不該因為你把網站開出去就一起公開。
+#
+# 沒設這個變數時行為完全不變,本機使用不受影響。
+PUBLIC = os.environ.get("MAYHEM_PUBLIC", "").strip().lower() in {"1", "true", "yes", "on"}
+
+# 代號要跨重啟穩定,否則同一個人每次重開都換一個名字,隊友分析就沒得看了。
+# 隨機鹽只存在本機(不進版控),換掉它等於把所有代號重新洗一次。
+_SALT_FILE = BASE_DIR / ".public_salt"
+_my_names_cache: Optional[set] = None
+
+
+def _name_salt() -> bytes:
+    if not _SALT_FILE.is_file():
+        _SALT_FILE.write_bytes(secrets.token_bytes(16))
+    return _SALT_FILE.read_bytes()
+
+
+def _my_names() -> set:
+    """本機帳號的名稱不遮——那是你自己的資料,你自己決定要不要露出來。"""
+    global _my_names_cache
+    if _my_names_cache is None:
+        conn = db.connect()
+        try:
+            _my_names_cache = {
+                row["riot_id"]
+                for row in conn.execute("SELECT riot_id FROM accounts WHERE is_me = 1")
+                if row["riot_id"]
+            }
+        finally:
+            conn.close()
+    return _my_names_cache
+
+
+def mask_name(riot_id):
+    """公開模式下把別人的 Riot ID 換成「玩家 A1B2」這種穩定代號。
+
+    用帶鹽的雜湊而不是流水號:流水號要另外維護對照表,而且換個查詢順序就會變。
+    六位十六進位不是密碼學等級的匿名——知道鹽又剛好猜中某個 Riot ID 的人可以自己算來對照——
+    但它做到最重要的事:回應裡不再帶著別人的遊戲帳號。真的不能外流就別用公開模式。
+    """
+    if not PUBLIC or not riot_id or riot_id in _my_names():
+        return riot_id
+    # 三個位元組(六位十六進位)：資料庫裡已經有一千七百多個玩家，
+    # 兩位元組只有 65536 種，依生日問題會撞出二十幾組同名代號，隊友分析就會把兩個人混成一個。
+    digest = hashlib.blake2s(riot_id.encode("utf-8"), key=_name_salt(), digest_size=3).hexdigest().upper()
+    return f"玩家 {digest}"
+
+
+# Cube 回應裡會帶名稱的成員。公開模式下在代理這一層換掉,
+# 前端和語意層都不用改——語意層本來就該回真名,遮不遮是對外開放的決定。
+MASKED_MEMBERS = (".riot_id", ".player")
+
+
+def mask_cube(payload):
+    if not PUBLIC:
+        return payload
+    if isinstance(payload, dict):
+        return {
+            k: (mask_name(v) if isinstance(v, str) and k.endswith(MASKED_MEMBERS) else mask_cube(v))
+            for k, v in payload.items()
+        }
+    if isinstance(payload, list):
+        return [mask_cube(x) for x in payload]
+    return payload
+
+
+def readonly_error():
+    return JSONResponse(
+        status_code=403,
+        content={"error": "這個站台目前是對外開放的唯讀模式,不接受寫入。請在本機開 127.0.0.1:5057 操作。"},
+    )
 
 
 @asynccontextmanager
@@ -106,11 +191,13 @@ def index():
 
 @app.get("/api/status")
 def status():
-    return {**collector.snapshot(), "iconCache": icons.stats()}
+    return {**collector.snapshot(), "iconCache": icons.stats(), "public": PUBLIC}
 
 
 @app.post("/api/ingest")
 async def ingest_now():
+    if PUBLIC:
+        return readonly_error()
     new = await collector._run_ingest("manual")
     return {"new": new, **collector.snapshot()}
 
@@ -128,7 +215,9 @@ def list_players():
                GROUP BY mp.puuid
                ORDER BY is_me DESC, tracked DESC, games DESC"""
         ).fetchall()
-        return {"players": [dict(row) for row in rows]}
+        return {
+            "players": [{**dict(row), "riot_id": mask_name(row["riot_id"])} for row in rows]
+        }
     finally:
         conn.close()
 
@@ -343,7 +432,7 @@ def match_detail(platform_id: str, game_id: int, puuid: Optional[str] = None):
             return JSONResponse(status_code=404, content={"error": "找不到這場對局"})
 
         players = [
-            dict(row)
+            {**dict(row), "riot_id": mask_name(row["riot_id"])}
             for row in conn.execute(
                 """SELECT mp.*, COALESCE(dc.name, '英雄 ' || mp.champion_id) AS champion_name,
                           dc.icon_path AS champion_icon,
@@ -395,7 +484,7 @@ def list_accounts():
     conn = db.connect()
     try:
         tracked = [
-            dict(row)
+            {**dict(row), "riot_id": mask_name(row["riot_id"])}
             for row in conn.execute(
                 """SELECT a.puuid, a.riot_id, a.tracked,
                           -- 和我同場的場次
@@ -414,7 +503,7 @@ def list_accounts():
             ).fetchall()
         ]
         candidates = [
-            dict(row)
+            {**dict(row), "riot_id": mask_name(row["riot_id"])}
             for row in conn.execute(
                 """SELECT mp.riot_id, mp.puuid, COUNT(DISTINCT mp.game_id) AS games
                    FROM match_participants mp
@@ -444,6 +533,8 @@ class TrackRequest(BaseModel):
 @app.post("/api/accounts/track")
 def track_account(body: TrackRequest):
     """加入或移除追蹤對象。重複送同樣的請求結果一致——冪等。"""
+    if PUBLIC:
+        return readonly_error()
     conn = db.connect()
     try:
         puuid = body.puuid
@@ -519,6 +610,11 @@ async def cube_proxy(path: str, request: Request):
             status_code=503,
             content={"error": f"連不到 Cube 語意層(是不是沒啟動?): {exc}"},
         )
+    if PUBLIC and resp.headers.get("Content-Type", "").startswith("application/json"):
+        try:
+            return JSONResponse(status_code=resp.status_code, content=mask_cube(resp.json()))
+        except ValueError:
+            pass  # 不是合法 JSON 就原樣送回,例外訊息比遮罩重要
     return Response(
         content=resp.content,
         status_code=resp.status_code,

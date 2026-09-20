@@ -58,6 +58,8 @@ export function Tracked() {
     }
   }
 
+  // 對外開放的唯讀模式：寫入端點會回 403，這頁的入口就不要留著讓人白按
+  const readOnly = !!status?.public
   const trackedIds = new Set(data?.tracked.map((a) => a.puuid) ?? [])
   const candidates = (data?.candidates ?? []).filter(
     (c) => !trackedIds.has(c.puuid) && (c.riot_id ?? "").toLowerCase().includes(search.toLowerCase()),
@@ -86,6 +88,13 @@ export function Tracked() {
         />
       </div>
 
+      {readOnly && (
+        <div className="rounded-lg border border-primary/40 bg-primary/10 p-3 text-sm">
+          這個站台是<b>對外開放的唯讀模式</b>：採集與追蹤名單只能在這台電腦上操作
+          （開 127.0.0.1:5057）。其他玩家的名稱也已經換成代號。
+        </div>
+      )}
+
       {error && (
         <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
           {error}
@@ -96,10 +105,12 @@ export function Tracked() {
         title="追蹤中"
         caption="每次採集會順便掃這些人的紀錄。他們打了你沒參與的對局也會被收進來。"
         action={
-          <Button size="sm" variant="outline" onClick={collectNow} disabled={ingesting}>
-            <RefreshCw className={ingesting ? "animate-spin" : ""} />
-            {ingesting ? "採集中…" : "立即採集"}
-          </Button>
+          readOnly ? undefined : (
+            <Button size="sm" variant="outline" onClick={collectNow} disabled={ingesting}>
+              <RefreshCw className={ingesting ? "animate-spin" : ""} />
+              {ingesting ? "採集中…" : "立即採集"}
+            </Button>
+          )
         }
       >
         {!data ? (
@@ -119,7 +130,7 @@ export function Tracked() {
                 </span>
                 <button
                   onClick={() => toggle(a.puuid, false)}
-                  disabled={busy === a.puuid}
+                  disabled={busy === a.puuid || readOnly}
                   className="rounded-sm opacity-60 transition hover:opacity-100"
                   aria-label="取消追蹤"
                 >
@@ -151,7 +162,7 @@ export function Tracked() {
               <button
                 key={c.puuid}
                 onClick={() => toggle(c.puuid, true)}
-                disabled={busy === c.puuid}
+                disabled={busy === c.puuid || readOnly}
                 className="flex items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition hover:bg-accent disabled:opacity-50"
               >
                 <Plus className="size-3.5 shrink-0 text-muted-foreground" />
