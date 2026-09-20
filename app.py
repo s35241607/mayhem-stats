@@ -164,14 +164,20 @@ _login_fails: list = []
 # Discord OAuth。設定檔不進版控,格式:
 #   { "client_id": "...", "client_secret": "...",
 #     "allow": ["朋友的discord帳號", "另一個", "123456789012345678"],
+#     "allow_guild": "伺服器ID",          ← 這個群的成員都放行(可省略)
+#     "allow_roles": ["身分組ID", ...],   ← 再限定到某些身分組(可省略)
 #     "redirect_uri": "https://…/auth/callback"   ← 可省略,省略時依請求的網域推出來
 #   }
 # allow 可以寫 Discord 的使用者名稱或數字 ID。名稱可以改、ID 不會,
 # 所以被擋下來的人畫面上會直接顯示他的 ID,你複製進白名單就好。
+#
+# allow_guild 用的是 guilds.members.read 而不是 guilds:前者只問「他在不在這一個群」,
+# 後者會把他加入的所有伺服器清單都拿回來——放行一個群不需要知道他還加了哪些群。
 OAUTH_FILE = BASE_DIR / ".public_oauth"
 DISCORD_AUTH = "https://discord.com/oauth2/authorize"
 DISCORD_TOKEN = "https://discord.com/api/oauth2/token"
 DISCORD_ME = "https://discord.com/api/users/@me"
+DISCORD_GUILD_MEMBER = "https://discord.com/api/users/@me/guilds/{guild}/member"
 # state 防的是「別人把他自己的授權碼塞給你的瀏覽器」。存在記憶體、十分鐘過期。
 STATE_MAX_AGE = 600
 _states: dict = {}
@@ -192,8 +198,8 @@ def oauth_config() -> dict:
 OAUTH_ENABLED = bool(oauth_config())
 
 
-def _allowed(cfg: dict, user: dict) -> bool:
-    """白名單比對使用者名稱或數字 ID,大小寫不計。"""
+def _on_list(cfg: dict, user: dict) -> bool:
+    """個別白名單:比對使用者名稱或數字 ID,大小寫不計。"""
     allow = {str(x).strip().lower() for x in cfg.get("allow", []) if str(x).strip()}
     candidates = {
         str(user.get("id", "")).lower(),
@@ -201,6 +207,30 @@ def _allowed(cfg: dict, user: dict) -> bool:
         str(user.get("global_name") or "").lower(),
     }
     return bool(allow & (candidates - {""}))
+
+
+def _guild_ok(cfg: dict, member: Optional[dict]) -> bool:
+    """群組放行:是那個群的成員就算過;有指定身分組時還要有其中一個。"""
+    if member is None:
+        return False
+    roles = {str(r) for r in cfg.get("allow_roles", []) if str(r).strip()}
+    return not roles or bool(roles & {str(r) for r in member.get("roles", [])})
+
+
+def _fetch_member(cfg: dict, token: str) -> Optional[dict]:
+    """問 Discord「這個人在不在指定的那個群」。不在(403/404)就回 None。"""
+    guild = str(cfg.get("allow_guild") or "").strip()
+    if not guild:
+        return None
+    resp = requests.get(
+        DISCORD_GUILD_MEMBER.format(guild=guild),
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=15,
+    )
+    if resp.status_code in (403, 404):
+        return None
+    resp.raise_for_status()
+    return resp.json()
 
 
 def _redirect_uri(request: Request, cfg: dict) -> str:
@@ -393,8 +423,9 @@ async def auth_start(request: Request):
         "client_id": cfg["client_id"],
         "redirect_uri": _redirect_uri(request, cfg),
         "response_type": "code",
-        # identify 只拿到 id / 使用者名稱 / 頭像,不要 email——白名單用不到,少拿一樣少一樣
-        "scope": "identify",
+        # identify 只拿到 id / 使用者名稱 / 頭像,不要 email——白名單用不到,少拿一樣少一樣。
+        # 有設群組放行才多要 guilds.members.read(只問指定的那一個群)。
+        "scope": "identify guilds.members.read" if cfg.get("allow_guild") else "identify",
         "state": state,
     })
     return RedirectResponse(f"{DISCORD_AUTH}?{params}", status_code=303)
@@ -429,26 +460,31 @@ async def auth_callback(request: Request, code: str = "", state: str = ""):
         access = token.json()["access_token"]
         me = requests.get(DISCORD_ME, headers={"Authorization": f"Bearer {access}"}, timeout=15)
         me.raise_for_status()
-        return me.json()
+        return me.json(), _fetch_member(cfg, access)
 
     try:
-        user = await asyncio.to_thread(exchange)
+        user, member = await asyncio.to_thread(exchange)
     except (requests.exceptions.RequestException, KeyError, ValueError) as exc:
         print(f"Discord 登入失敗: {type(exc).__name__}: {exc}")
         return HTMLResponse(login_page("<p>和 Discord 交換憑證時失敗,請再試一次。</p>"), status_code=502)
 
     name = user.get("global_name") or user.get("username") or "?"
-    if not _allowed(cfg, user):
-        print(f"擋下不在白名單的帳號: {name} (id {user.get('id')})")
+    by_list = _on_list(cfg, user)
+    by_guild = _guild_ok(cfg, member)
+    if not (by_list or by_guild):
+        why = "不在指定的 Discord 群組裡" if cfg.get("allow_guild") else "不在白名單上"
+        if cfg.get("allow_guild") and member is not None:
+            why = "在那個群組裡,但沒有被允許的身分組"
+        print(f"擋下 {name} (id {user.get('id')}): {why}")
         return HTMLResponse(
             login_page(
-                "<p>這個 Discord 帳號不在白名單上。</p>"
+                f"<p>這個 Discord 帳號{why}。</p>"
                 f'<p class="hint">帳號：{name}<br>ID：{user.get("id")}</p>'
-                "<p>把上面的帳號或 ID 給站長加進白名單就能進來。</p>"
+                "<p>把上面的帳號或 ID 給站長，或請他把你加進群組。</p>"
             ),
             status_code=403,
         )
-    return _start_session(request, f"{name} (id {user.get('id')}) 透過 Discord")
+    return _start_session(request, f"{name} (id {user.get('id')}) 透過 Discord（{'白名單' if by_list else '群組成員'}）")
 
 
 @app.get("/logout")

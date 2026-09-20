@@ -186,7 +186,23 @@ tailscale funnel --bg 5058                    # 通道只指向鏡像那個埠
 
 `allow` 可以寫 Discord 使用者名稱或數字 ID。**名稱會變、ID 不會**，所以被擋下來的人
 畫面上會直接顯示他的 ID，複製進白名單就好。改白名單不用重啟——每次登入都重讀這個檔。
-只要 `identify` 權限（拿到 id、使用者名稱、頭像），不要 email。
+
+要「某個 Discord 群的人都能看」就加 `allow_guild`（在 Discord 開啟開發者模式後，
+右鍵伺服器 → 複製伺服器 ID）；想再限縮就加 `allow_roles`（右鍵身分組 → 複製身分組 ID）：
+
+```json
+{
+  "allow": ["自己的帳號"],
+  "allow_guild": "伺服器 ID",
+  "allow_roles": ["身分組 ID"]
+}
+```
+
+三者可以並存：在 `allow` 上、或是那個群的成員（且有指定身分組），兩者之一成立就放行。
+
+權限只要 `identify`（id、使用者名稱、頭像）；有設 `allow_guild` 時才多要
+`guilds.members.read`——它只問「這個人在不在**你指定的那一個**群」，
+而不是 `guilds` 那種把對方加入的所有伺服器清單都拿回來的做法。不拿 email。
 
 **共用密碼**（備援）：把密碼寫進 `.public_password`，單獨一行、至少 12 個字元。
 沒有個別身分，外流就得全體換。
