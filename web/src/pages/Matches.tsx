@@ -11,12 +11,15 @@ import { MatchList } from "@/components/MatchList"
 import { cn } from "@/lib/utils"
 
 type Item = { slot: number; item_id: number; name: string | null; icon_path: string | null }
+/** 同場十個人裡的一個，只要英雄（不帶名稱，列表不列出其他玩家的帳號）。 */
+type Mate = { participant_id: number; team_id: number; champion_name: string; champion_icon: string | null }
 type Augment = { slot: number; name: string | null; rarity: string | null; icon_path: string | null }
 
 export type MatchRow = {
   platform_id: string
   game_id: number
   participant_id: number
+  team_id: number
   game_creation: number
   game_duration: number
   game_mode: string
@@ -36,11 +39,11 @@ export type MatchRow = {
   quadra_kills: number
   items: Item[]
   augments: Augment[]
+  roster: Mate[]
 }
 
 export type Player = MatchRow & {
   riot_id: string
-  team_id: number
   is_me: number
   dmg_taken: number
   dmg_physical: number
@@ -127,6 +130,31 @@ function AugmentRow({ augments, size = "size-6" }: { augments: Augment[]; size?:
           <div key={`empty-${i}`} className={cn(size, "rounded bg-secondary/40")} />
         )
       })}
+    </div>
+  )
+}
+
+/** 同場另外九個人的英雄：我方（不含自己）在左、對手在右。
+ *  只放圖示不放名稱——一是排不下，二是列表不應該整排列出其他玩家的帳號。 */
+function RosterRow({ roster, teamId, self }: { roster: Mate[]; teamId: number; self: number }) {
+  const ally = roster.filter((p) => p.team_id === teamId && p.participant_id !== self)
+  const foe = roster.filter((p) => p.team_id !== teamId)
+  if (!ally.length && !foe.length) return null
+  const icons = (list: Mate[]) =>
+    list.map((p) => (
+      <img
+        key={p.participant_id}
+        src={iconUrl(p.champion_icon)}
+        alt=""
+        title={p.champion_name}
+        className="size-5 rounded bg-icon-tile"
+      />
+    ))
+  return (
+    <div className="flex items-center gap-1.5">
+      <div className="flex gap-0.5" title="我方">{icons(ally)}</div>
+      <span className="text-[10px] text-muted-foreground">vs</span>
+      <div className="flex gap-0.5 opacity-80" title="對手">{icons(foe)}</div>
     </div>
   )
 }
@@ -468,6 +496,8 @@ export function MatchCards({
               <div>{m.cs} 補兵</div>
               <div>{k(m.gold_earned)} 金錢</div>
             </div>
+
+            <RosterRow roster={m.roster ?? []} teamId={m.team_id} self={m.participant_id} />
 
             <div className="ml-auto text-right">
               <div className="text-xs text-muted-foreground">{m.champion_name}</div>

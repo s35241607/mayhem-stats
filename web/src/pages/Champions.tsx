@@ -1,16 +1,18 @@
-import { useMemo, useState } from "react"
+import { useMemo, useState, type CSSProperties } from "react"
 import { BarCell, RecordCell, StatCell } from "@/components/cells"
 import { Filter, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Kpi, Panel, EmptyState } from "@/components/primitives"
 import { AgTable, type GridColumn } from "@/components/AgTable"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { MatchList } from "@/components/MatchList"
 import { BarChart, type BarDatum } from "@/components/charts"
 import { useCube } from "@/hooks/useCube"
-import { num, type CubeRow } from "@/lib/cube"
+import { iconUrl, num, type CubeRow } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 import { useCrumb } from "@/lib/breadcrumb"
+import { cn } from "@/lib/utils"
 import { MIN_GAMES, NO_LIMIT, round0, round1, round2 } from "./shared"
 
 const MEASURES = [
@@ -103,10 +105,110 @@ function buildColumns(rows: CubeRow[]): GridColumn[] {
   ]
 }
 
-/** 點了某隻英雄之後：摘要 + 這隻英雄的每一場（和對局紀錄頁同樣的卡片）。 */
+/** 這隻英雄的出裝或增幅：一列一項，場次 + 那幾場的勝率。
+ *
+ *  勝率的比較基準是「這隻英雄的整體勝率」，不是 50%——寫在標題裡，
+ *  不然 40% 看起來像很差，但這隻英雄本來就只有 35%。
+ *  一律全部列出（查詢不設上限），太長就在框裡捲動。 */
+function BuildList({
+  title,
+  caption,
+  rows,
+  loading,
+  error,
+  nameKey,
+  iconKey,
+  baseline,
+}: {
+  title: string
+  caption: string
+  rows: CubeRow[]
+  loading: boolean
+  error: string | null
+  nameKey: string
+  iconKey: string
+  baseline: number | null
+}) {
+  return (
+    <div className="rounded-lg border p-3">
+      <div className="mb-2">
+        <div className="text-sm font-semibold">{title}</div>
+        <div className="text-[11px] text-muted-foreground">{caption}</div>
+      </div>
+      {loading ? (
+        <div className="space-y-1.5">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-8 w-full" />
+          ))}
+        </div>
+      ) : error ? (
+        <div className="text-sm text-destructive">{error}</div>
+      ) : !rows.length ? (
+        <EmptyState>這個條件下沒有資料。</EmptyState>
+      ) : (
+        <div className="max-h-[300px] space-y-1 overflow-y-auto pr-1">
+          {rows.map((r, i) => {
+            const label = String(r[nameKey] ?? "—")
+            const games = n0(r, "participants.games")
+            const wr = opt(r, "participants.winrate")
+            const above = wr !== null && baseline !== null && wr >= baseline
+            return (
+              <div
+                key={label}
+                style={{ "--stagger": `${Math.min(i, 10) * 30}ms` } as CSSProperties}
+                className="slide-in flex items-center gap-2.5 rounded-md px-1.5 py-1"
+              >
+                <img src={iconUrl(r[iconKey] as string)} alt="" className="size-7 shrink-0 rounded bg-icon-tile" />
+                <span className="min-w-0 flex-1 truncate text-[13px]">{label}</span>
+                <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{games} 場</span>
+                <span
+                  className={cn(
+                    "w-[52px] shrink-0 rounded border px-1 text-right text-[11px] tabular-nums",
+                    wr === null || baseline === null
+                      ? "border-border text-muted-foreground"
+                      : above
+                        ? "border-win/30 bg-win/10 text-win"
+                        : "border-loss/30 bg-loss/10 text-loss",
+                  )}
+                >
+                  {wr === null ? "—" : `${round1(wr)}%`}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** 點了某隻英雄之後：摘要 + 出裝與增幅 + 這隻英雄的每一場（和對局紀錄頁同樣的卡片）。 */
 function ChampionPanel({ row, onClose }: { row: CubeRow; onClose: () => void }) {
-  const { matchParams, account, addDrill, drills } = useFilters()
+  const { apply, matchParams, account, addDrill, drills } = useFilters()
   const name = String(row["champions.name"])
+  const onlyThis = useMemo(
+    () => [{ member: "champions.name", operator: "equals" as const, values: [name] }],
+    [name],
+  )
+  // 裝備排除第 7 格（飾品）：那格每場都一樣，擺進來只會佔掉第一名
+  const items = useCube(
+    apply({
+      measures: ["participants.games", "participants.winrate"],
+      dimensions: ["items.name", "items.icon_path"],
+      filters: [...onlyThis, { member: "items.slot", operator: "lt", values: ["6"] }],
+      order: { "participants.games": "desc" },
+      limit: NO_LIMIT,
+    }),
+  )
+  const augments = useCube(
+    apply({
+      measures: ["participants.games", "participants.winrate"],
+      dimensions: ["augments.name", "augments.icon_path"],
+      filters: onlyThis,
+      order: { "participants.games": "desc" },
+      limit: NO_LIMIT,
+    }),
+  )
   const metric = (key: string, fmt: (n: number) => string, suffix = "") => {
     const n = num(row[key])
     return n === null ? "—" : `${fmt(n)}${suffix}`
@@ -152,6 +254,32 @@ function ChampionPanel({ row, onClose }: { row: CubeRow; onClose: () => void }) 
           <Kpi label="每分鐘經濟" value={metric("participants.gpm", round0)} />
           <Kpi label="傷害佔比" value={metric("participants.damage_share", round1, "%")} />
         </div>
+        <div className="grid gap-3 lg:grid-cols-2">
+          <BuildList
+            title="最常出的裝備"
+            caption={`對局結束時身上的裝備（不含飾品），依出現場次排序。勝率是帶著這件裝備收場的那幾場，和這隻英雄的整體 ${metric("participants.winrate", round1, "%")} 比`}
+            rows={items.rows}
+            loading={items.loading}
+            error={items.error}
+            nameKey="items.name"
+            iconKey="items.icon_path"
+            baseline={winrate}
+          />
+          <BuildList
+            title="最常選的增幅"
+            caption={`依選到的場次排序。勝率是選了這個增幅的那幾場，和這隻英雄的整體 ${metric("participants.winrate", round1, "%")} 比`}
+            rows={augments.rows}
+            loading={augments.loading}
+            error={augments.error}
+            nameKey="augments.name"
+            iconKey="augments.icon_path"
+            baseline={winrate}
+          />
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          這兩份清單是「出現過這件裝備／這個增幅的場次」，不是因果：終場裝備同時受對局長短、經濟與勝負過程影響，
+          場次少的那幾列只能當成看過什麼，不能當成建議。
+        </p>
         {otherDrills.length > 0 && (
           <p className="text-[11px] text-muted-foreground">
             注意：上方的「{otherDrills.map((d) => d.label).join("、")}」篩選只套用在統計數字，下面的逐場列表不受影響。
@@ -163,9 +291,14 @@ function ChampionPanel({ row, onClose }: { row: CubeRow; onClose: () => void }) 
   )
 }
 
+type RankBy = "winrate" | "games"
+
 export function Champions() {
   const { apply } = useFilters()
   const [picked, setPicked] = useState<string | null>(null)
+  // 拿掉場次門檻之後，依勝率排會被一堆一場 100% 的英雄佔滿前面；
+  // 想看「常玩的那幾隻打得怎樣」就切成依場次排，長條仍然是勝率
+  const [rankBy, setRankBy] = useState<RankBy>("winrate")
   useCrumb(10, picked, () => setPicked(null))
   const { rows, loading, error } = useCube(
     apply({
@@ -179,15 +312,15 @@ export function Champions() {
   // 欄位定義只在資料換了才重建，不然每次重畫 AG Grid 都會重新套欄位
   const columns = useMemo(() => buildColumns(rows), [rows])
 
-  // 和增幅頁同一個結構：上面是樣本夠的勝率排行，下面是完整表格
+  // 全部英雄都上榜（不設場次門檻，使用者要求），長條末端同時標勝率與場次；
+  // 顏色本來就會依場次往整體平均收縮，所以一場全勝的那根是淡的，不會看起來最強
   const top: BarDatum[] = rows
-    .filter((r) => (num(r["participants.games"]) ?? 0) >= MIN_GAMES)
     .map((r) => ({
       label: String(r["champions.name"] ?? "—"),
       value: num(r["participants.winrate"]) ?? 0,
       games: num(r["participants.games"]) ?? 0,
     }))
-    .sort((a, b) => b.value - a.value)
+    .sort((a, b) => (rankBy === "games" ? b.games - a.games || b.value - a.value : b.value - a.value || b.games - a.games))
 
   const table = (
     <Panel
@@ -219,20 +352,40 @@ export function Champions() {
     <div className="space-y-4">
       {pickedRow && <ChampionPanel key={picked} row={pickedRow} onClose={() => setPicked(null)} />}
 
-      <Panel title="勝率排行" caption={`僅計入 ${MIN_GAMES} 場以上的英雄，超過 14 隻時在圖上捲動。點長條也能看那隻英雄的每一場`}>
+      <Panel
+        title="勝率排行"
+        caption={
+          rankBy === "winrate"
+            ? `全部 ${top.length} 隻英雄都列出來，長條後面是勝率與場次；顏色依場次往你的整體勝率收縮，所以一兩場的那幾根顏色很淡。依勝率排時前面幾乎都是只玩過一兩場的，想看常玩的就切成「依場次」`
+            : `全部 ${top.length} 隻英雄依場次由多到少，長條長度仍然是勝率。超過 14 隻時在圖上捲動，點長條看那隻英雄的每一場`
+        }
+        action={
+          <ToggleGroup
+            type="single"
+            size="sm"
+            variant="outline"
+            value={rankBy}
+            onValueChange={(v) => v && setRankBy(v as RankBy)}
+          >
+            <ToggleGroupItem value="winrate">依勝率</ToggleGroupItem>
+            <ToggleGroupItem value="games">依場次</ToggleGroupItem>
+          </ToggleGroup>
+        }
+      >
         {loading ? (
           <Skeleton className="h-[320px] w-full" />
         ) : top.length ? (
           <BarChart
             data={top}
             suffix="%"
+            showGames
             onPick={(label) => {
               setPicked(label)
               window.scrollTo({ top: 0, behavior: "smooth" })
             }}
           />
         ) : (
-          <EmptyState>還沒有英雄累積到 {MIN_GAMES} 場。</EmptyState>
+          <EmptyState>這個條件下還沒有對局。</EmptyState>
         )}
       </Panel>
 

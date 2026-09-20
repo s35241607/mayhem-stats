@@ -212,7 +212,7 @@ def recent_matches(
         sql = """
             SELECT m.game_id, m.platform_id, m.game_creation, m.game_duration, m.queue_id,
                    m.game_mode, m.ended_surrender,
-                   mp.participant_id, mp.champion_id, mp.win, mp.kills, mp.deaths, mp.assists,
+                   mp.participant_id, mp.champion_id, mp.team_id, mp.win, mp.kills, mp.deaths, mp.assists,
                    mp.dmg_to_champions, mp.gold_earned, mp.cs, mp.team_kills, mp.champ_level,
                    mp.spell1_id, mp.spell2_id,
                    mp.penta_kills, mp.quadra_kills, mp.largest_multi_kill,
@@ -350,6 +350,25 @@ def recent_matches(
                    WHERE (pa.platform_id, pa.game_id, pa.participant_id) IN ({placeholders})
                    ORDER BY pa.slot""",
             )
+
+            # 同場另外九個人的英雄。以對局為鍵（不是參賽者），一場只撈一次；
+            # 誰是我方、誰是對手交給前端用列上的 team_id 分，後端不必知道視角。
+            games = list({(m["platform_id"], m["game_id"]) for m in matches})
+            roster_rows = conn.execute(
+                f"""SELECT mp.platform_id, mp.game_id, mp.participant_id, mp.team_id,
+                           COALESCE(dc.name, '英雄 ' || mp.champion_id) AS champion_name,
+                           dc.icon_path AS champion_icon
+                    FROM match_participants mp
+                    LEFT JOIN dim_champions dc ON dc.id = mp.champion_id
+                    WHERE (mp.platform_id, mp.game_id) IN ({",".join("(?,?)" for _ in games)})
+                    ORDER BY mp.team_id, mp.participant_id""",
+                [value for key in games for value in key],
+            ).fetchall()
+            by_game: dict = {}
+            for row in roster_rows:
+                by_game.setdefault((row["platform_id"], row["game_id"]), []).append(dict(row))
+            for match in matches:
+                match["roster"] = by_game.get((match["platform_id"], match["game_id"]), [])
 
         count_sql = """
             SELECT COUNT(*) AS n, COALESCE(SUM(mp.win), 0) AS wins FROM match_participants mp

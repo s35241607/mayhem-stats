@@ -515,6 +515,7 @@ export function BarChart({
   colorBy = "value",
   baseline,
   selected = null,
+  showGames = false,
   onPick,
 }: {
   /** 交叉篩選：選中的那根描邊，其他淡掉 */
@@ -522,6 +523,9 @@ export function BarChart({
   data: BarDatum[]
   suffix?: string
   colorBy?: "value" | "flat"
+  /** 長條末端連場次一起標出來。沒有場次門檻的排行一定要開——
+   *  不然 100% 的那根看起來和 20 場 60% 的一樣有份量。 */
+  showGames?: boolean
   /** 紅綠的分界。預設用這批資料自己的加權平均——也就是「你的水準」。
    *  傳數字可以改成固定門檻(例如 50)。 */
   baseline?: number
@@ -553,7 +557,8 @@ export function BarChart({
     }
     return {
       // 有平均線時上緣要留位置給它的標籤，否則會被切掉
-      grid: { left: 8, right: scroll ? 76 : 56, top: colorBy === "flat" ? 8 : 20, bottom: 8, containLabel: true },
+      // 末端的標籤要留得下，帶場次時再多讓一點
+      grid: { left: 8, right: (scroll ? 76 : 56) + (showGames ? 52 : 0), top: colorBy === "flat" ? 8 : 20, bottom: 8, containLabel: true },
       dataZoom: scroll
         ? [
             // 最上面（ordered 的尾端）是第一根，預設停在那裡
@@ -661,14 +666,17 @@ export function BarChart({
             fontFamily: MONO,
             // 數字跟著長條一起從 0 跑上來
             valueAnimation: true,
-            formatter: (p: { value: number }) => `${p.value.toFixed(1)}${suffix}`,
+            formatter: (p: { value: number; dataIndex: number }) =>
+              showGames
+                ? `${p.value.toFixed(1)}${suffix}  ${ordered[p.dataIndex]?.games ?? 0} 場`
+                : `${p.value.toFixed(1)}${suffix}`,
           },
         },
       ],
     }
     // zoom 用 ref 讀，刻意不放進依賴：捲動本身不該觸發重建
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, suffix, colorBy, baseline, selected, theme, scroll])
+  }, [data, suffix, colorBy, baseline, selected, showGames, theme, scroll])
 
   const onEvent = useMemo(() => {
     const events: Record<string, (p: never) => void> = {}
