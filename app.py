@@ -927,6 +927,34 @@ def track_account(body: TrackRequest):
 
 CUBE_BASE = "http://127.0.0.1:4000/cubejs-api/v1"
 
+# 公開模式下的查詢速率限制。
+#
+# Cube 的查詢是這裡唯一「一個請求可以吃掉很多 CPU」的地方——最重的一種
+# (英雄 × 增幅這類一對多展開)第一次要跑十秒。登入的人都是熟人,但不必把
+# 「大家都不會亂來」當成防線:一個寫壞的迴圈或一個好奇的人就夠了。
+#
+# 窗格開得比真實用量寬很多:儀表板一次發五個查詢,自由探索連點也才個位數,
+# 三十秒六十次撞不到;要撞到就是在連續打。
+CUBE_RATE_WINDOW = 30
+CUBE_RATE_PER_SESSION = 60
+CUBE_RATE_GLOBAL = 300
+_cube_hits: dict = {}
+
+
+def cube_rate_ok(token: Optional[str]) -> bool:
+    """回 False 表示超量。以 session 為單位,另外再加一道全站上限。"""
+    now = time.time()
+    for key in list(_cube_hits):
+        _cube_hits[key] = [t for t in _cube_hits[key] if now - t < CUBE_RATE_WINDOW]
+        if not _cube_hits[key]:
+            _cube_hits.pop(key, None)
+    mine = _cube_hits.setdefault(token or "-", [])
+    total = sum(len(v) for v in _cube_hits.values())
+    if len(mine) >= CUBE_RATE_PER_SESSION or total >= CUBE_RATE_GLOBAL:
+        return False
+    mine.append(now)
+    return True
+
 # 共用連線池。原本每個請求 requests.get 一次，等於每次都重新建 TCP 連線。
 # 實測同一個已快取的查詢，代理比直連 Cube 多出的時間 30ms -> 2ms。
 # requests.Session 底下的 urllib3 連線池可以多執行緒共用。
@@ -950,6 +978,12 @@ async def cube_proxy(path: str, request: Request):
     """
     if path not in {"load", "meta", "sql"}:
         return JSONResponse(status_code=404, content={"error": "不支援的 Cube 端點"})
+
+    if PUBLIC and path == "load" and not cube_rate_ok(request.cookies.get(SESSION_COOKIE)):
+        return JSONResponse(
+            status_code=429,
+            content={"error": "查詢太頻繁,請等幾秒再試。"},
+        )
 
     url = f"{CUBE_BASE}/{path}"
     try:
