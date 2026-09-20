@@ -23,6 +23,12 @@ PASSWORD_FILE = BASE_DIR / ".public_password"
 MAX_LOG_BYTES = 1_000_000
 PORT = int(os.environ.get("MAYHEM_PORT", "5058"))
 
+# 要不要把其他玩家的 Riot ID 換成代號。
+# 這個站台是給一起打的朋友看的，他們要用名字查自己的戰績，所以關掉。
+# 前提是站台有密碼：看得到名字的只有拿到密碼的人。
+# 如果之後想把網址給不認識的人，改成 True。
+MASK_NAMES = False
+
 os.chdir(BASE_DIR)
 
 if LOG_PATH.exists() and LOG_PATH.stat().st_size > MAX_LOG_BYTES:
@@ -56,13 +62,15 @@ os.environ["MAYHEM_PUBLIC"] = "1"
 os.environ["MAYHEM_MIRROR"] = "1"
 os.environ["MAYHEM_PASSWORD"] = password
 os.environ["MAYHEM_PORT"] = str(PORT)
+os.environ["MAYHEM_MASK_NAMES"] = "1" if MASK_NAMES else "0"
 
 try:
     import uvicorn
 
     import app
 
-    print(f"唯讀鏡像在 http://127.0.0.1:{PORT}（通道指這裡）")
+    print(f"唯讀鏡像在 http://127.0.0.1:{PORT}（通道指這裡）"
+          f"｜其他玩家{'顯示代號' if MASK_NAMES else '顯示真名'}")
     uvicorn.run(app.app, host="127.0.0.1", port=PORT, log_level="info")
 except Exception:
     import traceback

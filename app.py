@@ -45,8 +45,7 @@ collector = collector_module.Collector()
 # 它做兩件事:
 #   1. 全站唯讀——採集與追蹤名單這兩個寫入端點一律回 403。採集照常在本機自動跑,
 #      要改追蹤名單就在這台電腦上開 127.0.0.1:5057。
-#   2. 其他玩家的 Riot ID 換成穩定代號。同場玩家的名稱是做隊友分析的必要資料,
-#      但那是別人的遊戲帳號,不該因為你把網站開出去就一起公開。
+#   2. 其他玩家的 Riot ID 換成穩定代號(預設開,見 MAYHEM_MASK_NAMES)。
 #
 #   3. 設了 MAYHEM_PASSWORD 的話,外面要先輸入密碼才看得到任何東西。
 #      這一層是必要的:免費的通道服務(ngrok 免費版、Cloudflare Quick Tunnel、
@@ -71,6 +70,15 @@ PASSWORD = os.environ.get("MAYHEM_PASSWORD", "").strip()
 #   2. 建表與遷移——同時跑 schema 變更是自找麻煩。
 #   3. 啟動與關閉 Cube——它會沿用 4000 埠上現有的那份;若由鏡像管理,
 #      鏡像一關就把本機那份的語意層也一起帶走。
+# 要不要把其他玩家的 Riot ID 換成代號。預設跟著公開模式走:
+# 同場玩家的名稱是別人的遊戲帳號,不該因為網址被開出去就一起公開,所以預設遮。
+#
+# 但如果這個站台是給「同一群一起打的人」看的——他們要用名字查自己的戰績——
+# 遮了反而沒得用。那種情況設 MAYHEM_MASK_NAMES=0 關掉,
+# 前提是你已經用密碼把站台鎖起來:看得到名字的只有拿到密碼的人。
+_mask_env = os.environ.get("MAYHEM_MASK_NAMES", "").strip().lower()
+MASK_NAMES = PUBLIC if _mask_env == "" else _mask_env in {"1", "true", "yes", "on"}
+
 MIRROR = os.environ.get("MAYHEM_MIRROR", "").strip().lower() in {"1", "true", "yes", "on"}
 PORT = int(os.environ.get("MAYHEM_PORT", "5057"))
 
@@ -109,7 +117,7 @@ def mask_name(riot_id):
     六位十六進位不是密碼學等級的匿名——知道鹽又剛好猜中某個 Riot ID 的人可以自己算來對照——
     但它做到最重要的事:回應裡不再帶著別人的遊戲帳號。真的不能外流就別用公開模式。
     """
-    if not PUBLIC or not riot_id or riot_id in _my_names():
+    if not MASK_NAMES or not riot_id or riot_id in _my_names():
         return riot_id
     # 三個位元組(六位十六進位)：資料庫裡已經有一千七百多個玩家，
     # 兩位元組只有 65536 種，依生日問題會撞出二十幾組同名代號，隊友分析就會把兩個人混成一個。
@@ -123,7 +131,7 @@ MASKED_MEMBERS = (".riot_id", ".player")
 
 
 def mask_cube(payload):
-    if not PUBLIC:
+    if not MASK_NAMES:
         return payload
     if isinstance(payload, dict):
         return {
@@ -744,7 +752,7 @@ async def cube_proxy(path: str, request: Request):
             status_code=503,
             content={"error": f"連不到 Cube 語意層(是不是沒啟動?): {exc}"},
         )
-    if PUBLIC and resp.headers.get("Content-Type", "").startswith("application/json"):
+    if MASK_NAMES and resp.headers.get("Content-Type", "").startswith("application/json"):
         try:
             return JSONResponse(status_code=resp.status_code, content=mask_cube(resp.json()))
         except ValueError:
@@ -780,7 +788,7 @@ if __name__ == "__main__":
     print("=" * 62)
     print(" ARAM: Mayhem 戰績採集 + BI")
     if PUBLIC:
-        print(" 公開模式:唯讀、其他玩家的名稱已換成代號")
+        print(" 公開模式:唯讀" + ("、其他玩家的名稱已換成代號" if MASK_NAMES else "、其他玩家顯示真名"))
         print(
             "  密碼保護:已啟用" if PASSWORD else
             "  ⚠ 沒有設 MAYHEM_PASSWORD——拿到網址的人就能看到全部內容"
