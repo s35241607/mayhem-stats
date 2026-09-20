@@ -15,7 +15,15 @@ import { cn } from "@/lib/utils"
 
 type Zone = "dimensions" | "measures"
 
-function DraggableField({ member, zone }: { member: Member; zone: Zone | "pool" }) {
+function DraggableField({
+  member,
+  zone,
+  onActivate,
+}: {
+  member: Member
+  zone: Zone | "pool"
+  onActivate?: () => void
+}) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `${zone}:${member.name}`,
     data: { name: member.name, from: zone },
@@ -25,9 +33,19 @@ function DraggableField({ member, zone }: { member: Member; zone: Zone | "pool" 
       ref={setNodeRef}
       {...listeners}
       {...attributes}
+      role="button"
+      tabIndex={0}
+      aria-label={`${label(member, member.name)}${onActivate ? "，按 Enter 加入" : ""}`}
+      onClick={onActivate}
+      onKeyDown={(event) => {
+        if (onActivate && (event.key === "Enter" || event.key === " ")) {
+          event.preventDefault()
+          onActivate()
+        }
+      }}
       title={member.description}
       className={cn(
-        "inline-flex cursor-grab items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium transition-all active:cursor-grabbing",
+        "inline-flex cursor-grab items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium transition-colors active:cursor-grabbing",
         zone === "pool"
           ? "border-border text-muted-foreground hover:bg-accent hover:text-foreground"
           : "border-primary/40 bg-primary/10 text-primary",
@@ -79,7 +97,7 @@ function DropZone({
               <button
                 onClick={() => onRemove(m.name)}
                 className="-ml-1 rounded-sm p-1 text-muted-foreground opacity-60 transition hover:text-destructive hover:opacity-100"
-                aria-label="移除"
+                aria-label={`移除${label(m, m.name)}`}
               >
                 <X className="size-3" />
               </button>
@@ -172,6 +190,7 @@ export function FieldBuilder({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="搜尋欄位…"
+            aria-label="搜尋欄位"
             className="mb-2 h-8 text-xs"
           />
           <div className="max-h-[300px] space-y-2.5 overflow-y-auto pr-1">
@@ -190,9 +209,12 @@ export function FieldBuilder({
                       </div>
                       <div className="flex flex-wrap gap-1.5">
                         {members.map((m) => (
-                          <span key={m.name} onDoubleClick={() => addByClick(m)}>
-                            <DraggableField member={m} zone="pool" />
-                          </span>
+                            <DraggableField
+                              key={m.name}
+                              member={m}
+                              zone="pool"
+                              onActivate={() => addByClick(m)}
+                            />
                         ))}
                       </div>
                     </div>
@@ -202,7 +224,7 @@ export function FieldBuilder({
             })}
           </div>
           <p className="mt-1 text-[10px] text-muted-foreground">
-            拖曳加入，或雙擊直接加到對應區塊。
+            拖曳加入，或點擊／按 Enter 直接加入到對應區塊。
           </p>
         </div>
       </div>

@@ -12,8 +12,10 @@ views:
     description: >
       每位玩家每場的表現，可依英雄、定位、增幅、裝備、時間、對局長度分組。
       問「我」的數字請加 segment mine（只看本機帳號），只看 Mayhem 請加 segment mayhem。
-      不加 mine 也不指定 riot_id 的話，同一場 10 個人的數據會混在一起。
-      以 augment 或 item 分組時一場會出現在多列底下，場次與勝率已用 distinct 計算，不會重複。
+      不加 mine 也不指定 riot_id 的話，會得到所有已收錄玩家的玩家對局數；不可把它當成單一玩家勝率。
+      games/wins/losses 是玩家對局粒度；match_count 才是不重複的遊戲對局數。
+      以 augment 或 item 分組時一場會出現在多列底下，玩家對局數與勝率仍以 distinct 玩家對局列計算。
+      participant_context 提供前一場結果、休息與 session 階段；team_context 提供我方／敵方隊伍差距與首塔等終場資訊。
       按天分組用 local_date；用 played_at 篩日期區間時查詢要帶 "timezone": "Asia/Taipei"。
     cubes:
       - join_path: participants
@@ -31,10 +33,29 @@ views:
           - result
           - champ_level
           - death_bucket
+          - spell_1
+          - spell_2
+          - spell_pair
+          - damage_profile
+          - augment_count
           - games
           - wins
           - losses
+          - match_count
           - winrate
+          - deaths_per_10min
+          - taken_per_min
+          - mitigated_per_min
+          - heal_per_min
+          - cc_time_per_min
+          - cs_per_min
+          - physical_damage_share
+          - magic_damage_share
+          - true_damage_share
+          - taken_true_share
+          - gold_share
+          - objective_damage_per_min
+          - first_tower_kill_rate
           - avg_kills
           - avg_deaths
           - avg_assists
@@ -93,7 +114,78 @@ views:
           - hour_of_day
           - duration_bucket
           - ended_surrender
+          - end_type
+          - time_block
+          - is_weekend
           - avg_duration
+
+      - join_path: participants.participant_context
+        includes:
+          - prev_result
+          - break_minutes_before
+          - break_bucket
+          - game_in_session
+          - session_stage
+          - minutes_before
+          - avg_break_minutes
+          - avg_minutes_before
+
+      - join_path: participants.team_context
+        includes:
+          - side
+          - name: result
+            alias: team_result
+          - name: duration_bucket
+            alias: team_duration_bucket
+          - first_blood
+          - first_tower
+          - first_inhibitor
+          - name: games
+            alias: team_games
+          - name: wins
+            alias: team_wins
+          - name: winrate
+            alias: team_winrate
+          - name: avg_team_kills
+            alias: team_avg_kills
+          - name: avg_enemy_kills
+            alias: team_avg_enemy_kills
+          - name: kill_gap
+            alias: team_kill_gap
+          - name: avg_team_dmg
+            alias: team_avg_dmg
+          - name: avg_enemy_dmg
+            alias: team_avg_enemy_dmg
+          - name: dmg_gap
+            alias: team_dmg_gap
+          - name: team_dpm
+            alias: team_team_dpm
+          - name: enemy_dpm
+            alias: team_enemy_dpm
+          - name: dpm_gap
+            alias: team_dpm_gap
+          - name: avg_team_gold
+            alias: team_avg_gold
+          - name: avg_enemy_gold
+            alias: team_avg_enemy_gold
+          - name: gold_gap
+            alias: team_gold_gap
+          - name: team_gpm
+            alias: team_team_gpm
+          - name: enemy_gpm
+            alias: team_enemy_gpm
+          - name: gpm_gap
+            alias: team_gpm_gap
+          - name: avg_tower_kills
+            alias: team_avg_tower_kills
+          - name: avg_inhibitor_kills
+            alias: team_avg_inhibitor_kills
+          - name: first_blood_rate
+            alias: team_first_blood_rate
+          - name: first_tower_rate
+            alias: team_first_tower_rate
+          - name: first_inhibitor_rate
+            alias: team_first_inhibitor_rate
 
       - join_path: participants.champions
         includes:
@@ -159,7 +251,7 @@ views:
     description: >
       依時間排序的對局序列，用來問「輸了之後下一場會不會也輸」「一天打越多場是不是越差」。
       一定要加 segment mine；前一場與當日第幾場都是在同一模式內計算，只看 Mayhem 請加 segment mayhem。
-      這個 view 只有場次、勝率與對局長度，沒有 KDA、傷害等表現數據。
+      這個 view 保留日曆日序列；要把休息分鐘、session 階段與 DPM 一起查，請使用 my_performance 的 participant_context 欄位。
     cubes:
       - join_path: my_games
         includes:
@@ -174,3 +266,25 @@ views:
           - wins
           - winrate
           - avg_duration
+
+  - name: augment_analysis
+    title: 增幅組合分析
+    description: >
+      以同一位玩家同一場同時擁有的兩個不重複增幅為分析粒度。
+      一定要加 segment mine；只看 Mayhem 請再加 segment mayhem。
+      pair 是共現配置，不是可選候選池，也不代表因果收益；請同時看場次。
+    cubes:
+      - join_path: augment_pairs
+        includes:
+          - mine
+          - mayhem
+          - pair
+          - augment_a
+          - augment_b
+          - result
+          - games
+          - wins
+          - losses
+          - winrate
+          - avg_dpm
+          - avg_gold

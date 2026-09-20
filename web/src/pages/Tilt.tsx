@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { Kpi, Panel, EmptyState } from "@/components/primitives"
+import { Kpi, Panel, EmptyState, QueryError } from "@/components/primitives"
 import { BarChart, type BarDatum } from "@/components/charts"
 import { useCube } from "@/hooks/useCube"
 import { num, type CubeFilter } from "@/lib/cube"
@@ -141,6 +141,8 @@ export function Tilt() {
       >
         {byPrev.loading ? (
           <Skeleton className="h-[180px] w-full" />
+        ) : byPrev.error ? (
+          <QueryError error={byPrev.error} />
         ) : prevBars.length ? (
           <BarChart
             data={prevBars}
@@ -175,6 +177,8 @@ export function Tilt() {
       >
         {dayChart.loading ? (
           <Skeleton className="h-[220px] w-full" />
+        ) : dayChart.error ? (
+          <QueryError error={dayChart.error} />
         ) : dayBars.length ? (
           <BarChart
             data={dayBars}

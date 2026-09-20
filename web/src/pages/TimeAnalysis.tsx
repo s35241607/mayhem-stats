@@ -2,7 +2,7 @@ import { useMemo, useState } from "react"
 import { ArrowDown, Crosshair, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Panel, EmptyState, Kpi } from "@/components/primitives"
+import { Panel, EmptyState, Kpi, QueryError } from "@/components/primitives"
 import { MatchList } from "@/components/MatchList"
 import {
   DailyChart,
@@ -65,6 +65,8 @@ export function TimeAnalysis() {
       limit: 10,
     }),
   )
+
+  const queryError = daily.error ?? heat.error ?? byWeekday.error
 
 
   const days: DayDatum[] = useMemo(
@@ -132,6 +134,7 @@ export function TimeAnalysis() {
 
   return (
     <div className="space-y-4">
+      {queryError && <QueryError error={queryError} />}
       <div className="grid gap-3 sm:grid-cols-3">
         <Kpi label="總場次" value={String(totalGames)} loading={heat.loading} />
         <Kpi

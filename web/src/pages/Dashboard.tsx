@@ -4,7 +4,7 @@ import { CountUp } from "@/components/CountUp"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Kpi, Panel, EmptyState } from "@/components/primitives"
+import { Kpi, Panel, EmptyState, QueryError } from "@/components/primitives"
 import { TrendChart, type TrendPoint } from "@/components/charts"
 import type { PageId } from "@/components/AppShell"
 import { useCube } from "@/hooks/useCube"
@@ -74,6 +74,21 @@ function TopList({
   )
 }
 
+type PeriodSummary = {
+  games: number
+  winrate: number | null
+}
+
+function summarizePeriod(points: TrendPoint[]): PeriodSummary {
+  const games = points.reduce((sum, point) => sum + point.games, 0)
+  if (!games) return { games: 0, winrate: null }
+  const wins = points.reduce(
+    (sum, point) => sum + (point.winrate === null ? 0 : (point.winrate / 100) * point.games),
+    0,
+  )
+  return { games, winrate: (wins / games) * 100 }
+}
+
 export function Dashboard() {
   const { apply } = useFilters()
 
@@ -128,6 +143,8 @@ export function Dashboard() {
     }),
   )
 
+  const queryError = totals.error ?? daily.error ?? champions.error ?? augments.error ?? heat.error
+
   const row = totals.rows[0] ?? {}
   const metric = (key: string, fmt: (n: number) => string, suffix = "") => {
     const parsed = num(row[key])
@@ -145,6 +162,14 @@ export function Dashboard() {
     .filter((p) => p.date)
     .sort((a, b) => a.date.localeCompare(b.date))
 
+  // 用相同的每日資料做一個簡短的近期動能比較，避免只看整體勝率而錯過最近的變化。
+  const recentPeriod = summarizePeriod(points.slice(-7))
+  const previousPeriod = summarizePeriod(points.slice(-14, -7))
+  const recentDelta =
+    recentPeriod.winrate === null || previousPeriod.winrate === null
+      ? null
+      : recentPeriod.winrate - previousPeriod.winrate
+
   const blocks = toBlocks(
     heat.rows.map((r) => ({
       weekday: Number(r["matches.weekday"]),
@@ -161,6 +186,7 @@ export function Dashboard() {
 
   return (
     <div className="space-y-4">
+      {queryError && <QueryError error={queryError} />}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
         <Kpi index={0} label="總場次" value={metric("participants.games", round0)} loading={totals.loading} />
         <Kpi index={1}
@@ -258,6 +284,34 @@ export function Dashboard() {
           )}
         </Panel>
       </div>
+
+      <Panel title="近期動能" caption="最近 7 個有資料的日子，和前 7 個有資料日比較">
+        {daily.loading ? (
+          <Skeleton className="h-[160px] w-full" />
+        ) : recentPeriod.games === 0 ? (
+          <EmptyState>還沒有足夠的每日資料。</EmptyState>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Kpi
+              label="最近勝率"
+              value={recentPeriod.winrate === null ? "—" : `${recentPeriod.winrate.toFixed(1)}%`}
+              hint={`${recentPeriod.games} 場`}
+              tone={recentPeriod.winrate === null ? undefined : recentPeriod.winrate >= 50 ? "win" : "loss"}
+            />
+            <Kpi
+              label="對前期變化"
+              value={recentDelta === null ? "—" : `${recentDelta >= 0 ? "+" : ""}${recentDelta.toFixed(1)} 個百分點`}
+              hint={previousPeriod.games ? `前期 ${previousPeriod.games} 場` : "前期資料不足"}
+              tone={recentDelta === null ? undefined : recentDelta >= 0 ? "win" : "loss"}
+            />
+            <Kpi
+              label="最近日期"
+              value={points.at(-1)?.date ?? "—"}
+              hint={points.length >= 7 ? "以最近 7 個有資料日計算" : `目前只有 ${points.length} 個有資料日`}
+            />
+          </div>
+        )}
+      </Panel>
     </div>
   )
 }

@@ -108,6 +108,34 @@ cubes:
         sql: ended_surrender
         type: number
 
+      - name: end_type
+        title: 結束方式
+        description: "對局結束方式：投降或正常結束。來源是採集到的 ended_surrender 旗標。"
+        sql: "CASE WHEN {CUBE}.ended_surrender = 1 THEN '投降' ELSE '正常結束' END"
+        type: string
+        meta:
+          group: 對局
+
+      - name: time_block
+        title: 時段區塊
+        description: "依本地開打小時分成凌晨、早上、下午、晚上；使用採集時保存的本地小時。"
+        sql: >
+          CASE WHEN {CUBE}.local_hour < 6 THEN '凌晨'
+               WHEN {CUBE}.local_hour < 12 THEN '早上'
+               WHEN {CUBE}.local_hour < 18 THEN '下午'
+               ELSE '晚上' END
+        type: string
+        meta:
+          group: 時間
+
+      - name: is_weekend
+        title: 平日或週末
+        description: "依本地星期分成平日或週末；週日與週六算週末。"
+        sql: "CASE WHEN {CUBE}.local_weekday IN (0, 6) THEN '週末' ELSE '平日' END"
+        type: string
+        meta:
+          group: 時間
+
     measures:
       - name: count
         type: count

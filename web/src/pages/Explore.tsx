@@ -97,6 +97,12 @@ type SavedView = {
   path?: string[]
   pivotRows?: string
   pivotCols?: string
+  scope?: "account" | "all"
+  limit?: string
+  sortBy?: string
+  sortDir?: "desc" | "asc"
+  extraMeasure?: string
+  pivotMetric?: string
 }
 
 const STORAGE_KEY = "mayhem.explore.views"
@@ -138,8 +144,27 @@ function Chip({
 
 const FALLBACK_MEASURES = ["participants.games"]
 
+/** Cube 的 join graph 不是任意成員都能互接；共享 matches 的 participants 家族可以互查，
+ * 增幅組合、同場關係與遊玩序列則各自是獨立粒度。先在前端擋住不相容組合，
+ * 讓使用者在送出長查詢前知道要換哪一組欄位。 */
+const PARTICIPANT_CUBES = new Set([
+  "participants",
+  "matches",
+  "champions",
+  "champion_roles",
+  "augments",
+  "items",
+  "participant_context",
+  "team_context",
+])
+
+function analysisFamily(member: string) {
+  const cube = member.split(".")[0]
+  return PARTICIPANT_CUBES.has(cube) ? "participants" : cube
+}
+
 export function Explore() {
-  const { apply, account } = useFilters()
+  const { apply, account, drills } = useFilters()
   // 自由探索預設看目前帳號，但可以放開成跨玩家聚合。
   // 鎖死的話「玩家」這個維度永遠只會回傳一列，等於給了不能用的控制項。
   const [scope, setScope] = useState<"account" | "all">("account")
@@ -204,6 +229,22 @@ export function Explore() {
   const activeMeasures = measures.length ? measures : FALLBACK_MEASURES
   const orderKey = sortBy || activeMeasures[0]
 
+  const queryFamilies = new Set(
+    [...dims, ...activeMeasures].map(analysisFamily),
+  )
+  const queryFamily = queryFamilies.size === 1 ? [...queryFamilies][0] : null
+  const filterFamilies = new Set(
+    [...extraFilters, ...drills].map((filter) => analysisFamily(filter.member)),
+  )
+  const queryFamilyError =
+    queryFamilies.size > 1
+      ? `目前欄位來自不同分析粒度（${[...queryFamilies].join("、")}）。請只保留同一組資料的維度與指標。`
+      : queryFamily && [...filterFamilies].some((family) => family !== queryFamily)
+        ? `目前查詢套用了其他分析粒度的篩選（${[...filterFamilies].join("、")}）。請清除下鑽或自訂篩選後再查。`
+      : queryFamily === "augment_pairs" && segments.length
+        ? "增幅組合目前不支援「條件片段」；請清除條件片段，或改回個人／對局表現欄位。"
+        : null
+
   const companions = dims.flatMap((d) =>
     [COMPANION[d]?.icon, COMPANION[d]?.rarity].filter(Boolean) as string[],
   )
@@ -218,9 +259,11 @@ export function Explore() {
       : {}),
     order: { [orderKey]: sortDir },
     limit: Number(limit),
-  }, scope)
+  }, scope, queryFamily ?? undefined)
 
-  const { rows, loading, error } = useCube(mode === "free" && (dims.length || byDay) ? query : null)
+  const { rows, loading, error } = useCube(
+    mode === "free" && (dims.length || byDay) && !queryFamilyError ? query : null,
+  )
 
   const columns: GridColumn[] = useMemo(
     () => [
@@ -271,10 +314,16 @@ export function Explore() {
       filters: extraFilters,
       viz,
       byDay,
+      scope,
+      limit,
+      sortBy,
+      sortDir,
+      extraMeasure,
       mode,
       path: activePath,
       pivotRows: pivot.rows,
       pivotCols: pivot.cols,
+      pivotMetric,
     }
     const next = [...views.filter((v) => v.name !== view.name), view]
     setViews(next)
@@ -289,10 +338,16 @@ export function Explore() {
     setExtraFilters(v.filters ?? [])
     setViz(v.viz)
     setByDay(v.byDay)
+    setScope(v.scope ?? "account")
+    setLimit(v.limit ?? "100")
+    setSortBy(v.sortBy ?? "")
+    setSortDir(v.sortDir ?? "desc")
+    setExtraMeasure(v.extraMeasure ?? "")
     setMode(v.mode ?? "free")
     if (v.path) setPath(v.path)
     setPicks([])
     if (v.pivotRows && v.pivotCols) setPivot({ rows: v.pivotRows, cols: v.pivotCols })
+    setPivotMetric(v.pivotMetric ?? "")
   }
 
   const removeView = (id: string) => {
@@ -302,6 +357,17 @@ export function Explore() {
   }
 
   function renderViz() {
+    if (queryFamilyError) {
+      return (
+        <div
+          className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
+          role="alert"
+        >
+          <div className="font-medium">這組欄位不能一起查詢</div>
+          <div className="mt-1 text-xs text-amber-200/80">{queryFamilyError}</div>
+        </div>
+      )
+    }
     if (loading) return <Skeleton className="h-[340px] w-full" />
     if (error) return <div className="text-sm text-destructive">{error}</div>
     if (!rows.length) return <EmptyState>這個條件下沒有資料。</EmptyState>
@@ -455,7 +521,7 @@ export function Explore() {
         </Panel>
 
         {mode === "free" && (
-        <Panel title="欄位配置" caption="拖進區塊即可加入，雙擊也行">
+        <Panel title="欄位配置" caption="拖曳加入，或點擊／按 Enter 直接加入">
           {metaLoading ? (
             <Skeleton className="h-64 w-full" />
           ) : (
@@ -581,9 +647,10 @@ export function Explore() {
               onChange={(e) => setViewName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && saveView()}
               placeholder="命名這組設定…"
+              aria-label="儲存檢視名稱"
               className="h-8 text-xs"
             />
-            <Button size="sm" variant="outline" onClick={saveView} disabled={!viewName.trim()}>
+            <Button size="sm" variant="outline" onClick={saveView} disabled={!viewName.trim()} aria-label="儲存檢視">
               <Save className="size-3.5" />
             </Button>
           </div>
@@ -602,7 +669,7 @@ export function Explore() {
                   <button
                     onClick={() => removeView(v.id)}
                     className="rounded-sm p-1 text-muted-foreground opacity-60 transition hover:text-destructive hover:opacity-100"
-                    aria-label="刪除"
+                    aria-label={`刪除檢視 ${v.name}`}
                   >
                     <Trash2 className="size-3" />
                   </button>
@@ -683,7 +750,13 @@ export function Explore() {
                   </ToggleGroupItem>
                 ))}
               </ToggleGroup>
-              <Button size="sm" variant="ghost" onClick={() => setShowQuery((v) => !v)}>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setShowQuery((v) => !v)}
+                aria-label={showQuery ? "隱藏 Cube 查詢" : "顯示 Cube 查詢"}
+                title={showQuery ? "隱藏 Cube 查詢" : "顯示 Cube 查詢"}
+              >
                 <Code2 className="size-3.5" />
               </Button>
             </div>
@@ -794,9 +867,10 @@ function FilterBuilder({
             onKeyDown={(e) => e.key === "Enter" && add()}
             placeholder={operator === "set" ? "（不需要值）" : "值…"}
             disabled={operator === "set"}
+            aria-label="篩選值"
             className="h-8 flex-1 text-xs"
           />
-          <Button size="sm" variant="outline" onClick={add} disabled={!member}>
+          <Button size="sm" variant="outline" onClick={add} disabled={!member} aria-label="新增篩選">
             <Plus className="size-3.5" />
           </Button>
         </div>

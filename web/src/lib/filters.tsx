@@ -63,7 +63,7 @@ type FilterState = {
   /** 把全域條件套進 Cube 查詢：看誰、哪個模式、哪段期間、下鑽了什麼。
    *  scope 為 "all" 時不鎖定帳號——自由探索需要跨玩家聚合，
    *  否則「玩家」這個維度永遠只會回傳一列。 */
-  apply: (query: CubeQuery, scope?: "account" | "all") => CubeQuery
+  apply: (query: CubeQuery, scope?: "account" | "all", cube?: string) => CubeQuery
   /** 以 participants 以外的 cube 查詢時，用這個取得「主角」的篩選條件。 */
   subjectFilter: (member: string) => CubeFilter[]
   /** 不走 apply() 的查詢用這個套期間：回傳要展開進查詢的 timeDimensions。 */
@@ -151,8 +151,14 @@ export function FilterProvider({ children }: { children: ReactNode }) {
         return params
       },
 
-      apply: (query, scope = "account") => {
-        const scoped = scope === "all" ? baseline.filter((f) => f.member !== "participants.puuid") : baseline
+      apply: (query, scope = "account", cube = "participants") => {
+        const remap = (member: string) => {
+          if (cube === "augment_pairs" && member === "participants.puuid") return "augment_pairs.puuid"
+          if (cube === "augment_pairs" && member === "matches.queue_id") return "augment_pairs.queue_id"
+          return member
+        }
+        const scoped = (scope === "all" ? baseline.filter((f) => f.member !== "participants.puuid") : baseline)
+          .map((filter) => ({ ...filter, member: remap(filter.member) }))
         const merged: CubeQuery = {
           ...query,
           filters: [
@@ -166,9 +172,14 @@ export function FilterProvider({ children }: { children: ReactNode }) {
         if (bounds) {
           const existing = query.timeDimensions ?? []
           // 已經有時間維度（例如趨勢圖要按天分組）就補上區間，否則另外加一個純篩選用的
+          const timeDimension = cube === "augment_pairs" ? "augment_pairs.local_date" : "matches.played_at"
           merged.timeDimensions = existing.length
-            ? existing.map((td) => ({ ...td, dateRange: bounds }))
-            : [{ dimension: "matches.played_at", dateRange: bounds }]
+            ? existing.map((td) => ({
+                ...td,
+                dimension: cube === "augment_pairs" && td.dimension === "matches.played_at" ? timeDimension : td.dimension,
+                dateRange: bounds,
+              }))
+            : [{ dimension: timeDimension, dateRange: bounds }]
         }
 
         return merged

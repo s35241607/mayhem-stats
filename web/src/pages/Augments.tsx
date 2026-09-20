@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { BarCell, LiftCell, RecordCell, StatCell, num0, numOf, solidMax, weightedAvg } from "@/components/cells"
+import { BarCell, LiftCell, RecordCell, StatCell, num0, numOf, solidMax } from "@/components/cells"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Select,
@@ -8,7 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Panel, EmptyState } from "@/components/primitives"
+import { Panel, EmptyState, QueryError } from "@/components/primitives"
 import { AgTable, type GridColumn } from "@/components/AgTable"
 import { DrillPanel } from "@/components/MatchList"
 import { BarChart, type BarDatum } from "@/components/charts"
@@ -23,12 +23,13 @@ const ALL = "__all__"
 const G = "participants.games"
 
 /** 複合格子的欄位（規則見 ui-conventions skill）。選了英雄時多一欄「契合度」子彈圖。 */
-function buildColumns(rows: CubeRow[], withSynergy: boolean): GridColumn[] {
+function buildColumns(
+  rows: CubeRow[],
+  withSynergy: boolean,
+  baselineWr: number | null,
+  baselineDpm: number | null,
+): GridColumn[] {
   const maxDpm = solidMax(rows, "participants.dpm", G, MIN_GAMES)
-  const avgDpm = weightedAvg(rows, "participants.dpm", G)
-  const totalGames = rows.reduce((a, r) => a + num0(r, G), 0)
-  // 同一場有好幾個增幅，場次會重複算，但每場重複的次數相同，比例仍然是這批對局的勝率
-  const avgWr = totalGames ? (100 * rows.reduce((a, r) => a + num0(r, "participants.wins"), 0)) / totalGames : null
 
   return [
     { key: "augments.name", title: "增幅裝置", kind: "dimension", iconKey: "augments.icon_path", rarityKey: "augments.rarity", flex: 1.8, minWidth: 190 },
@@ -44,7 +45,7 @@ function buildColumns(rows: CubeRow[], withSynergy: boolean): GridColumn[] {
           winrate={numOf(r, "participants.winrate")}
           wins={num0(r, "participants.wins")}
           losses={num0(r, G) - num0(r, "participants.wins")}
-          baseline={avgWr}
+          baseline={baselineWr}
           baselineLabel={withSynergy ? "這隻英雄的整體勝率" : "你的整體勝率"}
         />
       ),
@@ -91,7 +92,7 @@ function buildColumns(rows: CubeRow[], withSynergy: boolean): GridColumn[] {
       flex: 1.6,
       minWidth: 200,
       cell: (r) => (
-        <BarCell value={numOf(r, "participants.dpm")} max={maxDpm} reference={avgDpm} label={round0(num0(r, "participants.dpm"))} />
+        <BarCell value={numOf(r, "participants.dpm")} max={maxDpm} reference={baselineDpm} label={round0(num0(r, "participants.dpm"))} />
       ),
     },
     { key: "participants.wins", title: "勝場", kind: "metric", hide: true },
@@ -164,6 +165,19 @@ export function Augments() {
       : null,
   )
 
+  // 整體刻度線必須獨立查詢，不能把每場的多個增幅分組再加總；增幅數不同時會重複加權。
+  // 這筆查詢與表格使用同一個玩家、模式、日期及英雄條件，但不按增幅分組。
+  const overallQuery = apply({
+    measures: ["participants.games", "participants.wins", "participants.dpm"],
+    filters: champion && !drilled ? [{ member: "champions.name", operator: "equals", values: [champion] }] : [],
+    limit: 1,
+  })
+  const overall = useCube(overallQuery)
+  const overallRow = overall.rows[0]
+  const overallGames = overallRow ? num0(overallRow, "participants.games") : 0
+  const overallWr = overallGames ? (100 * num0(overallRow, "participants.wins")) / overallGames : null
+  const overallDpm = overallRow ? num(overallRow["participants.dpm"]) : null
+
   // 資料沒變就回傳同一個陣列：欄位定義跟著它重建，每次都換新的話 AG Grid 會把使用者點的排序重設
   const tableRows = useMemo(() => {
     const baseMap = new Map(
@@ -195,7 +209,10 @@ export function Augments() {
           )
       : rows
   }, [rows, baseline.rows, champion])
-  const columns = useMemo(() => buildColumns(tableRows, !!champion), [tableRows, champion])
+  const columns = useMemo(
+    () => buildColumns(tableRows, !!champion, overallWr, overallDpm),
+    [tableRows, champion, overallWr, overallDpm],
+  )
 
   // 全部英雄時圖表只放樣本夠的，否則整張圖都是 1 場 100% 的雜訊。
   // 單一英雄時幾乎沒有增幅到得了門檻，圖會永遠是空的——改成全部都畫，
@@ -218,6 +235,8 @@ export function Augments() {
       >
         {champions.loading ? (
           <Skeleton className="h-9 w-72" />
+        ) : champions.error ? (
+          <QueryError error={champions.error} />
         ) : (
           <div className="flex flex-wrap items-center gap-3">
             <Select value={drilled ?? picked} onValueChange={setPicked} disabled={!!drilled}>
@@ -278,7 +297,7 @@ export function Augments() {
             : `這份資料只有你自己拿得到——Riot 對 Mayhem 封鎖了公開 API，任何第三方網站都算不出增幅勝率。`
         }
       >
-        {loading || (champion && baseline.loading) ? (
+        {loading || overall.loading || (champion && baseline.loading) ? (
           <Skeleton className="h-[480px] w-full" />
         ) : error ? (
           <div className="text-sm text-destructive">{error}</div>

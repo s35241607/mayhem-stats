@@ -1,0 +1,163 @@
+cubes:
+  # 每位玩家每場的兩個不重複增幅組合一列。
+  # a.augment_id < b.augment_id 會把 A+B 與 B+A 正規化成同一組。
+  - name: augment_pairs
+    title: 增幅組合
+    sql: >
+      WITH pairs AS (
+        SELECT
+          mp.rowid AS participant_rowid,
+          mp.platform_id,
+          mp.game_id,
+          mp.participant_id,
+          mp.puuid,
+          mp.win,
+          mp.champion_id,
+          mp.dmg_to_champions,
+          mp.gold_earned,
+          m.queue_id,
+          m.game_duration,
+          m.local_date,
+          a.augment_id AS augment_a_id,
+          b.augment_id AS augment_b_id,
+          c.name AS champion_name,
+          da.name AS augment_a_name,
+          db.name AS augment_b_name
+        FROM match_participants mp
+        JOIN matches m
+          ON m.platform_id = mp.platform_id AND m.game_id = mp.game_id
+        JOIN participant_augments a
+          ON a.platform_id = mp.platform_id AND a.game_id = mp.game_id AND a.participant_id = mp.participant_id
+        JOIN participant_augments b
+          ON b.platform_id = a.platform_id AND b.game_id = a.game_id AND b.participant_id = a.participant_id
+         AND a.augment_id < b.augment_id
+        LEFT JOIN dim_augments da ON da.id = a.augment_id
+        LEFT JOIN dim_augments db ON db.id = b.augment_id
+        LEFT JOIN dim_champions c ON c.id = mp.champion_id
+      )
+      SELECT
+        ROW_NUMBER() OVER (
+          ORDER BY platform_id, game_id, participant_id, augment_a_id, augment_b_id
+        ) AS pair_rowid,
+        *,
+        COALESCE(augment_a_name, CAST(augment_a_id AS TEXT)) || ' + ' ||
+        COALESCE(augment_b_name, CAST(augment_b_id AS TEXT)) AS pair_name
+      FROM pairs
+
+    description: >
+      每位玩家每場的兩個不重複增幅組合。pair_name 已將增幅 ID 排序，
+      因此同一場同一玩家的兩個增幅只會形成一個方向；它描述的是終場已選配置，
+      不是可選候選池，也不是因果效果。
+
+    refresh_key:
+      sql: >
+        SELECT (SELECT COALESCE(MAX(ingested_at), 0) FROM matches) || ':' || (SELECT COUNT(*) FROM dim_augments) || ':' || (SELECT group_concat(puuid || is_me || tracked) FROM accounts)
+
+    segments:
+      - name: mine
+        title: 只看本機帳號
+        description: 只算本機帳號的增幅組合。
+        sql: "{CUBE}.puuid IN (SELECT puuid FROM accounts WHERE is_me = 1)"
+
+      - name: mayhem
+        title: 只看 ARAM Mayhem
+        description: 只算 ARAM Mayhem（queue_id = 2400）。
+        sql: "{CUBE}.queue_id = 2400"
+
+    dimensions:
+      - name: id
+        sql: pair_rowid
+        type: number
+        primary_key: true
+        public: false
+
+      - name: participant_rowid
+        sql: participant_rowid
+        type: number
+        public: false
+
+      - name: puuid
+        sql: puuid
+        type: string
+        public: false
+
+      - name: queue_id
+        sql: queue_id
+        type: number
+        public: false
+
+      - name: champion
+        title: 英雄
+        sql: champion_name
+        type: string
+        meta: { group: 英雄 }
+
+      - name: local_date
+        title: 日期
+        sql: local_date
+        type: time
+        meta: { group: 時間 }
+
+      - name: pair
+        title: 增幅組合
+        description: "兩個增幅名稱的正規化組合；A+B 與 B+A 會合併。"
+        sql: pair_name
+        type: string
+        meta: { group: 增幅 }
+
+      - name: augment_a
+        title: 增幅 A
+        sql: augment_a_name
+        type: string
+        meta: { group: 增幅 }
+
+      - name: augment_b
+        title: 增幅 B
+        sql: augment_b_name
+        type: string
+        meta: { group: 增幅 }
+
+      - name: result
+        title: 勝負
+        sql: "CASE WHEN {CUBE}.win = 1 THEN '勝' ELSE '敗' END"
+        type: string
+        meta: { group: 基本 }
+
+    measures:
+      - name: games
+        title: 組合出現場次
+        sql: participant_rowid
+        type: count_distinct
+        description: 這組增幅同時出現在多少個玩家對局。
+        meta: { group: 增幅, decimals: 0 }
+
+      - name: wins
+        title: 組合勝場
+        sql: "CASE WHEN {CUBE}.win = 1 THEN {CUBE}.participant_rowid END"
+        type: count_distinct
+        meta: { group: 增幅, decimals: 0 }
+
+      - name: losses
+        title: 組合敗場
+        sql: "CASE WHEN {CUBE}.win = 0 THEN {CUBE}.participant_rowid END"
+        type: count_distinct
+        meta: { group: 增幅, decimals: 0 }
+
+      - name: winrate
+        title: 組合勝率
+        sql: "100.0 * {wins} / NULLIF({games}, 0)"
+        type: number
+        format: percent
+        meta: { group: 增幅, unit: "%", decimals: 1 }
+
+      - name: avg_dpm
+        title: 組合平均每分鐘傷害
+        sql: "{CUBE}.dmg_to_champions * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: avg
+        meta: { group: 輸出, decimals: 0 }
+
+      - name: avg_gold
+        title: 組合平均獲得金錢
+        sql: gold_earned
+        type: avg
+        meta: { group: 資源, decimals: 0 }

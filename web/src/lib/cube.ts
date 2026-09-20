@@ -41,7 +41,7 @@ const MAX_WAIT_MS = 90_000
 // 會讓一場對局展開成多列的 cube（一個人四個增幅、六格裝備、一隻英雄兩個定位）。
 const FAN_OUT_CUBES = new Set(["augments", "items", "champion_roles"])
 // 這三個指標在每個 cube 裡都是 count_distinct，而 winrate 一律定義成 100 * wins / games。
-const COUNT_DISTINCT = new Set(["games", "wins", "losses"])
+const COUNT_DISTINCT = new Set(["games", "wins", "losses", "match_count"])
 
 /** 勝率在一對多 join 的查詢裡改成「查 wins + games、在這裡除」。
  *

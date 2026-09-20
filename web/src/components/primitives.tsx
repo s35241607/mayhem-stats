@@ -107,3 +107,16 @@ export function EmptyState({ children }: { children: ReactNode }) {
     </div>
   )
 }
+
+/** 查詢失敗要和「條件下沒有資料」分開，避免把 Cube 錯誤當成空結果。 */
+export function QueryError({ error }: { error: string }) {
+  return (
+    <div
+      className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+      role="alert"
+    >
+      查詢失敗：{error}
+      <div className="mt-1 text-xs text-destructive/80">可以縮小期間、減少欄位，或清除剛套用的篩選後再試。</div>
+    </div>
+  )
+}

@@ -4,7 +4,7 @@ cubes:
     sql_table: match_participants
     description: >
       主要事實表:每場對局每位玩家一列。以增幅或裝備為維度查詢時一場會展開成多列,
-      因此所有場次類指標一律用 count_distinct(對局鍵),不能用 count。
+      因此玩家對局類指標用 count_distinct(玩家對局列),真正對局類指標另用 count_distinct(對局鍵)。
 
     # 快取失效的依據:只有「採集到新對局」或「帳號/追蹤狀態改變」時,
     # 查詢結果才會改變,所以 refresh key 就看這兩樣(外加增幅數量,改版新增增幅時會變)。
@@ -41,6 +41,17 @@ cubes:
       - name: items
         sql: "{CUBE}.platform_id = {items}.platform_id AND {CUBE}.game_id = {items}.game_id AND {CUBE}.participant_id = {items}.participant_id"
         relationship: one_to_many
+
+      - name: participant_context
+        sql: "{CUBE}.rowid = {participant_context}.participant_rowid"
+        relationship: one_to_one
+
+      - name: team_context
+        sql: >
+          {CUBE}.platform_id = {team_context}.platform_id
+          AND {CUBE}.game_id = {team_context}.game_id
+          AND {CUBE}.team_id = {team_context}.team_id
+        relationship: many_to_one
 
     # 具名的可重用篩選。定義一次，前端只要送 segment 名稱，
     # 不必自己拼條件——條件的正確性留在模型裡。
@@ -99,6 +110,20 @@ cubes:
         levels:
           - matches.weekday
           - matches.hour_of_day
+          - champions.name
+
+      - name: session_context
+        title: 連續遊玩情境
+        levels:
+          - participant_context.prev_result
+          - participant_context.session_stage
+          - champions.name
+
+      - name: team_context
+        title: 個人與隊伍情境
+        levels:
+          - team_context.result
+          - team_context.side
           - champions.name
 
     dimensions:
@@ -211,20 +236,75 @@ cubes:
         meta:
           group: 對局
 
+      - name: spell_1
+        title: 召喚師技能 1
+        description: "第一格召喚師技能名稱；來自對局結束時保存的 spell1_id。"
+        sql: "(SELECT s.name FROM dim_spells s WHERE s.id = {CUBE}.spell1_id)"
+        type: string
+        meta:
+          group: 配置
+
+      - name: spell_2
+        title: 召喚師技能 2
+        description: "第二格召喚師技能名稱；來自對局結束時保存的 spell2_id。"
+        sql: "(SELECT s.name FROM dim_spells s WHERE s.id = {CUBE}.spell2_id)"
+        type: string
+        meta:
+          group: 配置
+
+      - name: spell_pair
+        title: 召喚師技能組合
+        description: "以技能 ID 排序的兩格召喚師技能組合，避免同一組因位置不同被拆成兩組。"
+        sql: >
+          CASE WHEN {CUBE}.spell1_id = 0 AND {CUBE}.spell2_id = 0 THEN '（無）'
+               WHEN {CUBE}.spell1_id <= {CUBE}.spell2_id THEN
+                 COALESCE((SELECT s.name FROM dim_spells s WHERE s.id = {CUBE}.spell1_id), CAST({CUBE}.spell1_id AS TEXT)) || ' + ' ||
+                 COALESCE((SELECT s.name FROM dim_spells s WHERE s.id = {CUBE}.spell2_id), CAST({CUBE}.spell2_id AS TEXT))
+               ELSE
+                 COALESCE((SELECT s.name FROM dim_spells s WHERE s.id = {CUBE}.spell2_id), CAST({CUBE}.spell2_id AS TEXT)) || ' + ' ||
+                 COALESCE((SELECT s.name FROM dim_spells s WHERE s.id = {CUBE}.spell1_id), CAST({CUBE}.spell1_id AS TEXT)) END
+        type: string
+        meta:
+          group: 配置
+
+      - name: damage_profile
+        title: 對英雄傷害類型
+        description: "依對英雄物理、魔法、真實傷害占比分類；這是對局結束後的實際輸出組成。"
+        sql: >
+          CASE WHEN COALESCE({CUBE}.dmg_physical, 0) + COALESCE({CUBE}.dmg_magic, 0) + COALESCE({CUBE}.dmg_true, 0) = 0 THEN '無對英雄傷害'
+               WHEN {CUBE}.dmg_physical * 1.0 / NULLIF({CUBE}.dmg_physical + {CUBE}.dmg_magic + {CUBE}.dmg_true, 0) >= 0.6 THEN '物理為主'
+               WHEN {CUBE}.dmg_magic * 1.0 / NULLIF({CUBE}.dmg_physical + {CUBE}.dmg_magic + {CUBE}.dmg_true, 0) >= 0.6 THEN '魔法為主'
+               WHEN {CUBE}.dmg_true * 1.0 / NULLIF({CUBE}.dmg_physical + {CUBE}.dmg_magic + {CUBE}.dmg_true, 0) >= 0.6 THEN '真傷為主'
+               ELSE '混合' END
+        type: string
+        meta:
+          group: 輸出
+
+      - name: augment_count
+        title: 增幅數量
+        description: "該玩家該場在資料庫中保存的增幅列數；不代表遊戲內可選的增幅數或候選池。"
+        sql: >
+          CAST((SELECT COUNT(*) FROM participant_augments a
+            WHERE a.platform_id = {CUBE}.platform_id AND a.game_id = {CUBE}.game_id
+              AND a.participant_id = {CUBE}.participant_id) AS TEXT)
+        type: string
+        meta:
+          group: 配置
+
     measures:
       - name: games
-        title: 場次
-        sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id"
+        title: 玩家對局數
+        sql: "{CUBE}.rowid"
         type: count_distinct
-        description: 對局數。用 distinct 是因為增幅/裝備維度會讓同一場展開成多列。
+        description: 玩家參與的對局數。以玩家對局列去重；以增幅、裝備或英雄定位分組時仍不會重複。單一玩家視角下等同對局數。
         meta:
           group: 基本
           decimals: 0
 
       - name: wins
         title: 勝場
-        description: "獲勝的對局數。"
-        sql: "CASE WHEN {CUBE}.win = 1 THEN {CUBE}.platform_id || ':' || {CUBE}.game_id END"
+        description: "玩家獲勝的對局數。"
+        sql: "CASE WHEN {CUBE}.win = 1 THEN {CUBE}.rowid END"
         type: count_distinct
         meta:
           group: 基本
@@ -232,8 +312,17 @@ cubes:
 
       - name: losses
         title: 敗場
-        description: "落敗的對局數。"
-        sql: "CASE WHEN {CUBE}.win = 0 THEN {CUBE}.platform_id || ':' || {CUBE}.game_id END"
+        description: "玩家落敗的對局數。"
+        sql: "CASE WHEN {CUBE}.win = 0 THEN {CUBE}.rowid END"
+        type: count_distinct
+        meta:
+          group: 基本
+          decimals: 0
+
+      - name: match_count
+        title: 對局數
+        description: "不重複的遊戲對局數。跨玩家查詢時用來看實際打了幾場；和玩家對局數不同。"
+        sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id"
         type: count_distinct
         meta:
           group: 基本
@@ -250,6 +339,121 @@ cubes:
           unit: "%"
           decimals: 1
           higherIsBetter: true
+
+      - name: deaths_per_10min
+        title: 每 10 分鐘死亡
+        description: "每場死亡數換算成每 10 分鐘後取平均，適合比較不同長度的對局。"
+        sql: "{CUBE}.deaths * 600.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: avg
+        meta:
+          group: 戰鬥
+          decimals: 1
+          higherIsBetter: false
+
+      - name: taken_per_min
+        title: 每分鐘承受傷害
+        description: "每場承受總傷害除以對局分鐘數後取平均。"
+        sql: "{CUBE}.dmg_taken * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: avg
+        meta:
+          group: 生存
+          decimals: 0
+
+      - name: mitigated_per_min
+        title: 每分鐘減免傷害
+        description: "每場減免傷害除以對局分鐘數後取平均；不等於減傷百分比。"
+        sql: "{CUBE}.dmg_mitigated * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: avg
+        meta:
+          group: 生存
+          decimals: 0
+
+      - name: heal_per_min
+        title: 每分鐘治療
+        description: "每場總治療量（包含自療）除以對局分鐘數後取平均。"
+        sql: "{CUBE}.total_heal * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: avg
+        meta:
+          group: 生存
+          decimals: 0
+
+      - name: cc_time_per_min
+        title: 每分鐘控場
+        description: "每場 timeCCingOthers 除以對局分鐘數後取平均；保留與 cc_duration 的來源區別。"
+        sql: "{CUBE}.time_ccing_others * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: avg
+        meta:
+          group: 戰鬥
+          unit: 秒
+          decimals: 1
+
+      - name: cs_per_min
+        title: 每分鐘補兵
+        description: "每場補兵數除以對局分鐘數後取平均。"
+        sql: "{CUBE}.cs * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: avg
+        meta:
+          group: 資源
+          decimals: 1
+
+      - name: physical_damage_share
+        title: 物理傷害佔比
+        description: "對英雄傷害中物理傷害的比例，使用三種對英雄傷害合計作分母。"
+        sql: "{CUBE}.dmg_physical * 100.0 / NULLIF({CUBE}.dmg_physical + {CUBE}.dmg_magic + {CUBE}.dmg_true, 0)"
+        type: avg
+        format: percent
+        meta: { group: 輸出, unit: "%", decimals: 1 }
+
+      - name: magic_damage_share
+        title: 魔法傷害佔比
+        description: "對英雄傷害中魔法傷害的比例，使用三種對英雄傷害合計作分母。"
+        sql: "{CUBE}.dmg_magic * 100.0 / NULLIF({CUBE}.dmg_physical + {CUBE}.dmg_magic + {CUBE}.dmg_true, 0)"
+        type: avg
+        format: percent
+        meta: { group: 輸出, unit: "%", decimals: 1 }
+
+      - name: true_damage_share
+        title: 真實傷害佔比
+        description: "對英雄傷害中真實傷害的比例，使用三種對英雄傷害合計作分母。"
+        sql: "{CUBE}.dmg_true * 100.0 / NULLIF({CUBE}.dmg_physical + {CUBE}.dmg_magic + {CUBE}.dmg_true, 0)"
+        type: avg
+        format: percent
+        meta: { group: 輸出, unit: "%", decimals: 1 }
+
+      - name: taken_true_share
+        title: 承受真傷佔比
+        description: "承受傷害中真實傷害的比例，使用物理、魔法、真實承受傷害合計作分母。"
+        sql: "{CUBE}.taken_true * 100.0 / NULLIF({CUBE}.taken_physical + {CUBE}.taken_magic + {CUBE}.taken_true, 0)"
+        type: avg
+        format: percent
+        meta: { group: 生存, unit: "%", decimals: 1 }
+
+      - name: gold_share
+        title: 團隊經濟佔比
+        description: "個人獲得金錢除以我方團隊獲得金錢，再取平均。"
+        sql: "{CUBE}.gold_earned * 100.0 / NULLIF({CUBE}.team_gold, 0)"
+        type: avg
+        format: percent
+        meta: { group: 資源, unit: "%", decimals: 1 }
+
+      - name: objective_damage_per_min
+        title: 每分鐘目標傷害
+        description: "每場對建築與中立目標傷害除以對局分鐘數後取平均。"
+        sql: "{CUBE}.dmg_to_objectives * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: avg
+        meta:
+          group: 輸出
+          decimals: 0
+
+      - name: first_tower_kill_rate
+        title: 首塔擊殺率
+        description: "自己取得首塔擊殺的玩家對局比例；不等於隊伍取得首塔的比例。"
+        sql: >
+          100.0 * COUNT(DISTINCT CASE WHEN {CUBE}.first_tower = 1 THEN {CUBE}.rowid END)
+          / NULLIF({games}, 0)
+        type: number
+        format: percent
+        meta: { group: 團隊, unit: "%", decimals: 1 }
 
       - name: avg_kills
         title: 平均擊殺

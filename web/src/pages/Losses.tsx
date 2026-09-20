@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { DrillPanel } from "@/components/MatchList"
-import { Kpi, Panel, EmptyState } from "@/components/primitives"
+import { Kpi, Panel, EmptyState, QueryError } from "@/components/primitives"
 import { AgTable, type GridColumn } from "@/components/AgTable"
 import { BarChart, type BarDatum } from "@/components/charts"
 import { useCube } from "@/hooks/useCube"
@@ -167,6 +167,8 @@ export function Losses() {
       >
         {byResult.loading ? (
           <Skeleton className="h-[722px] w-full" />
+        ) : byResult.error ? (
+          <QueryError error={byResult.error} />
         ) : !win || !loss ? (
           <EmptyState>這個條件下缺少勝局或敗局，沒得比較。</EmptyState>
         ) : (
@@ -194,6 +196,8 @@ export function Losses() {
       >
         {byDuration.loading ? (
           <Skeleton className="h-[220px] w-full" />
+        ) : byDuration.error ? (
+          <QueryError error={byDuration.error} />
         ) : durationBars.length ? (
           <BarChart
             data={durationBars}
