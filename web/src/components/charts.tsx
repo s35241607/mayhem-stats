@@ -505,9 +505,18 @@ function HeatLegend({ base, theme }: { base: number; theme: Theme }) {
 
 export type BarDatum = { label: string; value: number; games: number }
 
-/** 橫條圖一次顯示幾根；超過就在圖內捲動（滾輪或右側捲軸），不截掉後面的資料。
- *  不用「整張圖長高、外面包捲動容器」：一百多根的 canvas 有好幾千像素高，記憶體吃很兇。 */
+/** 橫條圖一次看得到幾根，以及每根佔多高。超過就捲動，不截掉後面的資料。 */
 const BAR_VISIBLE = 14
+const BAR_ROW = 34
+
+/** 幾根以內用「整張圖長高 + 外面包原生捲動」。
+ *
+ *  原本一律用 ECharts 內建的 dataZoom：滑鼠移到圖上，滾輪就被圖接走（頁面捲到這裡會卡住），
+ *  而且每一格滾動都要重算一次座標軸，81 根時明顯頓。改成瀏覽器自己的捲軸之後，
+ *  滾輪行為和頁面其他地方一致、捲動不重繪，點長條後的位置也自然保留。
+ *  代價是 canvas 會有好幾千像素高（81 根約 2700px），所以還是留一個上限，
+ *  再多就退回 dataZoom——記憶體比順不順手重要。 */
+const BAR_FIT_MAX = 200
 
 export function BarChart({
   data,
@@ -533,10 +542,24 @@ export function BarChart({
 }) {
   const theme = useTheme()
   const scroll = data.length > BAR_VISIBLE
-  // 捲到哪裡要記住：點長條會改 selected、option 重建（notMerge），不記的話每點一下就跳回最上面。
-  // 資料換了才回到最上面。
+  // 一般情況：整張圖長高，外面用原生捲軸。根數多到 canvas 太大才退回 dataZoom。
+  const fitAll = scroll && data.length <= BAR_FIT_MAX
+  const zoomed = scroll && !fitAll
+  // dataZoom 捲到哪裡要記住：點長條會改 selected、option 重建（notMerge），不記的話每點一下就跳回最上面。
+  // 資料換了才回到最上面。（原生捲軸那條路不需要，容器的 scrollTop 本來就不會動。）
   const zoom = useRef<{ data: BarDatum[]; start: number; end: number } | null>(null)
   if (zoom.current?.data !== data) zoom.current = { data, start: 100 * (1 - BAR_VISIBLE / Math.max(data.length, 1)), end: 100 }
+
+  // 換了排序或篩選就回到最上面；點長條（只改 selected，順序沒變）不動。
+  // 不能只看 data 是不是同一個陣列——頁面每次渲染都會給一份新的。
+  const box = useRef<HTMLDivElement>(null)
+  const order = data.map((d) => d.label).join(" ")
+  const lastOrder = useRef(order)
+  useEffect(() => {
+    if (lastOrder.current === order) return
+    lastOrder.current = order
+    if (box.current) box.current.scrollTop = 0
+  }, [order])
 
   const option = useMemo(() => {
     const ordered = [...data].reverse() // ECharts 的 y 軸由下往上
@@ -558,8 +581,8 @@ export function BarChart({
     return {
       // 有平均線時上緣要留位置給它的標籤，否則會被切掉
       // 末端的標籤要留得下，帶場次時再多讓一點
-      grid: { left: 8, right: (scroll ? 76 : 56) + (showGames ? 52 : 0), top: colorBy === "flat" ? 8 : 20, bottom: 8, containLabel: true },
-      dataZoom: scroll
+      grid: { left: 8, right: (zoomed ? 76 : 56) + (showGames ? 52 : 0), top: colorBy === "flat" ? 8 : 20, bottom: 8, containLabel: true },
+      dataZoom: zoomed
         ? [
             // 最上面（ordered 的尾端）是第一根，預設停在那裡
             { type: "inside", yAxisIndex: 0, start: zoom.current!.start, end: zoom.current!.end, zoomOnMouseWheel: false, moveOnMouseWheel: true, moveOnMouseMove: false },
@@ -676,26 +699,34 @@ export function BarChart({
     }
     // zoom 用 ref 讀，刻意不放進依賴：捲動本身不該觸發重建
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, suffix, colorBy, baseline, selected, showGames, theme, scroll])
+  }, [data, suffix, colorBy, baseline, selected, showGames, theme, zoomed])
 
   const onEvent = useMemo(() => {
     const events: Record<string, (p: never) => void> = {}
     if (onPick) events.click = (p: { name?: string }) => p.name && onPick(p.name)
-    if (scroll) {
+    if (zoomed) {
       events.datazoom = (p: { start?: number; end?: number; batch?: { start: number; end: number }[] }) => {
         const z = p.batch?.[0] ?? p
         if (zoom.current && z.start !== undefined && z.end !== undefined) Object.assign(zoom.current, { start: z.start, end: z.end })
       }
     }
     return Object.keys(events).length ? events : undefined
-  }, [onPick, scroll])
+  }, [onPick, zoomed])
 
-  return (
+  const chart = (
     <ResponsiveChart
       option={option}
-      height={Math.max(180, Math.min(data.length, BAR_VISIBLE) * 34)}
+      height={Math.max(180, (fitAll ? data.length : Math.min(data.length, BAR_VISIBLE)) * BAR_ROW)}
       onEvent={onEvent}
     />
+  )
+  // 捲動容器包在圖外面：滾輪先捲這一格、到底了再帶動頁面，和瀏覽器平常一樣
+  return fitAll ? (
+    <div ref={box} className="overflow-y-auto" style={{ maxHeight: BAR_VISIBLE * BAR_ROW }}>
+      {chart}
+    </div>
+  ) : (
+    chart
   )
 }
 
