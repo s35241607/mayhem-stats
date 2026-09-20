@@ -14,7 +14,9 @@
 
 import asyncio
 import hashlib
+import json
 import os
+import urllib.parse
 import secrets
 import time
 from contextlib import asynccontextmanager
@@ -24,7 +26,7 @@ from typing import Optional
 import requests
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -143,8 +145,11 @@ def mask_cube(payload):
     return payload
 
 
-# ── 密碼登入 ────────────────────────────────────────────────────────
-# 只在公開模式且設了密碼時生效。session token 放在記憶體:重啟要重新登入,
+# ── 登入 ────────────────────────────────────────────────────────────
+# 兩種方式,都只在公開模式下生效:
+#   1. Discord 登入(.public_oauth):每個人是獨立身分,踢人就是把名字從白名單拿掉。
+#   2. 共用密碼(MAYHEM_PASSWORD):沒有個別身分,外流就得全體換。留著當備援用。
+# session token 放在記憶體:重啟要重新登入,
 # 換來的是「不必在磁碟上多放一份可以冒充你的東西」。
 SESSION_COOKIE = "mayhem_session"
 SESSION_MAX_AGE = 30 * 86400
@@ -155,6 +160,55 @@ _sessions: dict = {}
 LOGIN_MAX_FAILS = 10
 LOGIN_COOLDOWN = 300
 _login_fails: list = []
+
+# Discord OAuth。設定檔不進版控,格式:
+#   { "client_id": "...", "client_secret": "...",
+#     "allow": ["朋友的discord帳號", "另一個", "123456789012345678"],
+#     "redirect_uri": "https://…/auth/callback"   ← 可省略,省略時依請求的網域推出來
+#   }
+# allow 可以寫 Discord 的使用者名稱或數字 ID。名稱可以改、ID 不會,
+# 所以被擋下來的人畫面上會直接顯示他的 ID,你複製進白名單就好。
+OAUTH_FILE = BASE_DIR / ".public_oauth"
+DISCORD_AUTH = "https://discord.com/oauth2/authorize"
+DISCORD_TOKEN = "https://discord.com/api/oauth2/token"
+DISCORD_ME = "https://discord.com/api/users/@me"
+# state 防的是「別人把他自己的授權碼塞給你的瀏覽器」。存在記憶體、十分鐘過期。
+STATE_MAX_AGE = 600
+_states: dict = {}
+
+
+def oauth_config() -> dict:
+    """每次讀檔:這樣加一個朋友只要改檔案,不必重啟服務。"""
+    if not OAUTH_FILE.is_file():
+        return {}
+    try:
+        cfg = json.loads(OAUTH_FILE.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as exc:
+        print(f"讀不到 {OAUTH_FILE.name}: {exc}")
+        return {}
+    return cfg if cfg.get("client_id") and cfg.get("client_secret") else {}
+
+
+OAUTH_ENABLED = bool(oauth_config())
+
+
+def _allowed(cfg: dict, user: dict) -> bool:
+    """白名單比對使用者名稱或數字 ID,大小寫不計。"""
+    allow = {str(x).strip().lower() for x in cfg.get("allow", []) if str(x).strip()}
+    candidates = {
+        str(user.get("id", "")).lower(),
+        str(user.get("username", "")).lower(),
+        str(user.get("global_name") or "").lower(),
+    }
+    return bool(allow & (candidates - {""}))
+
+
+def _redirect_uri(request: Request, cfg: dict) -> str:
+    if cfg.get("redirect_uri"):
+        return cfg["redirect_uri"]
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("host", f"127.0.0.1:{PORT}")
+    return f"{proto}://{host}/auth/callback"
 
 LOGIN_PAGE = """<!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8">
@@ -171,28 +225,52 @@ LOGIN_PAGE = """<!doctype html>
   input,button { font:inherit; padding:10px 12px; border-radius:8px; border:1px solid #2a3446 }
   input { background:#161d2c; color:inherit }
   button { background:#22d3ee; color:#0e1420; font-weight:600; border:0; cursor:pointer }
+  a.btn { display:block; text-align:center; text-decoration:none;
+          background:#5865F2; color:#fff; font-weight:600; padding:10px 12px; border-radius:8px }
   .err { color:#ff6b6b; font-size:13px; min-height:18px }
+  .hint { font-size:12px; color:#8d96ac; word-break:break-all }
 </style></head>
 <body><form id="f">
   <h1>Mayhem 戰績</h1>
-  <p>這個站台需要密碼。</p>
-  <input id="p" type="password" autocomplete="current-password" autofocus placeholder="密碼">
-  <button>進入</button>
+  __INTRO__
+  __DISCORD__
+  __PASSWORD__
   <div class="err" id="e"></div>
 </form>
 <script>
-document.getElementById("f").addEventListener("submit", async (ev) => {
+const form = document.getElementById("f")
+const pw = document.getElementById("p")
+if (pw) form.addEventListener("submit", async (ev) => {
   ev.preventDefault()
   const e = document.getElementById("e")
   e.textContent = ""
   const res = await fetch("/login", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ password: document.getElementById("p").value }),
+    body: JSON.stringify({ password: pw.value }),
   })
   if (res.ok) location.replace("/")
   else e.textContent = (await res.json()).error || "登入失敗"
 })
 </script></body></html>"""
+
+
+def login_page(note: str = "") -> str:
+    """依目前設定組出登入頁:有 Discord 就放按鈕,有密碼就放輸入框。"""
+    discord = '<a class="btn" href="/auth/start">用 Discord 登入</a>' if OAUTH_ENABLED else ""
+    password = (
+        '<input id="p" type="password" autocomplete="current-password" placeholder="密碼">'
+        '<button>進入</button>'
+        if PASSWORD else ""
+    )
+    intro = note or (
+        "<p>用 Discord 登入。只有白名單上的帳號進得來。</p>" if OAUTH_ENABLED
+        else "<p>這個站台需要密碼。</p>"
+    )
+    return (
+        LOGIN_PAGE.replace("__INTRO__", intro)
+        .replace("__DISCORD__", discord)
+        .replace("__PASSWORD__", password)
+    )
 
 
 def _logged_in(request: Request) -> bool:
@@ -273,14 +351,112 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="ARAM: Mayhem 戰績 BI", lifespan=lifespan)
 
 
+OPEN_PATHS = {"/login", "/auth/start", "/auth/callback"}
+
+
 @app.middleware("http")
-async def require_password(request: Request, call_next):
-    """公開模式且設了密碼時,沒登入就什麼都看不到——包含前端本身與圖示。"""
-    if not (PUBLIC and PASSWORD) or request.url.path == "/login" or _logged_in(request):
+async def require_login(request: Request, call_next):
+    """公開模式且設了 Discord 或密碼時,沒登入就什麼都看不到——包含前端本身與圖示。"""
+    if not (PUBLIC and (PASSWORD or OAUTH_ENABLED)):
+        return await call_next(request)
+    if request.url.path in OPEN_PATHS or _logged_in(request):
         return await call_next(request)
     if request.url.path.startswith("/api/"):
         return JSONResponse(status_code=401, content={"error": "請先登入"})
-    return HTMLResponse(LOGIN_PAGE, status_code=401)
+    return HTMLResponse(login_page(), status_code=401)
+
+
+def _start_session(request: Request, who: str):
+    token = secrets.token_urlsafe(32)
+    _sessions[token] = time.time()
+    print(f"登入成功: {who}")
+    response = RedirectResponse("/", status_code=303)
+    response.set_cookie(
+        SESSION_COOKIE, token,
+        max_age=SESSION_MAX_AGE, httponly=True, samesite="lax",
+        secure=request.headers.get("x-forwarded-proto", request.url.scheme) == "https",
+    )
+    return response
+
+
+@app.get("/auth/start")
+async def auth_start(request: Request):
+    cfg = oauth_config()
+    if not cfg:
+        return HTMLResponse(login_page("<p>這個站台沒有啟用 Discord 登入。</p>"), status_code=404)
+    now = time.time()
+    for old, issued in [(k, v) for k, v in _states.items() if now - v > STATE_MAX_AGE]:
+        _states.pop(old, None)
+    state = secrets.token_urlsafe(24)
+    _states[state] = now
+    params = urllib.parse.urlencode({
+        "client_id": cfg["client_id"],
+        "redirect_uri": _redirect_uri(request, cfg),
+        "response_type": "code",
+        # identify 只拿到 id / 使用者名稱 / 頭像,不要 email——白名單用不到,少拿一樣少一樣
+        "scope": "identify",
+        "state": state,
+    })
+    return RedirectResponse(f"{DISCORD_AUTH}?{params}", status_code=303)
+
+
+@app.get("/auth/callback")
+async def auth_callback(request: Request, code: str = "", state: str = ""):
+    cfg = oauth_config()
+    if not cfg:
+        return HTMLResponse(login_page("<p>這個站台沒有啟用 Discord 登入。</p>"), status_code=404)
+    issued = _states.pop(state, None) if state else None
+    if issued is None or time.time() - issued > STATE_MAX_AGE:
+        # state 對不上:可能是別人把授權碼塞給你的瀏覽器,也可能只是放太久
+        return HTMLResponse(login_page("<p>登入逾時或連結不對,請再試一次。</p>"), status_code=400)
+    if not code:
+        return HTMLResponse(login_page("<p>Discord 沒有回傳授權碼。</p>"), status_code=400)
+
+    def exchange():
+        token = requests.post(
+            DISCORD_TOKEN,
+            data={
+                "client_id": cfg["client_id"],
+                "client_secret": cfg["client_secret"],
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": _redirect_uri(request, cfg),
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=15,
+        )
+        token.raise_for_status()
+        access = token.json()["access_token"]
+        me = requests.get(DISCORD_ME, headers={"Authorization": f"Bearer {access}"}, timeout=15)
+        me.raise_for_status()
+        return me.json()
+
+    try:
+        user = await asyncio.to_thread(exchange)
+    except (requests.exceptions.RequestException, KeyError, ValueError) as exc:
+        print(f"Discord 登入失敗: {type(exc).__name__}: {exc}")
+        return HTMLResponse(login_page("<p>和 Discord 交換憑證時失敗,請再試一次。</p>"), status_code=502)
+
+    name = user.get("global_name") or user.get("username") or "?"
+    if not _allowed(cfg, user):
+        print(f"擋下不在白名單的帳號: {name} (id {user.get('id')})")
+        return HTMLResponse(
+            login_page(
+                "<p>這個 Discord 帳號不在白名單上。</p>"
+                f'<p class="hint">帳號：{name}<br>ID：{user.get("id")}</p>'
+                "<p>把上面的帳號或 ID 給站長加進白名單就能進來。</p>"
+            ),
+            status_code=403,
+        )
+    return _start_session(request, f"{name} (id {user.get('id')}) 透過 Discord")
+
+
+@app.get("/logout")
+async def logout(request: Request):
+    _sessions.pop(request.cookies.get(SESSION_COOKIE), None)
+    response = RedirectResponse("/", status_code=303)
+    response.delete_cookie(SESSION_COOKIE)
+    return response
 
 
 @app.post("/login")
@@ -302,6 +478,7 @@ async def login(request: Request):
     _login_fails.clear()
     token = secrets.token_urlsafe(32)
     _sessions[token] = now
+    print("登入成功: 共用密碼")
     response = JSONResponse({"ok": True})
     response.set_cookie(
         SESSION_COOKIE, token,

@@ -165,16 +165,38 @@ ngrok 的 OAuth 要付費），所以驗證只能做在這裡。
 「這是我本人」還是「這是網址被轉出去的人」。所以要兩種行為就跑兩個行程：
 
 ```powershell
-# 密碼放在 .public_password（不進版控），單獨一行
-"自己想的密碼" | Out-File -Encoding utf8 -NoNewline .public_password
 .\.venv\Scripts\pythonw.exe mirror.pyw       # 唯讀鏡像，預設 5058
 tailscale funnel --bg 5058                    # 通道只指向鏡像那個埠
 ```
 
+鏡像要有驗證才會啟動，兩種擇一（都有就兩種都能進）：
+
+**Discord 登入**（建議：每個人是獨立身分，踢人就是把名字從白名單拿掉）。
+到 [Discord Developer Portal](https://discord.com/developers/applications) 建一個 application，
+在 OAuth2 分頁把 `https://你的網址/auth/callback` 加進 Redirects，然後寫 `.public_oauth`：
+
+```json
+{
+  "client_id": "你的 Client ID",
+  "client_secret": "你的 Client Secret",
+  "allow": ["朋友的discord帳號", "另一個", "123456789012345678"],
+  "redirect_uri": "https://你的網址/auth/callback"
+}
+```
+
+`allow` 可以寫 Discord 使用者名稱或數字 ID。**名稱會變、ID 不會**，所以被擋下來的人
+畫面上會直接顯示他的 ID，複製進白名單就好。改白名單不用重啟——每次登入都重讀這個檔。
+只要 `identify` 權限（拿到 id、使用者名稱、頭像），不要 email。
+
+**共用密碼**（備援）：把密碼寫進 `.public_password`，單獨一行、至少 12 個字元。
+沒有個別身分，外流就得全體換。
+
 - **5057（本機）**：照舊。可寫、真名、不用登入。
-- **5058（鏡像）**：唯讀、要密碼。名稱遮不遮由 `mirror.pyw` 的 `MASK_NAMES` 決定。和本機共用同一個 `mayhem.db` 與同一份 Cube，
+- **5058（鏡像）**：唯讀、要登入。名稱遮不遮由 `mirror.pyw` 的 `MASK_NAMES` 決定。和本機共用同一個 `mayhem.db` 與同一份 Cube，
   但不採集、不建表、不管 Cube 的生死——那些都是本機那份的工作。
-- 記錄在 `mirror.log`。沒有 `.public_password` 就不啟動：與其開一個沒有鎖的公開網址，不如不要開。
+- 記錄在 `mirror.log`（誰登入成功、誰被白名單擋下來都會寫進去）。
+  兩個設定檔都沒有就不啟動：與其開一個沒有鎖的公開網址，不如不要開。
+- `/logout` 可以登出自己；重啟服務則是把所有人的 session 一起作廢。
 
 關掉對外：`tailscale funnel --https=443 off`。
 

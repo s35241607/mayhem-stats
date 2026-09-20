@@ -34,3 +34,6 @@ icon_cache/
 
 # 公開鏡像的密碼，不進版控
 .public_password
+
+# Discord 登入的 client id/secret 與白名單，不進版控
+.public_oauth
