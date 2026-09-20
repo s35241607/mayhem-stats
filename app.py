@@ -314,29 +314,42 @@ def recent_matches(
         params.extend([min(limit, 200), max(offset, 0)])
 
         matches = [dict(row) for row in conn.execute(sql, params).fetchall()]
-        # 清單每列要顯示裝備，另外一次撈完再併回去，避免 N+1 查詢
+        # 清單每列要顯示裝備與增幅，各自一次撈完再併回去，避免 N+1 查詢
         keys = [(m["platform_id"], m["game_id"], m["participant_id"]) for m in matches]
         if keys:
             placeholders = ",".join("(?,?,?)" for _ in keys)
             flat = [value for key in keys for value in key]
-            item_rows = conn.execute(
-                f"""SELECT pi.platform_id, pi.game_id, pi.participant_id, pi.slot,
-                           pi.item_id, di.name, di.icon_path
-                    FROM participant_items pi
-                    LEFT JOIN dim_items di ON di.id = pi.item_id
-                    WHERE (pi.platform_id, pi.game_id, pi.participant_id) IN ({placeholders})
-                    ORDER BY pi.slot""",
-                flat,
-            ).fetchall()
-            grouped: dict = {}
-            for row in item_rows:
-                grouped.setdefault(
-                    (row["platform_id"], row["game_id"], row["participant_id"]), []
-                ).append(dict(row))
-            for match in matches:
-                match["items"] = grouped.get(
-                    (match["platform_id"], match["game_id"], match["participant_id"]), []
-                )
+
+            def attach(field: str, sub_sql: str):
+                """把長格式的明細（裝備、增幅）依參賽者分組掛回每一列。"""
+                grouped: dict = {}
+                for row in conn.execute(sub_sql.format(placeholders=placeholders), flat).fetchall():
+                    grouped.setdefault(
+                        (row["platform_id"], row["game_id"], row["participant_id"]), []
+                    ).append(dict(row))
+                for match in matches:
+                    match[field] = grouped.get(
+                        (match["platform_id"], match["game_id"], match["participant_id"]), []
+                    )
+
+            attach(
+                "items",
+                """SELECT pi.platform_id, pi.game_id, pi.participant_id, pi.slot,
+                          pi.item_id, di.name, di.icon_path
+                   FROM participant_items pi
+                   LEFT JOIN dim_items di ON di.id = pi.item_id
+                   WHERE (pi.platform_id, pi.game_id, pi.participant_id) IN ({placeholders})
+                   ORDER BY pi.slot""",
+            )
+            attach(
+                "augments",
+                """SELECT pa.platform_id, pa.game_id, pa.participant_id, pa.slot,
+                          pa.augment_id, da.name, da.rarity, da.icon_path
+                   FROM participant_augments pa
+                   LEFT JOIN dim_augments da ON da.id = pa.augment_id
+                   WHERE (pa.platform_id, pa.game_id, pa.participant_id) IN ({placeholders})
+                   ORDER BY pa.slot""",
+            )
 
         count_sql = """
             SELECT COUNT(*) AS n, COALESCE(SUM(mp.win), 0) AS wins FROM match_participants mp

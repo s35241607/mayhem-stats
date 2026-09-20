@@ -15,22 +15,40 @@ const stagger = (i: number, step = STAGGER_MS) => Math.min(i * step, STAGGER_CAP
  * 之後它也不會自己重算——結果就是高度正常、寬度 0 的空白圖。
  * ResizeObserver 在初次佈局與之後每次容器變動時都會觸發，補上這個缺口。
  */
-type EChartsInstance = { resize: () => void; getWidth: () => number }
+type EChartsInstance = {
+  resize: () => void
+  getWidth: () => number
+  /** zrender 的事件層：ECharts 自己的 click 只在資料元素上觸發，整張圖任一點要從這裡接。 */
+  getZr: () => { on: (event: string, handler: (e: { offsetX: number; offsetY: number }) => void) => void }
+  /** 像素換回資料座標。finder 指定單一座標軸時，value 給一個數字、回傳一個數字。 */
+  convertFromPixel: (finder: Record<string, number>, value: number) => number
+}
 
 function ResponsiveChart({
   option,
   height,
   onEvent,
+  onPixelClick,
 }: {
   option: unknown
   height: number
   /** 圖表事件，主要用來做下鑽（點一個點就把它加成篩選）。 */
   onEvent?: Record<string, (params: never) => void>
+  /** 圖上任何一點被點到（不限資料元素）。x／y 是相對圖表左上角的像素，
+   *  由呼叫端自己 convertFromPixel 換算成是哪一組資料——像每日圖那樣
+   *  「整條欄位都可以點」，不必正好點中那根長條。 */
+  onPixelClick?: (chart: EChartsInstance, x: number, y: number) => void
 }) {
   const boxRef = useRef<HTMLDivElement>(null)
   const instance = useRef<EChartsInstance | null>(null)
   const [width, setWidth] = useState(0)
   const enterDone = useAfterPageEnter()
+
+  // zr 的事件只在建立圖表時掛一次，靠 ref 讀到最新的回呼（否則會抓到第一次渲染的 days）
+  const pixelClick = useRef(onPixelClick)
+  useEffect(() => {
+    pixelClick.current = onPixelClick
+  })
 
   useEffect(() => {
     const box = boxRef.current
@@ -66,6 +84,9 @@ function ResponsiveChart({
         // 在這個版本拿不到東西，resize 會被 optional chaining 靜靜吞掉。
         onChartReady={(chart: EChartsInstance) => {
           instance.current = chart
+          // 整張圖的點擊。ECharts 的 click 只在長條、折線的點這些圖元上觸發，
+          // 想要「點那一欄的任何位置」就得接 zrender 這層。
+          chart.getZr().on("click", (e) => pixelClick.current?.(chart, e.offsetX, e.offsetY))
           // 掛在容器上給驗證腳本讀（換算座標去點某根長條、讀 option 確認有沒有淡化），畫面本身不用
           if (boxRef.current) (boxRef.current as HTMLDivElement & { __chart?: EChartsInstance }).__chart = chart
           // 建立時量到的寬度不對才補一次 resize（理由同上，無條件呼叫會吃掉生長動畫）
@@ -828,23 +849,53 @@ export const weekdayOf = (date: string) => {
 
 export type DayDatum = { date: string; games: number; winrate: number | null }
 
+/** 沒打的日子也要佔一格。
+ *
+ *  只把有資料的日子一天挨一天排，會把中間隔了三天的兩次遊玩畫成相鄰，
+ *  看起來像連續的走勢。補成完整的日期區間之後，空檔就是空檔（場次 0、勝率 null）。
+ *  區間大得離譜時（跨年以上）不補，否則幾千根 0 長條會把有資料的日子壓成細線。 */
+const MAX_FILLED_DAYS = 400
+
+export function fillDays(days: DayDatum[]): DayDatum[] {
+  if (days.length < 2) return days
+  const start = new Date(`${days[0].date}T00:00:00`)
+  const end = new Date(`${days[days.length - 1].date}T00:00:00`)
+  const span = Math.round((end.getTime() - start.getTime()) / 86400000) + 1
+  if (span <= days.length || span > MAX_FILLED_DAYS) return days
+  const bySeen = new Map(days.map((d) => [d.date, d]))
+  const out: DayDatum[] = []
+  for (let i = 0; i < span; i++) {
+    const at = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i)
+    const key = `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`
+    out.push(bySeen.get(key) ?? { date: key, games: 0, winrate: null })
+  }
+  return out
+}
+
 /** 一天一組：長條是場次，折線是勝率。
  *
  *  兩個指標量級差很多（場次個位數、勝率 0~100），所以上下分成兩個座標區、共用日期軸。
  *  場次少的那天勝率本來就跳，折線的點會跟著場次縮小,提醒那天別多看。 */
 export function DailyChart({
-  days,
+  days: played,
   selected,
   focusWeekday = null,
+  height = 280,
   onPick,
 }: {
   days: DayDatum[]
   selected?: string | null
   /** 交叉篩選：只亮這個星期（0 = 週日）的那幾天 */
   focusWeekday?: number | null
+  /** 儀表板的卡片比分頁窄一點，可以調矮 */
+  height?: number
   onPick?: (date: string) => void
 }) {
   const theme = useTheme()
+  // 沒打的日子補成空格，走勢才不會把隔了幾天的兩次遊玩畫成相鄰
+  const days = useMemo(() => fillDays(played), [played])
+  // 只有「能不能點」會影響 option；直接把 onPick 放進相依會讓每次渲染都重算整份 option
+  const clickable = !!onPick
 
   const option = useMemo(() => {
     const maxGames = Math.max(1, ...days.map((d) => d.games))
@@ -872,8 +923,10 @@ export function DailyChart({
         axisPointer: { type: "shadow", shadowStyle: { color: alpha(theme.primary, 0.06) } },
         formatter: (ps: { dataIndex: number }[]) => {
           const d = days[ps[0].dataIndex]
+          if (!d.games) return `${d.date}<br/><span style="opacity:.7">這天沒有對局</span>`
           const w = Math.round(((d.winrate ?? 0) / 100) * d.games)
-          return `${d.date}<br/>${d.games} 場 · ${w} 勝 ${d.games - w} 敗<br/>勝率 ${(d.winrate ?? 0).toFixed(1)}%<br/><span style="opacity:.7">點一下看這天的每一場</span>`
+          const tail = clickable ? '<br/><span style="opacity:.7">點一下看這天的每一場</span>' : ""
+          return `${d.date}<br/>${d.games} 場 · ${w} 勝 ${d.games - w} 敗<br/>勝率 ${(d.winrate ?? 0).toFixed(1)}%${tail}`
         },
       },
       xAxis: [
@@ -977,17 +1030,25 @@ export function DailyChart({
         },
       ],
     }
-  }, [days, selected, focusWeekday, theme])
+  }, [days, selected, focusWeekday, clickable, theme])
 
   return (
     <ResponsiveChart
       option={option}
-      height={280}
-      onEvent={
-        onPick ? { click: (p: { dataIndex?: number }) => {
-          const d = days[p.dataIndex ?? -1]
-          if (d) onPick(d.date)
-        } } : undefined
+      height={height}
+      // 不用 ECharts 的 series click：那要正好點中那根長條（一場的那天只有兩三個像素高）。
+      // 改成整張圖接點擊，再用 x 座標換算是哪一天——滑鼠在哪一欄，點下去就是那一天，
+      // 和 tooltip 的灰色欄位是同一塊範圍。
+      onPixelClick={
+        onPick
+          ? (chart, x) => {
+              // 兩個 grid 的左右邊界一樣，用哪個 x 軸換算結果都相同
+              const at = chart.convertFromPixel({ xAxisIndex: 0 }, x)
+              const d = Number.isFinite(at) ? days[Math.round(at)] : undefined
+              // 補出來的空日子點下去會列出零場，直接忽略
+              if (d && d.games) onPick(d.date)
+            }
+          : undefined
       }
     />
   )

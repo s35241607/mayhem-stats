@@ -35,6 +35,7 @@ export type MatchRow = {
   penta_kills: number
   quadra_kills: number
   items: Item[]
+  augments: Augment[]
 }
 
 export type Player = MatchRow & {
@@ -56,7 +57,6 @@ export type Player = MatchRow & {
   first_tower: number
   double_kills: number
   triple_kills: number
-  augments: Augment[]
 }
 
 const RARITY_RING: Record<string, string> = {
@@ -107,18 +107,26 @@ function ItemRow({ items, size = "size-7" }: { items: Item[]; size?: string }) {
   )
 }
 
-function AugmentRow({ augments }: { augments: Augment[] }) {
+/** 增幅：一般是四個，提前結束的對局會少拿。空格也畫出來，列與列才對得齊。
+ *  外框顏色代表稀有度（稜彩／金／銀），和單場戰報同一套。 */
+function AugmentRow({ augments, size = "size-6" }: { augments: Augment[]; size?: string }) {
+  const slots = Math.max(4, augments.length)
   return (
     <div className="flex gap-0.5">
-      {augments.map((a) => (
-        <img
-          key={a.slot}
-          src={iconUrl(a.icon_path)}
-          alt=""
-          title={`${a.name ?? ""}${a.rarity ? `（${a.rarity.replace("k", "")}）` : ""}`}
-          className={cn("size-6 rounded bg-icon-tile ring-1", a.rarity ? RARITY_RING[a.rarity] : "ring-border")}
-        />
-      ))}
+      {Array.from({ length: slots }, (_, i) => {
+        const a = augments[i]
+        return a ? (
+          <img
+            key={a.slot}
+            src={iconUrl(a.icon_path)}
+            alt=""
+            title={`${a.name ?? ""}${a.rarity ? `（${a.rarity.replace("k", "")}）` : ""}`}
+            className={cn(size, "rounded bg-icon-tile ring-1", a.rarity ? RARITY_RING[a.rarity] : "ring-border")}
+          />
+        ) : (
+          <div key={`empty-${i}`} className={cn(size, "rounded bg-secondary/40")} />
+        )
+      })}
     </div>
   )
 }
@@ -444,6 +452,7 @@ export function MatchCards({
               <div className="text-[11px] text-muted-foreground">{fmtDuration(m.game_duration)}</div>
             </div>
 
+            <AugmentRow augments={m.augments ?? []} />
             <ItemRow items={m.items ?? []} size="size-6" />
 
             <div className="w-[104px] text-center">

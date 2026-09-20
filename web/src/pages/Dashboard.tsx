@@ -1,17 +1,23 @@
-import type { CSSProperties } from "react"
+import { lazy, Suspense, useMemo, useState, type CSSProperties } from "react"
 import { ArrowRight } from "lucide-react"
 import { CountUp } from "@/components/CountUp"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Kpi, Panel, EmptyState, QueryError } from "@/components/primitives"
-import { TrendChart, type TrendPoint } from "@/components/charts"
+import { DailyChart, type DayDatum } from "@/components/charts"
 import type { PageId } from "@/components/AppShell"
 import { useCube } from "@/hooks/useCube"
 import { iconUrl, num, type CubeRow } from "@/lib/cube"
 import { useFilters, type Drill } from "@/lib/filters"
+import { useCrumb } from "@/lib/breadcrumb"
 import { useNavigate } from "@/lib/nav"
 import { BLOCKS, MIN_GAMES, NO_LIMIT, WEEKDAYS, round0, round1, round2, toBlocks } from "./shared"
+
+/** 逐場列表只有點了某一天才用得到，延後載入：儀表板是首屏，
+ *  直接靜態引入會把對局卡片與戰報（約 20KB）併進主程式。
+ *  那個 chunk 本來就會在瀏覽器閒下來時預先抓好（App 的 usePrefetchPages）。 */
+const DrillPanel = lazy(() => import("@/components/MatchList").then((m) => ({ default: m.DrillPanel })))
 
 /** 儀表板只放總覽。細節各有分頁，這裡的每張卡右上角都連過去——
  *  原本儀表板和分頁各畫一份一樣的熱力圖、每日趨勢、勝率長條。 */
@@ -79,7 +85,7 @@ type PeriodSummary = {
   winrate: number | null
 }
 
-function summarizePeriod(points: TrendPoint[]): PeriodSummary {
+function summarizePeriod(points: DayDatum[]): PeriodSummary {
   const games = points.reduce((sum, point) => sum + point.games, 0)
   if (!games) return { games: 0, winrate: null }
   const wins = points.reduce(
@@ -90,7 +96,10 @@ function summarizePeriod(points: TrendPoint[]): PeriodSummary {
 }
 
 export function Dashboard() {
-  const { apply } = useFilters()
+  const { apply, matchParams, account } = useFilters()
+  // 點每日圖的某一天，下面就列出那天的每一場（和時段頁同樣的下鑽）
+  const [day, setDay] = useState<string | null>(null)
+  useCrumb(10, day, () => setDay(null))
 
   const totals = useCube(
     apply({
@@ -153,14 +162,20 @@ export function Dashboard() {
   const winrate = num(row["participants.winrate"])
   const games = num(row["participants.games"]) ?? 0
 
-  const points: TrendPoint[] = daily.rows
-    .map((r) => ({
-      date: String(r["matches.local_date"] ?? ""),
-      games: num(r["participants.games"]) ?? 0,
-      winrate: num(r["participants.winrate"]),
-    }))
-    .filter((p) => p.date)
-    .sort((a, b) => a.date.localeCompare(b.date))
+  // useMemo：點某一天會讓整頁重新渲染，每次都給圖表一份新陣列的話，
+  // ECharts 會把整份 option 當成新資料再過渡一次（長條會跟著抖一下）
+  const points: DayDatum[] = useMemo(
+    () =>
+      daily.rows
+        .map((r) => ({
+          date: String(r["matches.local_date"] ?? ""),
+          games: num(r["participants.games"]) ?? 0,
+          winrate: num(r["participants.winrate"]),
+        }))
+        .filter((p) => p.date)
+        .sort((a, b) => a.date.localeCompare(b.date)),
+    [daily.rows],
+  )
 
   // 用相同的每日資料做一個簡短的近期動能比較，避免只看整體勝率而錯過最近的變化。
   const recentPeriod = summarizePeriod(points.slice(-7))
@@ -216,15 +231,21 @@ export function Dashboard() {
         <Panel
           className="xl:col-span-2"
           title="每日勝率趨勢"
-          caption="橫軸依實際日期，沒打的日子留白；圓點大小代表當天場次"
+          caption="上面是勝率、下面是場次，虛線是你的整體水準；沒打的日子留白。點一天列出那天的每一場"
           action={<SeeAll page="time" label="逐日下鑽" />}
         >
           {daily.loading ? (
-            <Skeleton className="h-[240px] w-full" />
+            <Skeleton className="h-[320px] w-full" />
           ) : points.length < 2 ? (
             <EmptyState>資料還不夠畫趨勢（至少要兩天）。</EmptyState>
           ) : (
-            <TrendChart points={points} />
+            // 和時段頁同一個元件：兩頁的每日圖讀法一致，只有高度為了卡片版面矮一點
+            <DailyChart
+              days={points}
+              height={320}
+              selected={day}
+              onPick={(picked) => setDay((cur) => (cur === picked ? null : picked))}
+            />
           )}
         </Panel>
 
@@ -312,6 +333,17 @@ export function Dashboard() {
           </div>
         )}
       </Panel>
+
+      {day && (
+        <Suspense fallback={<Skeleton className="h-[320px] w-full" />}>
+          <DrillPanel
+            title={day}
+            params={{ ...matchParams(), date: day }}
+            puuid={account?.puuid}
+            onClose={() => setDay(null)}
+          />
+        </Suspense>
+      )}
     </div>
   )
 }
