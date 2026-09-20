@@ -179,7 +179,10 @@ DISCORD_TOKEN = "https://discord.com/api/oauth2/token"
 DISCORD_ME = "https://discord.com/api/users/@me"
 DISCORD_GUILD_MEMBER = "https://discord.com/api/users/@me/guilds/{guild}/member"
 # state 防的是「別人把他自己的授權碼塞給你的瀏覽器」。存在記憶體、十分鐘過期。
+# 另外設一個上限:/auth/start 不需要登入,有人反覆打它就會一直長,
+# 十分鐘的過期時間擋不住高速的請求(實測外部可以打到每秒 175 次)。
 STATE_MAX_AGE = 600
+MAX_STATES = 500
 _states: dict = {}
 
 
@@ -417,6 +420,9 @@ async def auth_start(request: Request):
     now = time.time()
     for old, issued in [(k, v) for k, v in _states.items() if now - v > STATE_MAX_AGE]:
         _states.pop(old, None)
+    # 還是太多就從最舊的丟起(dict 保留插入順序)。被丟掉的人重按一次登入即可。
+    while len(_states) >= MAX_STATES:
+        _states.pop(next(iter(_states)), None)
     state = secrets.token_urlsafe(24)
     _states[state] = now
     params = urllib.parse.urlencode({
