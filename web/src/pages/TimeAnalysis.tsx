@@ -3,7 +3,7 @@ import { ArrowDown, Crosshair, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Panel, EmptyState, Kpi, QueryError } from "@/components/primitives"
-import { MatchList } from "@/components/MatchList"
+import { CubeMatchList } from "@/components/MatchList"
 import {
   DailyChart,
   weekdayOf,
@@ -16,7 +16,7 @@ import {
 } from "@/components/charts"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useCube } from "@/hooks/useCube"
-import { num } from "@/lib/cube"
+import { MAX_GAME_IDS, num, type CubeFilter } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 import { useCrumb } from "@/lib/breadcrumb"
 import { BLOCKS, NO_LIMIT, WEEKDAYS, toBlocks } from "./shared"
@@ -31,13 +31,21 @@ type Slice =
 const sliceLabel = (s: Slice) =>
   s.kind === "date" ? s.date : `${WEEKDAYS[s.weekday]} ${s.label}`
 
-const sliceParams = (s: Slice): Record<string, string> =>
+/** 這一塊對應的 Cube 篩選。逐場列表用它向 Cube 查是哪幾場，全域下鑽才會一起套上。 */
+const sliceFilters = (s: Slice): CubeFilter[] =>
   s.kind === "date"
-    ? { date: s.date }
-    : { weekday: String(s.weekday), hour_from: String(s.from), hour_to: String(s.to) }
+    ? [{ member: "matches.local_date", operator: "equals", values: [s.date] }]
+    : [
+        { member: "matches.weekday", operator: "equals", values: [String(s.weekday)] },
+        {
+          member: "matches.hour_of_day",
+          operator: "equals",
+          values: Array.from({ length: s.to - s.from + 1 }, (_, i) => String(s.from + i)),
+        },
+      ]
 
 export function TimeAnalysis() {
-  const { apply, account, matchParams } = useFilters()
+  const { apply } = useFilters()
   const [slice, setSlice] = useState<Slice | null>(null)
   const [grain, setGrain] = useState<Grain>("block")
   useCrumb(10, slice ? sliceLabel(slice) : null, () => setSlice(null))
@@ -279,9 +287,15 @@ export function TimeAnalysis() {
               </Button>
             }
           >
-            <MatchList
-              params={{ ...matchParams(), ...sliceParams(slice) }}
-              puuid={account?.puuid}
+            <CubeMatchList
+              gameIdKey="matches.game_id"
+              listKey={sliceLabel(slice)}
+              query={apply({
+                measures: ["participants.games"],
+                dimensions: ["matches.game_id"],
+                filters: sliceFilters(slice),
+                limit: MAX_GAME_IDS,
+              })}
             />
           </Panel>
         </div>

@@ -7,11 +7,10 @@ import { prefersReducedMotion } from "@/lib/motion"
 import { useCrumb } from "@/lib/breadcrumb"
 import { useCube } from "@/hooks/useCube"
 import { useFilters } from "@/lib/filters"
-import type { CubeQuery } from "@/lib/cube"
+import { MAX_GAME_IDS, type CubeQuery } from "@/lib/cube"
 import { MatchCards, MatchDetail, matchCrumbLabel, type MatchRow } from "@/pages/Matches"
 
-/** 下鑽走到底時一次最多列出幾場，和後端 /api/matches 的上限一致。 */
-export const MAX_GAME_IDS = 1000
+export { MAX_GAME_IDS }
 
 /** 捲動載入時一次抓幾場（後端單次上限 200）。第一批少一點：它和換頁進場動畫同時渲染，
  *  卡片含裝備圖示，一次 50 張會在動畫期間多出長任務；之後捲動載入的批次就不怕。 */

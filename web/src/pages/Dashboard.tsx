@@ -8,7 +8,7 @@ import { Kpi, Panel, EmptyState, QueryError } from "@/components/primitives"
 import { DailyChart, type DayDatum } from "@/components/charts"
 import type { PageId } from "@/components/AppShell"
 import { useCube } from "@/hooks/useCube"
-import { iconUrl, num, type CubeRow } from "@/lib/cube"
+import { MAX_GAME_IDS, iconUrl, num, type CubeRow } from "@/lib/cube"
 import { useFilters, type Drill } from "@/lib/filters"
 import { useCrumb } from "@/lib/breadcrumb"
 import { useNavigate } from "@/lib/nav"
@@ -96,7 +96,7 @@ function summarizePeriod(points: DayDatum[]): PeriodSummary {
 }
 
 export function Dashboard() {
-  const { apply, matchParams, account } = useFilters()
+  const { apply } = useFilters()
   // 點每日圖的某一天，下面就列出那天的每一場（和時段頁同樣的下鑽）
   const [day, setDay] = useState<string | null>(null)
   useCrumb(10, day, () => setDay(null))
@@ -336,10 +336,17 @@ export function Dashboard() {
 
       {day && (
         <Suspense fallback={<Skeleton className="h-[320px] w-full" />}>
+          {/* 是哪幾場由 Cube 用和每日圖同一組條件查：全域下鑽（例如某隻英雄）才會一起套上，
+              否則圖上那天 5 場、點進去卻列出那天全部 28 場 */}
           <DrillPanel
             title={day}
-            params={{ ...matchParams(), date: day }}
-            puuid={account?.puuid}
+            gameIdKey="matches.game_id"
+            query={apply({
+              measures: ["participants.games"],
+              dimensions: ["matches.game_id"],
+              filters: [{ member: "matches.local_date", operator: "equals", values: [day] }],
+              limit: MAX_GAME_IDS,
+            })}
             onClose={() => setDay(null)}
           />
         </Suspense>

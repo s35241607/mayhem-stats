@@ -115,11 +115,15 @@ export function Losses() {
     return { group: m.group, label: m.label, win: w, loss: l, diffPct, higherIsBetter: m.higherIsBetter, decimals: m.decimals, suffix: m.suffix }
   })
 
-  const durationBars: BarDatum[] = byDuration.rows.map((r) => ({
-    label: String(r["matches.duration_bucket"] ?? "—"),
-    value: num(r["participants.winrate"]) ?? 0,
-    games: num(r["participants.games"]) ?? 0,
-  }))
+  // 依分組的下界由短到長排。Cube 回傳的順序不固定（實測「15-20、< 15、20-25」）
+  const bucketStart = (label: string) => (label.startsWith("<") ? 0 : Number(label.match(/\d+/)?.[0] ?? 999))
+  const durationBars: BarDatum[] = byDuration.rows
+    .map((r) => ({
+      label: String(r["matches.duration_bucket"] ?? "—"),
+      value: num(r["participants.winrate"]) ?? 0,
+      games: num(r["participants.games"]) ?? 0,
+    }))
+    .sort((a, b) => bucketStart(a.label) - bucketStart(b.label))
 
   const teamDpmWin = num(win?.["participants.team_dpm"])
   const teamDpmLoss = num(loss?.["participants.team_dpm"])
@@ -156,14 +160,14 @@ export function Losses() {
           label="平均局長"
           // matches.avg_duration 在模型裡已經除過 60，單位就是分鐘
           value={durWin !== null && durLoss !== null ? `${durLoss.toFixed(1)} / ${durWin.toFixed(1)} 分` : "—"}
-          hint="敗局 / 勝局。輸的局通常比較長，所以下面一律用每分鐘來比"
+          hint="敗局 / 勝局。輸的局通常比較長，所以傷害與經濟用每分鐘比；擊殺、死亡等是每場平均"
           loading={byResult.loading}
         />
       </div>
 
       <Panel
         title="勝局與敗局，數字差在哪"
-        caption="「敗局相差」= 敗局比勝局高或低幾 %。綠色代表往好的方向、紅色代表往壞的方向；可以點欄位標題排序。"
+        caption="「敗局相差」= 敗局比勝局高或低幾 %。勝方色代表往好的方向、敗方色代表往壞的方向，差不到 3% 不上色；可以點欄位標題排序。"
       >
         {byResult.loading ? (
           <Skeleton className="h-[722px] w-full" />

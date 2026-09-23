@@ -360,11 +360,12 @@ export function Explore() {
     if (queryFamilyError) {
       return (
         <div
-          className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
+          // 顏色只用主題 token：寫死的 amber-200 在亮色主題幾乎看不見
+          className="rounded-lg border border-primary/40 bg-primary/10 px-4 py-3 text-sm text-foreground"
           role="alert"
         >
           <div className="font-medium">這組欄位不能一起查詢</div>
-          <div className="mt-1 text-xs text-amber-200/80">{queryFamilyError}</div>
+          <div className="mt-1 text-xs text-muted-foreground">{queryFamilyError}</div>
         </div>
       )
     }

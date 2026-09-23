@@ -92,7 +92,7 @@ const NAV: { group: string; items: { id: PageId; label: string; icon: typeof Zap
 const PAGE_TITLES: Record<PageId, { title: string; caption: string }> = {
   dashboard: { title: "儀表板", caption: "整體表現與趨勢的一頁式總覽" },
   matches: { title: "對局紀錄", caption: "逐場瀏覽，點進去看完整戰報" },
-  tilt: { title: "節奏與連敗", caption: "上一場的結果與當日場次，對表現的影響" },
+  tilt: { title: "節奏與連敗", caption: "上一場的結果、同一輪連打到第幾場，和勝率的關係" },
   losses: { title: "敗因分析", caption: "輸的時候，哪些數字和贏的時候不一樣" },
   champions: { title: "英雄", caption: "每個英雄的場次、勝率與輸出表現" },
   augments: { title: "增幅裝置", caption: "各增幅的勝率，以及在特定英雄上的契合度" },

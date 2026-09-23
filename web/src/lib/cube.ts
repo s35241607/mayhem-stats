@@ -141,6 +141,10 @@ export function iconUrl(path: string | null | undefined): string | undefined {
 
 export const MAYHEM_QUEUE_ID = "2400"
 
+/** 下鑽走到底時一次最多列出幾場，和後端 /api/matches 的上限一致。
+ *  放在這裡而不是 MatchList：儀表板要用，但 MatchList 是延後載入的 chunk。 */
+export const MAX_GAME_IDS = 1000
+
 /** 幾乎每個查詢都要：只看自己、只看指定模式。 */
 export function baseFilters(queueId: string | null): CubeFilter[] {
   const filters: CubeFilter[] = [

@@ -106,12 +106,15 @@ function TogetherPanel({
   picked,
   subject,
   queueId,
+  champion,
   myWinrate,
   onClose,
 }: {
   picked: Picked
   subject: CubeFilter[]
   queueId: string | null
+  /** 全域下鑽的英雄（已經放進 subject）；逐場列表另外用後端的 champion 參數套上 */
+  champion?: string
   myWinrate: number | null
   onClose: () => void
 }) {
@@ -217,7 +220,7 @@ function TogetherPanel({
         {view === "matches" ? (
           <MatchList
             // 這頁在「全部模式」時仍固定看 Mayhem（見 Players），列表也要跟著，場次才對得上
-            params={{ ...matchParams(), ...(queueId ? { queue: queueId } : {}), with_puuid: puuid, relation }}
+            params={{ ...matchParams(), ...(queueId ? { queue: queueId } : {}), ...(champion ? { champion } : {}), with_puuid: puuid, relation }}
             puuid={account?.puuid}
           />
         ) : (
@@ -386,15 +389,32 @@ function PlayerTable({
 }
 
 export function Players() {
-  const { queueId, subjectFilter, isMe, account, apply } = useFilters()
+  const { queueId, subjectFilter, isMe, account, apply, drills, timeFilter } = useFilters()
   const queue = queueId ?? MAYHEM_QUEUE_ID
-  const subject = subjectFilter("teammates.subject_puuid")
-  const who = isMe ? "你" : (account?.riot_id ?? "他")
+  // teammates 和 participants 之間沒有 join，apply() 的全域下鑽套不上去。
+  // 英雄這一種可以換成 teammates.my_champion（視角玩家那場用的英雄）；其他的列在畫面上，不默默忽略。
+  const champDrill = drills.find((d) => d.member === "champions.name")
+  const ignoredDrills = drills.filter((d) => d.member !== "champions.name")
+  const subject: CubeFilter[] = [
+    ...subjectFilter("teammates.subject_puuid"),
+    ...(champDrill ? [{ member: "teammates.my_champion", operator: "equals", values: champDrill.values }] : []),
+  ]
+  const who = isMe ? "你" : (account?.riot_id ?? "這個帳號")
   const [picked, setPicked] = useState<Picked | null>(null)
   useCrumb(10, picked ? `${picked.relation === "teammate" ? "和" : "對上"} ${picked.player}` : null, () => setPicked(null))
 
-  // 拿來當基準線：和某人同隊的勝率要跟自己的整體比才有意義
-  const overall = useCube(apply({ measures: ["participants.winrate"] }))
+  // 拿來當基準線：和某人同隊的勝率要跟自己的整體比才有意義。
+  // 母體要和表格一樣（固定 Mayhem、只套英雄下鑽），不能走 apply()——
+  // 否則刻度線換成了某隻英雄的勝率，表格卻還是全部英雄。
+  const overall = useCube({
+    measures: ["participants.winrate"],
+    filters: [
+      ...subjectFilter("participants.puuid"),
+      { member: "matches.queue_id", operator: "equals", values: [queue] },
+      ...(champDrill ? [{ member: "champions.name", operator: "equals", values: champDrill.values }] : []),
+    ],
+    ...timeFilter("matches.played_at"),
+  })
   const myWinrate = num(overall.rows[0]?.["participants.winrate"])
 
   // 原本在敗因分析頁。和「隊友」問的是同一件事，放在這裡才找得到。
@@ -427,12 +447,20 @@ export function Players() {
         )}
       </Panel>
 
+      {ignoredDrills.length > 0 && (
+        <p className="rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs">
+          下面的隊友、對手表沒有套用「{ignoredDrills.map((d) => d.label).join("、")}」：同場關係的資料只連得到你那場用的英雄。
+          上方的朋友數圖表有套用。
+        </p>
+      )}
+
       {picked && (
         <TogetherPanel
           key={`${picked.puuid}:${picked.relation}`}
           picked={picked}
           subject={subject}
           queueId={queue}
+          champion={champDrill?.values[0]}
           myWinrate={myWinrate}
           onClose={() => setPicked(null)}
         />

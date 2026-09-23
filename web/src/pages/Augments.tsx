@@ -13,7 +13,7 @@ import { AgTable, type GridColumn } from "@/components/AgTable"
 import { DrillPanel } from "@/components/MatchList"
 import { BarChart, type BarDatum } from "@/components/charts"
 import { useCube } from "@/hooks/useCube"
-import { num, type CubeRow } from "@/lib/cube"
+import { MAX_GAME_IDS, num, type CubeRow } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 import { useCrumb } from "@/lib/breadcrumb"
 import { MIN_GAMES, NO_LIMIT, round0, round1 } from "./shared"
@@ -109,7 +109,7 @@ function buildColumns(
 }
 
 export function Augments() {
-  const { apply, addDrill, drills, matchParams, account } = useFilters()
+  const { apply, addDrill, drills } = useFilters()
   const [picked, setPicked] = useState<string>(ALL)
   // 交叉篩選：點長條 → 表格選取並捲到那一列；點表格一列 → 長條亮起那一根。再點一次取消
   const [focus, setFocus] = useState<string | null>(null)
@@ -272,7 +272,9 @@ export function Augments() {
         {loading ? (
           <Skeleton className="h-[320px] w-full" />
         ) : top.length ? (
-          <BarChart data={top} suffix="%" selected={focus} onPick={toggleFocus} />
+          // 平均線要傳整體勝率：預設的「長條自己的加權平均」會把一場的多個增幅重複計入
+          // （實測 50.3%，同一頁表格的刻度是真正的整體 48.0%）
+          <BarChart data={top} suffix="%" selected={focus} onPick={toggleFocus} baseline={overallWr ?? undefined} />
         ) : (
           <EmptyState>
             {champion ? "這個條件下這隻英雄還沒有增幅紀錄。" : `還沒有任何增幅累積到 ${MIN_GAMES} 場，再多打幾場就會出現。`}
@@ -283,8 +285,16 @@ export function Augments() {
       {focus && (
         <DrillPanel
           title={champion ? `${champion} 選了「${focus}」` : `選了「${focus}」`}
-          params={{ ...matchParams(), augment: focus, ...(champion ? { champion } : {}) }}
-          puuid={account?.puuid}
+          gameIdKey="matches.game_id"
+          query={apply({
+            measures: ["participants.games"],
+            dimensions: ["matches.game_id"],
+            filters: [
+              { member: "augments.name", operator: "equals", values: [focus] },
+              ...(champion && !drilled ? [{ member: "champions.name", operator: "equals", values: [champion] }] : []),
+            ],
+            limit: MAX_GAME_IDS,
+          })}
           onClose={() => setFocus(null)}
         />
       )}

@@ -1,13 +1,13 @@
-import { Fragment, useEffect, useMemo, useState, type CSSProperties } from "react"
+import { Fragment, useEffect, useState, type CSSProperties } from "react"
 import { ChevronLeft, Coins, Swords } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Panel } from "@/components/primitives"
-import { iconUrl } from "@/lib/cube"
+import { MAX_GAME_IDS, iconUrl } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
-import { MatchList } from "@/components/MatchList"
+import { CubeMatchList, MatchList } from "@/components/MatchList"
 import { cn } from "@/lib/utils"
 
 type Item = { slot: number; item_id: number; name: string | null; icon_path: string | null }
@@ -514,20 +514,29 @@ export function MatchCards({
 }
 
 export function Matches() {
-  const { queueId, account } = useFilters()
-  const params = useMemo(() => {
-    const p: Record<string, string> = {}
-    if (account) p.puuid = account.puuid
-    if (queueId) p.queue = queueId
-    return p
-  }, [account, queueId])
+  const { account, matchParams, drills, apply } = useFilters()
+  // 帳號、模式、期間：和其他頁同一組全域條件（原本漏了期間，選「最近 7 天」仍列出全部場次）
+  const params = matchParams()
+  const drillKey = drills.map((d) => `${d.member}=${d.values.join(",")}`).join("&")
 
   return (
     <Panel title="近期對戰" caption="由新到舊列出全部場次，捲到底會自動載入更多；點任一場看完整戰報">
-      {account ? (
+      {!account ? null : drills.length ? (
+        // 有全域下鑽（英雄、增幅……）時，是哪幾場交給 Cube 用同一組條件查，後端不必認得每一種維度
+        <CubeMatchList
+          gameIdKey="matches.game_id"
+          listKey={`${account.puuid}|${drillKey}`}
+          query={apply({
+            measures: ["participants.games"],
+            dimensions: ["matches.game_id"],
+            limit: MAX_GAME_IDS,
+          })}
+        />
+      ) : (
         // key：換帳號時整個列表重來（清掉開著的戰報與捲動位置）
         <MatchList key={account.puuid} params={params} puuid={account.puuid} />
-      ) : (
+      )}
+      {!account && (
         <div className="space-y-2">
           {Array.from({ length: 8 }).map((_, i) => (
             <Skeleton key={i} className="h-16 w-full" />

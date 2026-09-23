@@ -6,10 +6,10 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Kpi, Panel, EmptyState } from "@/components/primitives"
 import { AgTable, type GridColumn } from "@/components/AgTable"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { MatchList } from "@/components/MatchList"
+import { CubeMatchList } from "@/components/MatchList"
 import { BarChart, type BarDatum } from "@/components/charts"
 import { useCube } from "@/hooks/useCube"
-import { iconUrl, num, type CubeRow } from "@/lib/cube"
+import { MAX_GAME_IDS, iconUrl, num, type CubeRow } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 import { useCrumb } from "@/lib/breadcrumb"
 import { cn } from "@/lib/utils"
@@ -184,7 +184,7 @@ function BuildList({
 
 /** 點了某隻英雄之後：摘要 + 出裝與增幅 + 這隻英雄的每一場（和對局紀錄頁同樣的卡片）。 */
 function ChampionPanel({ row, onClose }: { row: CubeRow; onClose: () => void }) {
-  const { apply, matchParams, account, addDrill, drills } = useFilters()
+  const { apply, addDrill, drills } = useFilters()
   const name = String(row["champions.name"])
   const onlyThis = useMemo(
     () => [{ member: "champions.name", operator: "equals" as const, values: [name] }],
@@ -215,8 +215,6 @@ function ChampionPanel({ row, onClose }: { row: CubeRow; onClose: () => void }) 
   }
   const winrate = num(row["participants.winrate"])
   const drilled = drills.some((d) => d.member === "champions.name" && d.values[0] === name)
-  // 逐場列表查的是 SQLite，只認得帳號、模式、期間；增幅之類的下鑽條件套不上去
-  const otherDrills = drills.filter((d) => d.member !== "champions.name")
 
   return (
     <Panel
@@ -280,12 +278,17 @@ function ChampionPanel({ row, onClose }: { row: CubeRow; onClose: () => void }) 
           這兩份清單是「出現過這件裝備／這個增幅的場次」，不是因果：終場裝備同時受對局長短、經濟與勝負過程影響，
           場次少的那幾列只能當成看過什麼，不能當成建議。
         </p>
-        {otherDrills.length > 0 && (
-          <p className="text-[11px] text-muted-foreground">
-            注意：上方的「{otherDrills.map((d) => d.label).join("、")}」篩選只套用在統計數字，下面的逐場列表不受影響。
-          </p>
-        )}
-        <MatchList params={{ ...matchParams(), champion: name }} puuid={account?.puuid} />
+        {/* 是哪幾場由 Cube 用同一組條件查，上方的全域下鑽（增幅等）也會套到列表上 */}
+        <CubeMatchList
+          gameIdKey="matches.game_id"
+          listKey={name}
+          query={apply({
+            measures: ["participants.games"],
+            dimensions: ["matches.game_id"],
+            filters: onlyThis,
+            limit: MAX_GAME_IDS,
+          })}
+        />
       </div>
     </Panel>
   )
