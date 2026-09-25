@@ -142,8 +142,13 @@ def fetch_dimensions(client):
          "rarity": a.get("rarity"), "icon_path": _icon(a, "augmentSmallIconPath", "iconPath")}
         for a in client.asset("cherry-augments")
     ]
+    # 裝備的類別（Damage、SpellDamage、Health、Armor…）與總價一起存：
+    # 英雄的官方定位看不出這場實際怎麼出（「鬥士」有一半是出純輸出裝），
+    # 出裝定位要靠這兩個欄位，依各類別花了多少錢來分。
     items = [
-        {"id": i["id"], "name": i.get("name"), "icon_path": _icon(i, "iconPath")}
+        {"id": i["id"], "name": i.get("name"), "icon_path": _icon(i, "iconPath"),
+         "price_total": i.get("priceTotal"),
+         "categories": [c for c in (i.get("categories") or []) if c]}
         for i in client.asset("items")
     ]
     perks = [

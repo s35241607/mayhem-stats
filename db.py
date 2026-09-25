@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS participant_items (
 
 CREATE TABLE IF NOT EXISTS dim_champions (id INTEGER PRIMARY KEY, name TEXT, alias TEXT, icon_path TEXT);
 CREATE TABLE IF NOT EXISTS dim_augments  (id INTEGER PRIMARY KEY, name TEXT, rarity TEXT, icon_path TEXT);
-CREATE TABLE IF NOT EXISTS dim_items     (id INTEGER PRIMARY KEY, name TEXT, icon_path TEXT);
+CREATE TABLE IF NOT EXISTS dim_items     (id INTEGER PRIMARY KEY, name TEXT, icon_path TEXT, price_total INTEGER);
 CREATE TABLE IF NOT EXISTS dim_perks     (id INTEGER PRIMARY KEY, name TEXT, icon_path TEXT);
 CREATE TABLE IF NOT EXISTS dim_spells    (id INTEGER PRIMARY KEY, name TEXT, icon_path TEXT);
 
@@ -118,6 +118,13 @@ CREATE TABLE IF NOT EXISTS dim_champion_roles (
   champion_id INTEGER NOT NULL,
   role        TEXT    NOT NULL,
   PRIMARY KEY (champion_id, role)
+);
+-- 裝備類別（Damage、SpellDamage、Health、Armor、SpellBlock…），一件裝備可能有好幾個，長格式。
+-- 用來依出裝判斷這場實際的定位，見 lcu.fetch_dimensions。
+CREATE TABLE IF NOT EXISTS dim_item_categories (
+  item_id  INTEGER NOT NULL,
+  category TEXT    NOT NULL,
+  PRIMARY KEY (item_id, category)
 );
 
 CREATE INDEX IF NOT EXISTS idx_m_queue        ON matches(queue_id);
@@ -195,6 +202,12 @@ def _migrate(conn):
             conn.execute("ALTER TABLE matches ADD COLUMN local_weekday INTEGER")
             conn.execute("ALTER TABLE matches ADD COLUMN local_hour INTEGER")
         _backfill_local_time(conn)
+
+    item_cols = {row["name"] for row in conn.execute("PRAGMA table_info(dim_items)")}
+    if "price_total" not in item_cols:
+        # 值由下一次載入維度表時填上（服務啟動後第一次採集），不必從對局資料回填
+        with conn:
+            conn.execute("ALTER TABLE dim_items ADD COLUMN price_total INTEGER")
 
     account_cols = {row["name"] for row in conn.execute("PRAGMA table_info(accounts)")}
     if "tracked" not in account_cols:
@@ -506,7 +519,7 @@ def replace_dimension(conn, table, rows):
     columns = {
         "dim_champions": ("id", "name", "alias", "icon_path"),
         "dim_augments": ("id", "name", "rarity", "icon_path"),
-        "dim_items": ("id", "name", "icon_path"),
+        "dim_items": ("id", "name", "icon_path", "price_total"),
         "dim_perks": ("id", "name", "icon_path"),
         "dim_spells": ("id", "name", "icon_path"),
     }[table]
@@ -522,6 +535,13 @@ def replace_dimension(conn, table, rows):
             conn.executemany(
                 "INSERT OR IGNORE INTO dim_champion_roles (champion_id, role) VALUES (?,?)",
                 [(row["id"], role) for row in rows for role in (row.get("roles") or [])],
+            )
+        if table == "dim_items":
+            # 類別同樣整批換掉：改版調整裝備屬性時，舊的類別不能留著
+            conn.execute("DELETE FROM dim_item_categories")
+            conn.executemany(
+                "INSERT OR IGNORE INTO dim_item_categories (item_id, category) VALUES (?,?)",
+                [(row["id"], cat) for row in rows for cat in (row.get("categories") or [])],
             )
 
 
