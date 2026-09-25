@@ -1,0 +1,169 @@
+cubes:
+  # 貢獻分數：這場在各方面做了多少，和「同模式、同出裝定位、同勝負」的人比，換成百分位（0～100，50＝一般人）。
+  #
+  # 為什麼要另外算：只看勝率評估適不適合不公平——ARAM 的勝負很大一部分是隊友與陣容。
+  # 為什麼要「同勝負」：KDA 和勝負的相關有 0.4～0.5（贏的那邊自然殺得多、死得少），
+  # 直接拿來打分等於把勝率又算一次；傷害佔比、承傷佔比和勝負幾乎無關（-0.1～+0.2）。
+  # 贏的場和贏家比、輸的場和輸家比，分數就只剩「他自己做得比別人多還是少」，隊友帶贏或拖輸都不影響。
+  # （全資料庫 Mayhem 3,240 筆算的相關係數，依出裝定位分開算。）
+  #
+  # 六項指標，都盡量用「佔我方隊伍的比例」，陣容與對局長短已經內含：
+  #   輸出：對英雄傷害佔隊伍的比例
+  #   承傷：承受傷害＋自身減免，佔隊伍的比例（坦克吃下的傷害很多被護甲擋掉，只看承受會低估）
+  #   KDA ：(擊殺＋助攻) / max(1, 死亡)
+  #   參團：(擊殺＋助攻) / 隊伍擊殺
+  #   控制：控制敵人的時間（timeCCingOthers）佔隊伍的比例
+  #   效率：每 1 金錢打出的對英雄傷害（同樣的錢打出多少）
+  # 治療沒列：totalHeal 含吸血與自身回復，看不出幫隊友補了多少（客戶端的明細沒有「治療隊友」這一項）。
+  #
+  # 百分位用中位名次：同值的取平均名次（KDA 常有並列），所以一群人的平均永遠是 50。
+  # 綜合貢獻＝各項百分位依定位加權平均（權重是這個定位的「工作」，缺值的項目不算、權重重新分配）：
+  #   坦克     承傷 35、控制 25、參團 20、KDA 10、輸出 10
+  #   AD 鬥士  輸出 25、承傷 25、參團 15、KDA 15、控制 10、效率 10
+  #   AD 輸出  輸出 35、效率 20、KDA 20、參團 15、控制 10
+  #   AD 刺客  輸出 30、KDA 25、效率 20、參團 15、控制 10
+  #   輔助     參團 30、控制 30、KDA 20、承傷 10、輸出 10
+  #   AP 坦同 AD 鬥士、AP 輸出同 AD 輸出、AP 刺客同 AD 刺客；未成形六項等權
+  - name: contribution
+    title: 貢獻分數
+    sql: >
+      WITH base AS (
+        SELECT mp.rowid AS participant_rowid, b.queue_id, b.build_role, mp.win,
+          mp.dmg_to_champions * 1.0 / NULLIF(mp.team_dmg, 0) AS m_dmg,
+          (COALESCE(mp.dmg_taken, 0) + COALESCE(mp.dmg_mitigated, 0)) * 1.0
+            / NULLIF(SUM(COALESCE(mp.dmg_taken, 0) + COALESCE(mp.dmg_mitigated, 0)) OVER (PARTITION BY mp.platform_id, mp.game_id, mp.team_id), 0) AS m_soak,
+          (mp.kills + mp.assists) * 1.0 / MAX(1, mp.deaths) AS m_kda,
+          (mp.kills + mp.assists) * 1.0 / NULLIF(mp.team_kills, 0) AS m_kp,
+          COALESCE(mp.time_ccing_others, 0) * 1.0
+            / NULLIF(SUM(COALESCE(mp.time_ccing_others, 0)) OVER (PARTITION BY mp.platform_id, mp.game_id, mp.team_id), 0) AS m_cc,
+          mp.dmg_to_champions * 1.0 / NULLIF(mp.gold_earned, 0) AS m_eff
+        FROM match_participants mp
+        JOIN {builds.sql()} AS b ON b.participant_rowid = mp.rowid
+      ),
+      ranked AS (
+        SELECT participant_rowid, build_role,
+        CASE WHEN m_dmg IS NULL THEN NULL
+             WHEN COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_dmg IS NULL) = 1 THEN 50.0
+             ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, build_role, win, m_dmg IS NULL ORDER BY m_dmg) * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_dmg IS NULL) - 1)
+                           + CUME_DIST() OVER (PARTITION BY queue_id, build_role, win, m_dmg IS NULL ORDER BY m_dmg) * COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_dmg IS NULL) - 1)
+                  / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_dmg IS NULL) - 1)) END AS p_dmg,
+        CASE WHEN m_soak IS NULL THEN NULL
+             WHEN COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_soak IS NULL) = 1 THEN 50.0
+             ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, build_role, win, m_soak IS NULL ORDER BY m_soak) * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_soak IS NULL) - 1)
+                           + CUME_DIST() OVER (PARTITION BY queue_id, build_role, win, m_soak IS NULL ORDER BY m_soak) * COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_soak IS NULL) - 1)
+                  / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_soak IS NULL) - 1)) END AS p_soak,
+        CASE WHEN m_kda IS NULL THEN NULL
+             WHEN COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_kda IS NULL) = 1 THEN 50.0
+             ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, build_role, win, m_kda IS NULL ORDER BY m_kda) * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_kda IS NULL) - 1)
+                           + CUME_DIST() OVER (PARTITION BY queue_id, build_role, win, m_kda IS NULL ORDER BY m_kda) * COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_kda IS NULL) - 1)
+                  / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_kda IS NULL) - 1)) END AS p_kda,
+        CASE WHEN m_kp IS NULL THEN NULL
+             WHEN COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_kp IS NULL) = 1 THEN 50.0
+             ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, build_role, win, m_kp IS NULL ORDER BY m_kp) * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_kp IS NULL) - 1)
+                           + CUME_DIST() OVER (PARTITION BY queue_id, build_role, win, m_kp IS NULL ORDER BY m_kp) * COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_kp IS NULL) - 1)
+                  / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_kp IS NULL) - 1)) END AS p_kp,
+        CASE WHEN m_cc IS NULL THEN NULL
+             WHEN COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_cc IS NULL) = 1 THEN 50.0
+             ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, build_role, win, m_cc IS NULL ORDER BY m_cc) * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_cc IS NULL) - 1)
+                           + CUME_DIST() OVER (PARTITION BY queue_id, build_role, win, m_cc IS NULL ORDER BY m_cc) * COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_cc IS NULL) - 1)
+                  / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_cc IS NULL) - 1)) END AS p_cc,
+        CASE WHEN m_eff IS NULL THEN NULL
+             WHEN COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_eff IS NULL) = 1 THEN 50.0
+             ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, build_role, win, m_eff IS NULL ORDER BY m_eff) * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_eff IS NULL) - 1)
+                           + CUME_DIST() OVER (PARTITION BY queue_id, build_role, win, m_eff IS NULL ORDER BY m_eff) * COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_eff IS NULL) - 1)
+                  / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_eff IS NULL) - 1)) END AS p_eff
+        FROM base
+      )
+      SELECT *,
+        (COALESCE(p_dmg, 0) * (CASE build_role WHEN '坦克' THEN 10 WHEN 'AD 鬥士' THEN 25 WHEN 'AP 坦' THEN 25 WHEN 'AD 輸出' THEN 35 WHEN 'AP 輸出' THEN 35 WHEN 'AD 刺客' THEN 30 WHEN 'AP 刺客' THEN 30 WHEN '輔助' THEN 10 ELSE 1 END) + COALESCE(p_soak, 0) * (CASE build_role WHEN '坦克' THEN 35 WHEN 'AD 鬥士' THEN 25 WHEN 'AP 坦' THEN 25 WHEN 'AD 輸出' THEN 0 WHEN 'AP 輸出' THEN 0 WHEN 'AD 刺客' THEN 0 WHEN 'AP 刺客' THEN 0 WHEN '輔助' THEN 10 ELSE 1 END) + COALESCE(p_kda, 0) * (CASE build_role WHEN '坦克' THEN 10 WHEN 'AD 鬥士' THEN 15 WHEN 'AP 坦' THEN 15 WHEN 'AD 輸出' THEN 20 WHEN 'AP 輸出' THEN 20 WHEN 'AD 刺客' THEN 25 WHEN 'AP 刺客' THEN 25 WHEN '輔助' THEN 20 ELSE 1 END) + COALESCE(p_kp, 0) * (CASE build_role WHEN '坦克' THEN 20 WHEN 'AD 鬥士' THEN 15 WHEN 'AP 坦' THEN 15 WHEN 'AD 輸出' THEN 15 WHEN 'AP 輸出' THEN 15 WHEN 'AD 刺客' THEN 15 WHEN 'AP 刺客' THEN 15 WHEN '輔助' THEN 30 ELSE 1 END) + COALESCE(p_cc, 0) * (CASE build_role WHEN '坦克' THEN 25 WHEN 'AD 鬥士' THEN 10 WHEN 'AP 坦' THEN 10 WHEN 'AD 輸出' THEN 10 WHEN 'AP 輸出' THEN 10 WHEN 'AD 刺客' THEN 10 WHEN 'AP 刺客' THEN 10 WHEN '輔助' THEN 30 ELSE 1 END) + COALESCE(p_eff, 0) * (CASE build_role WHEN '坦克' THEN 0 WHEN 'AD 鬥士' THEN 10 WHEN 'AP 坦' THEN 10 WHEN 'AD 輸出' THEN 20 WHEN 'AP 輸出' THEN 20 WHEN 'AD 刺客' THEN 20 WHEN 'AP 刺客' THEN 20 WHEN '輔助' THEN 0 ELSE 1 END))
+          / NULLIF((CASE WHEN p_dmg IS NULL THEN 0 ELSE 1 END) * (CASE build_role WHEN '坦克' THEN 10 WHEN 'AD 鬥士' THEN 25 WHEN 'AP 坦' THEN 25 WHEN 'AD 輸出' THEN 35 WHEN 'AP 輸出' THEN 35 WHEN 'AD 刺客' THEN 30 WHEN 'AP 刺客' THEN 30 WHEN '輔助' THEN 10 ELSE 1 END) + (CASE WHEN p_soak IS NULL THEN 0 ELSE 1 END) * (CASE build_role WHEN '坦克' THEN 35 WHEN 'AD 鬥士' THEN 25 WHEN 'AP 坦' THEN 25 WHEN 'AD 輸出' THEN 0 WHEN 'AP 輸出' THEN 0 WHEN 'AD 刺客' THEN 0 WHEN 'AP 刺客' THEN 0 WHEN '輔助' THEN 10 ELSE 1 END) + (CASE WHEN p_kda IS NULL THEN 0 ELSE 1 END) * (CASE build_role WHEN '坦克' THEN 10 WHEN 'AD 鬥士' THEN 15 WHEN 'AP 坦' THEN 15 WHEN 'AD 輸出' THEN 20 WHEN 'AP 輸出' THEN 20 WHEN 'AD 刺客' THEN 25 WHEN 'AP 刺客' THEN 25 WHEN '輔助' THEN 20 ELSE 1 END) + (CASE WHEN p_kp IS NULL THEN 0 ELSE 1 END) * (CASE build_role WHEN '坦克' THEN 20 WHEN 'AD 鬥士' THEN 15 WHEN 'AP 坦' THEN 15 WHEN 'AD 輸出' THEN 15 WHEN 'AP 輸出' THEN 15 WHEN 'AD 刺客' THEN 15 WHEN 'AP 刺客' THEN 15 WHEN '輔助' THEN 30 ELSE 1 END) + (CASE WHEN p_cc IS NULL THEN 0 ELSE 1 END) * (CASE build_role WHEN '坦克' THEN 25 WHEN 'AD 鬥士' THEN 10 WHEN 'AP 坦' THEN 10 WHEN 'AD 輸出' THEN 10 WHEN 'AP 輸出' THEN 10 WHEN 'AD 刺客' THEN 10 WHEN 'AP 刺客' THEN 10 WHEN '輔助' THEN 30 ELSE 1 END) + (CASE WHEN p_eff IS NULL THEN 0 ELSE 1 END) * (CASE build_role WHEN '坦克' THEN 0 WHEN 'AD 鬥士' THEN 10 WHEN 'AP 坦' THEN 10 WHEN 'AD 輸出' THEN 20 WHEN 'AP 輸出' THEN 20 WHEN 'AD 刺客' THEN 20 WHEN 'AP 刺客' THEN 20 WHEN '輔助' THEN 0 ELSE 1 END), 0) AS score
+      FROM ranked
+
+    # 與 participants.yml 相同的 refresh key，理由寫在那裡。SQL 必須一字不差才會被合併。
+    refresh_key:
+      sql: >
+        SELECT (SELECT COALESCE(MAX(ingested_at), 0) FROM matches) || ':' || (SELECT COUNT(*) FROM dim_augments) || ':' || (SELECT group_concat(puuid || is_me || tracked) FROM accounts)
+
+    # 反方向也留一條，讓以這裡為起點的查詢找得到 matches
+    joins:
+      - name: participants
+        sql: "{CUBE}.participant_rowid = {participants}.rowid"
+        relationship: one_to_one
+
+    dimensions:
+      - name: id
+        sql: participant_rowid
+        type: number
+        primary_key: true
+        public: false
+
+    measures:
+      - name: score
+        title: 綜合貢獻
+        description: "這幾場的綜合貢獻（0～100，50＝同出裝定位、同勝負的一般人）。各項百分位依定位加權：坦克重承傷與控制、輸出重傷害與效率、刺客重傷害與 KDA、輔助重參團與控制。不受輸贏影響，用來和勝率分開看。"
+        sql: score
+        type: avg
+        meta:
+          group: 貢獻
+          decimals: 0
+          higherIsBetter: true
+
+      - name: dmg_pct
+        title: 貢獻・輸出
+        description: "對英雄傷害佔隊伍比例在同出裝定位、同勝負的人裡的百分位（50＝一般人）。"
+        sql: p_dmg
+        type: avg
+        meta:
+          group: 貢獻
+          decimals: 0
+          higherIsBetter: true
+
+      - name: soak_pct
+        title: 貢獻・承傷
+        description: "承受傷害＋自身減免佔隊伍比例在同出裝定位、同勝負的人裡的百分位（50＝一般人）。"
+        sql: p_soak
+        type: avg
+        meta:
+          group: 貢獻
+          decimals: 0
+          higherIsBetter: true
+
+      - name: kda_pct
+        title: 貢獻・KDA
+        description: "KDA在同出裝定位、同勝負的人裡的百分位（50＝一般人）。"
+        sql: p_kda
+        type: avg
+        meta:
+          group: 貢獻
+          decimals: 0
+          higherIsBetter: true
+
+      - name: kp_pct
+        title: 貢獻・參團
+        description: "參團率在同出裝定位、同勝負的人裡的百分位（50＝一般人）。"
+        sql: p_kp
+        type: avg
+        meta:
+          group: 貢獻
+          decimals: 0
+          higherIsBetter: true
+
+      - name: cc_pct
+        title: 貢獻・控制
+        description: "控制敵人時間佔隊伍比例在同出裝定位、同勝負的人裡的百分位（50＝一般人）。"
+        sql: p_cc
+        type: avg
+        meta:
+          group: 貢獻
+          decimals: 0
+          higherIsBetter: true
+
+      - name: eff_pct
+        title: 貢獻・效率
+        description: "每 1 金錢的對英雄傷害在同出裝定位、同勝負的人裡的百分位（50＝一般人）。"
+        sql: p_eff
+        type: avg
+        meta:
+          group: 貢獻
+          decimals: 0
+          higherIsBetter: true

@@ -18,23 +18,32 @@ import { useNavigate } from "@/lib/nav"
 import { cn } from "@/lib/utils"
 import { BUILD_ROLES, BUILD_SHORT, MIN_GAMES, NO_LIMIT, round0 } from "./shared"
 
-// ── 「適合／不適合」的判斷：勝率 × 表現 ───────────────────────────────
+// ── 「適合／不適合」的判斷：貢獻為主、勝率為輔 ─────────────────────────
+// 貢獻：語意層的 contribution.score——輸出、承傷、KDA、參團、控制、效率六項，各自和「同出裝定位、同勝負」
+//       的人比成百分位，再依定位加權（坦克重承傷與控制、輸出重傷害與效率…）。50＝一般人。
+//       和同勝負的人比，所以不受輸贏影響：只看勝率不公平，ARAM 的勝負很大一部分是隊友與陣容。
+//       這裡用「分數 − 50」，依場次往 0 收縮。
 // 勝率：和這個人「自己的」整體勝率比（每個人本來水準不同），依場次往他的平均收縮後的差距。
-// 表現：語意層的 builds.perf_index——這個出裝定位的關鍵指標（輸出與刺客看傷害佔比、坦克看承傷佔比、
-//       鬥士／AP 坦看兩者平均、輔助看參團率）和全資料庫同定位平均的差距。同樣依場次往 0 收縮。
-// 兩個都達標才叫「適合」、兩個都不達標才叫「不適合」；只有一邊的給次級標籤，
-// 例如勝率好但表現差 =「靠隊友」：這個定位該做的事做得比一般人少，贏多半是陣容或隊友。
-// 門檻跟著目前的篩選即時算，所以留在前端；定位與表現分數的定義在語意層（cube/model/cubes/builds.yml）。
+// 強判斷（適合／不適合）一定要貢獻達標，勝率只能讓它降級或補充說明：
+//   貢獻好 → 適合（勝率明顯差時改成「非戰之罪」）；貢獻差 → 不適合（勝率明顯好時改成「靠隊友」）；
+//   貢獻普通 → 只看勝率給次級標籤。
+// 門檻跟著目前的篩選即時算，所以留在前端；分數的定義在語意層（cube/model/cubes/contribution.yml）。
 const ROLE_MIN = MIN_GAMES
 const CHAMP_MIN = 3
 const WR_GAP_ROLE = 3
 const WR_GAP_CHAMP = 5
-const PERF_GAP = 2
+/** 貢獻（收縮後，分數 − 50）要偏離多少才算好或差：單場分數標準差約 19，好友圈「人 × 出裝」大約落在 ±8 */
+const CONTRIB_GAP = 4
 const PICKS_SHOWN = 3
 
 const n0 = (r: CubeRow | undefined, k: string) => (r ? (num(r[k]) ?? 0) : 0)
 const opt = (r: CubeRow | undefined, k: string) => (r ? num(r[k]) : null)
 const signed = (v: number, digits = 1) => `${v >= 0 ? "+" : ""}${v.toFixed(digits)}`
+/** 綜合貢獻換成「和一般人（50）的差距」 */
+const dev = (r: CubeRow | undefined) => {
+  const v = opt(r, "contribution.score")
+  return v === null ? null : v - 50
+}
 
 /** Riot ID 拆成名稱與 #tag，版面上 tag 用淡色 */
 const splitId = (riotId: string | null, puuid: string) => {
@@ -57,30 +66,24 @@ function PlayerName({ player, className }: { player: Player; className?: string 
   )
 }
 
-type Verdict = "good" | "potential" | "winning" | "bad" | "weak" | "losing" | "lucky"
+type Verdict = "good" | "unlucky" | "winning" | "bad" | "lucky" | "losing"
 
 const VERDICT: Record<Verdict, { label: string; side: "pos" | "neg"; strong: boolean; hint: string }> = {
-  good: { label: "適合", side: "pos", strong: true, hint: "勝率和表現都比平常好" },
-  potential: { label: "有潛力", side: "pos", strong: false, hint: "表現好，勝率還沒跟上" },
-  winning: { label: "勝率好", side: "pos", strong: false, hint: "勝率比平常高，表現和一般人差不多" },
-  bad: { label: "不適合", side: "neg", strong: true, hint: "勝率和表現都比平常差" },
-  weak: { label: "表現弱", side: "neg", strong: false, hint: "這個定位該做的事做得比一般人少" },
-  losing: { label: "勝率差", side: "neg", strong: false, hint: "勝率比平常低，表現和一般人差不多" },
-  lucky: { label: "靠隊友", side: "neg", strong: false, hint: "勝率好，但這個定位該做的事做得比一般人少" },
+  good: { label: "適合", side: "pos", strong: true, hint: "貢獻比同定位的一般人多，勝率也沒有比平常差" },
+  unlucky: { label: "非戰之罪", side: "pos", strong: false, hint: "貢獻比一般人多，但勝率比平常低——輸多半不是他的問題" },
+  winning: { label: "勝率好", side: "pos", strong: false, hint: "勝率比平常高，貢獻和一般人差不多" },
+  bad: { label: "不適合", side: "neg", strong: true, hint: "貢獻比同定位的一般人少，勝率也沒有比平常好" },
+  lucky: { label: "靠隊友", side: "neg", strong: false, hint: "勝率比平常高，但貢獻比一般人少——贏多半是隊友或陣容" },
+  losing: { label: "勝率差", side: "neg", strong: false, hint: "勝率比平常低，貢獻和一般人差不多" },
 }
-const ORDER: Verdict[] = ["good", "potential", "winning", "bad", "lucky", "weak", "losing"]
+const ORDER: Verdict[] = ["good", "unlucky", "winning", "bad", "lucky", "losing"]
 
-function judge(wr: number, perf: number, wrGap: number): Verdict | null {
+function judge(wr: number, contrib: number, wrGap: number): Verdict | null {
   const wrUp = wr >= wrGap
   const wrDown = wr <= -wrGap
-  const pUp = perf >= PERF_GAP
-  const pDown = perf <= -PERF_GAP
-  if (wrUp && pUp) return "good"
-  if (wrDown && pDown) return "bad"
-  if (pUp) return "potential"
-  if (wrUp && pDown) return "lucky"
+  if (contrib >= CONTRIB_GAP) return wrDown ? "unlucky" : "good"
+  if (contrib <= -CONTRIB_GAP) return wrUp ? "lucky" : "bad"
   if (wrUp) return "winning"
-  if (pDown) return "weak"
   if (wrDown) return "losing"
   return null
 }
@@ -89,7 +92,7 @@ type Item = { label: string; icon?: string; games: number; wins: number; winrate
 type Pick = Item & { wr: number; perfAdj: number; verdict: Verdict }
 type Call = { pos: Pick[]; neg: Pick[]; all: Pick[] }
 
-/** 依勝率差與表現分數把一組（出裝定位或英雄）分成正面／負面兩邊 */
+/** 依勝率差與貢獻分數把一組（出裝定位或英雄）分成正面／負面兩邊 */
 function classify(items: Item[], base: number | null, minGames: number, wrGap: number, limit = PICKS_SHOWN): Call {
   if (base === null) return { pos: [], neg: [], all: [] }
   const all = items
@@ -100,7 +103,7 @@ function classify(items: Item[], base: number | null, minGames: number, wrGap: n
       return { ...i, wr, perfAdj, verdict: judge(wr, perfAdj, wrGap) }
     })
     .filter((i): i is Pick => i.verdict !== null)
-  // 強的判斷在前，同一級依「勝率差＋表現」的絕對值排，並列依名稱
+  // 強的判斷在前，同一級依「勝率差＋貢獻」的絕對值排，並列依名稱
   const rank = (a: Pick, b: Pick) =>
     ORDER.indexOf(a.verdict) - ORDER.indexOf(b.verdict) ||
     Math.abs(b.wr + b.perfAdj) - Math.abs(a.wr + a.perfAdj) ||
@@ -117,12 +120,65 @@ function classify(items: Item[], base: number | null, minGames: number, wrGap: n
 const tip = (i: Pick) =>
   `${i.label}・${VERDICT[i.verdict].label}（${VERDICT[i.verdict].hint}）\n` +
   `${i.games} 場・${i.wins} 勝 ${i.games - i.wins} 敗・勝率 ${i.winrate?.toFixed(1)}%\n` +
-  `勝率比他自己平均 ${signed(i.wr)}pp・表現比同定位的人 ${signed(i.perfAdj)}pp`
+  `勝率比他自己平均 ${signed(i.wr)}pp・貢獻比同定位的一般人 ${signed(i.perfAdj, 0)}（綜合貢獻 ${i.perf === null ? "—" : Math.round(50 + i.perf)}，50＝一般人，依場次收縮前）`
 
 function verdictClass(v: Verdict) {
   const { side, strong } = VERDICT[v]
   if (side === "pos") return strong ? "border-win/50 bg-win/15 text-win font-semibold" : "border-dashed border-win/40 text-win"
   return strong ? "border-loss/50 bg-loss/15 text-loss font-semibold" : "border-dashed border-loss/40 text-loss"
+}
+
+/** 綜合貢獻的數字：0～100，50＝同定位、同勝負的一般人；差距不到門檻的用淡色 */
+function ContribScore({ dev: d, className }: { dev: number | null; className?: string }) {
+  return (
+    <span
+      className={cn(
+        "font-mono tabular-nums",
+        d === null || Math.abs(d) < CONTRIB_GAP ? "text-muted-foreground" : d > 0 ? "text-win" : "text-loss",
+        className,
+      )}
+    >
+      {d === null ? "—" : Math.round(50 + d)}
+    </span>
+  )
+}
+
+/** 貢獻的六項（語意層 contribution.yml），順序固定：先「做了多少」再「做得多有效」 */
+const CONTRIB_PARTS = [
+  { key: "contribution.dmg_pct", label: "輸出", hint: "對英雄傷害佔隊伍的比例" },
+  { key: "contribution.soak_pct", label: "承傷", hint: "承受傷害＋自身減免佔隊伍的比例" },
+  { key: "contribution.kp_pct", label: "參團", hint: "(擊殺＋助攻) / 隊伍擊殺" },
+  { key: "contribution.cc_pct", label: "控制", hint: "控制敵人的時間佔隊伍的比例" },
+  { key: "contribution.kda_pct", label: "KDA", hint: "(擊殺＋助攻) / 死亡" },
+  { key: "contribution.eff_pct", label: "效率", hint: "每 1 金錢打出的對英雄傷害" },
+] as const
+const CONTRIB_MEASURES = ["contribution.score", ...CONTRIB_PARTS.map((c) => c.key)]
+
+/** 六項貢獻的橫條：每項是百分位，中間的刻度是 50（一般人），往右是做得比一般人多 */
+function ContribBars({ row }: { row: CubeRow | undefined }) {
+  return (
+    <div className="space-y-1.5">
+      {CONTRIB_PARTS.map((c) => {
+        const v = opt(row, c.key)
+        const d = v === null ? null : v - 50
+        return (
+          <div key={c.key} className="grid grid-cols-[2.5rem_minmax(0,1fr)_2rem] items-center gap-2" title={`${c.label}：${c.hint}\n在同出裝定位、同勝負的人裡的百分位（這幾場平均），50＝一般人`}>
+            <span className="text-[12px]">{c.label}</span>
+            <span className="relative h-2 rounded-full bg-muted/50">
+              {v !== null && (
+                <span
+                  className={cn("absolute inset-y-0 rounded-full", d !== null && d >= 0 ? "bg-win/70" : "bg-loss/70")}
+                  style={d !== null && d >= 0 ? { left: "50%", width: `${d}%` } : { left: `${v}%`, width: `${50 - v}%` }}
+                />
+              )}
+              <span className="absolute inset-y-[-2px] left-1/2 w-px bg-muted-foreground/60" />
+            </span>
+            <ContribScore dev={d} className="text-right text-[12px]" />
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 /** 迷你雷達（出裝定位八個頂點）：形狀是各出裝定位佔他自己場次的比例（偏好怎麼玩），頂點是判斷結果。
@@ -203,7 +259,7 @@ function RoleChips({ items }: { items: Pick[] }) {
   )
 }
 
-/** 英雄頭像列：外框實線是強判斷、虛線是次級；滑過看戰績、勝率差與表現 */
+/** 英雄頭像列：外框實線是強判斷、虛線是次級；滑過看戰績、勝率差與貢獻 */
 function ChampIcons({ items }: { items: Pick[] }) {
   if (!items.length) return <span className="text-[11px] text-muted-foreground">—</span>
   return (
@@ -236,7 +292,7 @@ function ChampIcons({ items }: { items: Pick[] }) {
   )
 }
 
-/** 抽屜裡的判斷清單：每項一列，判斷＋勝率差＋表現 */
+/** 抽屜裡的判斷清單：每項一列，判斷＋勝率差＋貢獻 */
 function PickList({ title, items, empty }: { title: string; items: Pick[]; empty: string }) {
   return (
     <div className="min-w-0">
@@ -249,7 +305,7 @@ function PickList({ title, items, empty }: { title: string; items: Pick[]; empty
               <span className="min-w-0 flex-1 truncate text-[13px]">{i.label}</span>
               <span className={cn("shrink-0 rounded border px-1.5 text-[11px]", verdictClass(i.verdict))}>{VERDICT[i.verdict].label}</span>
               <span className="w-[112px] shrink-0 text-right font-mono text-[11px] tabular-nums text-muted-foreground">
-                勝 {signed(i.wr)}・表 {signed(i.perfAdj)}
+                勝 {signed(i.wr)}・貢 {signed(i.perfAdj, 0)}
               </span>
             </div>
           ))}
@@ -284,12 +340,16 @@ function PlayerDrawerBody({
   const { apply, setAccount } = useFilters()
   const go = useNavigate()
   const settled = useDrawerSettled()
+  const roleFilter = role ? [{ member: "builds.build_role", operator: "equals" as const, values: [role] }] : []
+  const contrib = useCube(
+    apply({ measures: CONTRIB_MEASURES, filters: [crewFilter([player.puuid]), ...roleFilter], limit: 1 }, "all"),
+  )
   const champs = useCube(
     apply(
       {
-        measures: ["participants.games", "participants.wins", "participants.losses", "participants.winrate", "builds.perf_index"],
+        measures: ["participants.games", "participants.wins", "participants.losses", "participants.winrate", "contribution.score"],
         dimensions: ["champions.name", "champions.icon_path"],
-        filters: [crewFilter([player.puuid]), ...(role ? [{ member: "builds.build_role", operator: "equals" as const, values: [role] }] : [])],
+        filters: [crewFilter([player.puuid]), ...roleFilter],
         order: { "participants.games": "desc" },
         limit: NO_LIMIT,
       },
@@ -338,10 +398,35 @@ function PlayerDrawerBody({
           <PickList title="英雄：好的一面" items={analysis.champCall.pos} empty={`還沒有英雄在 ${CHAMP_MIN} 場以上明顯比平常好`} />
           <PickList title="英雄：要注意的" items={analysis.champCall.neg} empty={`還沒有英雄在 ${CHAMP_MIN} 場以上明顯比平常差`} />
           <p className="text-[11px] text-muted-foreground">
-            「勝」是勝率比他自己平均高幾個百分點；「表」是這個定位的關鍵指標比全資料庫同定位的人高幾個百分點
-            （輸出與刺客看傷害佔比、坦克看承傷佔比、鬥士／AP 坦看兩者平均、輔助看參團率）。都已依場次收縮
+            「勝」是勝率比他自己平均高幾個百分點；「貢」是綜合貢獻比同定位的一般人（50）高多少。都已依場次收縮。
+            適合／不適合看的是貢獻，勝率只用來補充：貢獻好但勝率差是「非戰之罪」，貢獻差但勝率好是「靠隊友」
           </p>
         </div>
+      </div>
+
+      <div className="rounded-lg border p-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <div className="text-sm font-semibold">
+            貢獻分解{role ? `・出裝是${role}時` : "・所有出裝"}
+          </div>
+          <div className="text-[12px]">
+            綜合貢獻 <ContribScore dev={dev(contrib.rows[0])} className="text-base font-semibold" />
+          </div>
+        </div>
+        <div className="mb-2 text-[11px] text-muted-foreground">
+          每一項都和「同出裝定位、同勝負」的人比（贏的場和贏家比、輸的場和輸家比），換成百分位：50＝一般人，
+          中間的刻度就是 50。所以不受輸贏影響，看的是他自己做得比別人多還是少。綜合貢獻依定位加權：
+          坦克重承傷與控制、輸出重傷害與效率、刺客重傷害與 KDA、輔助重參團與控制
+        </div>
+        {!settled || contrib.loading ? (
+          <Skeleton className="h-[140px] w-full" />
+        ) : contrib.error ? (
+          <div className="text-sm text-destructive">{contrib.error}</div>
+        ) : (
+          <div className="max-w-[560px]">
+            <ContribBars row={contrib.rows[0]} />
+          </div>
+        )}
       </div>
 
       <div className="flex items-baseline justify-between gap-2">
@@ -364,10 +449,10 @@ function PlayerDrawerBody({
             <span>英雄</span>
             <span>場次</span>
             <span>戰績（刻度＝他自己的整體勝率）</span>
-            <span className="text-right">表現</span>
+            <span className="text-right">貢獻</span>
           </div>
           {champs.rows.map((r, i) => {
-            const perf = opt(r, "participants.games") ? opt(r, "builds.perf_index") : null
+            const perf = opt(r, "participants.games") ? dev(r) : null
             return (
               <div
                 key={String(r["champions.name"])}
@@ -386,14 +471,8 @@ function PlayerDrawerBody({
                   baseline={overallWr}
                   baselineLabel="他自己的整體勝率"
                 />
-                <span
-                  title="這幾場的定位關鍵指標和全資料庫同定位平均的差距（百分點，未收縮）"
-                  className={cn(
-                    "text-right font-mono text-[11px] tabular-nums",
-                    perf === null || Math.abs(perf) < PERF_GAP ? "text-muted-foreground" : perf > 0 ? "text-win" : "text-loss",
-                  )}
-                >
-                  {perf === null ? "—" : `${signed(perf)}pp`}
+                <span title="這幾場的綜合貢獻（50＝同定位、同勝負的一般人，未收縮）" className="text-right text-[12px]">
+                  <ContribScore dev={perf} />
                 </span>
               </div>
             )
@@ -440,7 +519,7 @@ function CompContext({
   const spec = CONTEXTS[ctx]
   const data = useCube(
     q({
-      measures: ["participants.games", "participants.wins", "participants.winrate", "builds.perf_index"],
+      measures: ["participants.games", "participants.wins", "participants.winrate", "contribution.score"],
       dimensions: ["participants.puuid", "builds.build_role", spec.dim],
       limit: NO_LIMIT,
     }),
@@ -452,8 +531,9 @@ function CompContext({
     const rows = mine.filter((r) => (role === null || r["builds.build_role"] === role) && (bucket === null || r[spec.dim] === bucket))
     const games = rows.reduce((a, r) => a + n0(r, "participants.games"), 0)
     const wins = rows.reduce((a, r) => a + n0(r, "participants.wins"), 0)
-    // 表現分數依場次加權合併（每一列本來就是那幾場的平均）
-    const pw = rows.reduce((a, r) => a + (opt(r, "builds.perf_index") ?? 0) * n0(r, "participants.games"), 0)
+    // 貢獻分數依場次加權合併（每一列本來就是那幾場的平均）
+    // （這裡的 dev 是下面「勝率偏離」的區域函式，所以直接取分數）
+    const pw = rows.reduce((a, r) => a + ((opt(r, "contribution.score") ?? 50) - 50) * n0(r, "participants.games"), 0)
     const winrate = games ? (100 * wins) / games : null
     return { games, wins, winrate, perf: games ? pw / games : null }
   }
@@ -473,7 +553,7 @@ function CompContext({
     `${role ?? "所有出裝"}・${bucket ? `${spec.label} ${bucket}` : "所有陣容"}\n` +
     (c.games
       ? `${c.games} 場・${c.wins} 勝 ${c.games - c.wins} 敗・勝率 ${c.winrate?.toFixed(1)}%\n比他自己平均 ${signed(dev(c))}pp（依場次收縮）` +
-        (c.perf === null ? "" : `・表現 ${signed(c.perf)}pp`)
+        (c.perf === null ? "" : `・綜合貢獻 ${Math.round(50 + c.perf)}`)
       : "沒有對局")
 
   return (
@@ -680,21 +760,21 @@ export function Crew() {
 
   const summary = useCube(
     q({
-      measures: ["participants.games", "participants.wins", "participants.losses", "participants.winrate", "participants.kda", "builds.perf_index"],
+      measures: ["participants.games", "participants.wins", "participants.losses", "participants.winrate", "participants.kda", "contribution.score"],
       dimensions: ["participants.puuid"],
       limit: NO_LIMIT,
     }),
   )
   const roles = useCube(
     q({
-      measures: ["participants.games", "participants.wins", "participants.winrate", "builds.perf_index"],
+      measures: ["participants.games", "participants.wins", "participants.winrate", "contribution.score"],
       dimensions: ["participants.puuid", "builds.build_role"],
       limit: NO_LIMIT,
     }),
   )
   const champs = useCube(
     q({
-      measures: ["participants.games", "participants.wins", "participants.losses", "participants.winrate", "builds.perf_index"],
+      measures: ["participants.games", "participants.wins", "participants.losses", "participants.winrate", "contribution.score"],
       dimensions: ["participants.puuid", "champions.name", "champions.icon_path"],
       limit: NO_LIMIT,
     }),
@@ -719,7 +799,7 @@ export function Crew() {
           games: n0(r, "participants.games"),
           wins: n0(r, "participants.wins"),
           winrate: opt(r, "participants.winrate"),
-          perf: opt(r, "builds.perf_index"),
+          perf: dev(r),
         }
       })
       const mine = champs.rows
@@ -730,7 +810,7 @@ export function Crew() {
           games: n0(r, "participants.games"),
           wins: n0(r, "participants.wins"),
           winrate: opt(r, "participants.winrate"),
-          perf: opt(r, "builds.perf_index"),
+          perf: dev(r),
         }))
       out.set(p.puuid, {
         radar: roleRows.map(({ label, games, wins, winrate }) => ({ label, games, wins, winrate })),
@@ -773,7 +853,7 @@ export function Crew() {
         winrate: wr,
         base,
         delta: games && base !== null ? shrunk(games, wr, base) - base : null,
-        perf: games ? opt(r, "builds.perf_index") : null,
+        perf: games ? dev(r) : null,
       }
     })
     .sort((a, b) => b.games - a.games || (b.winrate ?? 0) - (a.winrate ?? 0))
@@ -830,7 +910,7 @@ export function Crew() {
       {/* ── 全員一覽：每人一列，迷你雷達 + 判斷 ── */}
       <Panel
         title="全員一覽"
-        caption={`定位依「終場出裝」判斷（AD 輸出、AD 刺客、AP 輸出、AP 刺客、坦克、AD 鬥士、AP 坦、輔助）：AD 刺客是穿甲裝為主，AP 刺客是 AP 輸出裝配上官方定位為刺客的英雄，其餘不看官方定位。雷達是各出裝佔他場次的比例（最常用的頂到外框）。判斷同時看兩件事：勝率比他自己平均高或低（出裝 ${WR_GAP_ROLE}pp、英雄 ${WR_GAP_CHAMP}pp），以及表現——這個定位的關鍵指標比全資料庫同定位的人高或低 ${PERF_GAP}pp（輸出與刺客看傷害佔比、坦克看承傷佔比、鬥士／AP 坦看兩者平均、輔助看參團率）。兩者都好才是「適合」、都差才是「不適合」，只有一邊的給次級標籤（虛線框）。滑過看數字；點一列看完整分析`}
+        caption={`定位依「終場出裝」判斷（AD 輸出、AD 刺客、AP 輸出、AP 刺客、坦克、AD 鬥士、AP 坦、輔助）：AD 刺客是穿甲裝為主，AP 刺客是 AP 輸出裝配上官方定位為刺客的英雄，其餘不看官方定位。雷達是各出裝佔他場次的比例（最常用的頂到外框）。判斷以「貢獻」為主：輸出、承傷、KDA、參團、控制、效率六項，各自和同出裝定位、同勝負的人比（不受輸贏影響），依定位加權成綜合貢獻（50＝一般人）；收縮後高或低 ${CONTRIB_GAP} 分以上才算數。貢獻好是「適合」、差是「不適合」；勝率（和他自己平均比，出裝 ${WR_GAP_ROLE}pp、英雄 ${WR_GAP_CHAMP}pp）只做補充——貢獻好但勝率差是「非戰之罪」、貢獻差但勝率好是「靠隊友」、貢獻普通時才單看勝率（虛線框）。滑過看數字；點一列看完整分析`}
       >
         {loading ? (
           <Skeleton className="h-[640px] w-full" />
@@ -852,7 +932,7 @@ export function Crew() {
               {ordered.map((p, i) => {
                 const a = analysis.get(p.puuid)
                 const base = wrOf(p.puuid)
-                const perf = opt(sumOf(p.puuid), "builds.perf_index")
+                const perf = dev(sumOf(p.puuid))
                 if (!a) return null
                 return (
                   <button
@@ -872,13 +952,10 @@ export function Crew() {
                         ・KDA {opt(sumOf(p.puuid), "participants.kda")?.toFixed(2) ?? "—"}
                       </span>
                       <span
-                        className="block font-mono text-[11px] tabular-nums text-muted-foreground"
-                        title="整體表現：各場定位關鍵指標和同定位平均的差距，再平均"
+                        className="block text-[11px] text-muted-foreground"
+                        title="綜合貢獻：輸出、承傷、KDA、參團、控制、效率各自和同出裝定位、同勝負的人比，依定位加權。50＝一般人，不受輸贏影響"
                       >
-                        整體表現{" "}
-                        <span className={cn(perf === null || Math.abs(perf) < 1 ? "" : perf > 0 ? "text-win" : "text-loss")}>
-                          {perf === null ? "—" : `${signed(perf)}pp`}
-                        </span>
+                        綜合貢獻 <ContribScore dev={perf} className="font-semibold" />
                       </span>
                     </span>
                     <MiniHex data={a.radar} total={gamesOf(p.puuid)} call={a.roleCall} />
@@ -901,15 +978,15 @@ export function Crew() {
       {/* ── 陣容情境：在什麼陣容下，出什麼裝會贏 ── */}
       <Panel
         title="陣容情境"
-        caption={`選一個人和一種陣容分組，看他在各種陣容下出各種裝的勝率（格子裡是勝率與勝-敗）。顏色和他自己的整體勝率比，依場次收縮，不到 ${CELL_MIN} 場的格子不上色。前排＝出裝是坦克、AD 鬥士或 AP 坦；隊友都不含自己。下方是每種陣容的建議：比他自己平均高或低 ${WR_GAP_ROLE}pp 以上才列。滑過格子看場次與表現`}
+        caption={`選一個人和一種陣容分組，看他在各種陣容下出各種裝的勝率（格子裡是勝率與勝-敗）。顏色和他自己的整體勝率比，依場次收縮，不到 ${CELL_MIN} 場的格子不上色。前排＝出裝是坦克、AD 鬥士或 AP 坦；隊友都不含自己。下方是每種陣容的建議：比他自己平均高或低 ${WR_GAP_ROLE}pp 以上才列。滑過格子看場次與貢獻`}
       >
         {loading ? <Skeleton className="h-[420px] w-full" /> : <CompContext people={ordered} q={q} wrOf={wrOf} />}
       </Panel>
 
-      {/* ── 查英雄：選一隻，看每個人玩它的勝率與表現 ── */}
+      {/* ── 查英雄：選一隻，看每個人玩它的勝率與貢獻 ── */}
       <Panel
         title="查英雄"
-        caption="選一隻英雄，看每個人玩它的戰績。「勝率」是和他自己整體勝率的差距（依場次收縮後），戰績條的刻度也是他自己的整體勝率；「表現」是這幾場的定位關鍵指標和全資料庫同出裝定位平均的差距"
+        caption="選一隻英雄，看每個人玩它的戰績。「勝率」是和他自己整體勝率的差距（依場次收縮後），戰績條的刻度也是他自己的整體勝率；「貢獻」是這幾場的綜合貢獻（50＝同定位、同勝負的一般人，不受輸贏影響）"
       >
         <div className="mb-3 flex flex-wrap items-center gap-3">
           <ChampionPicker options={championOptions} value={pickedChampion} onChange={setChampion} />
@@ -930,7 +1007,7 @@ export function Crew() {
               <span>場次</span>
               <span>戰績</span>
               <span className="text-right">勝率</span>
-              <span className="text-right">表現</span>
+              <span className="text-right">貢獻</span>
             </div>
             {championRows.map((r, i) => (
               <div
@@ -956,14 +1033,7 @@ export function Crew() {
                 >
                   {r.delta === null ? "" : `${signed(r.delta)}pp`}
                 </span>
-                <span
-                  className={cn(
-                    "text-right font-mono text-[11px] tabular-nums",
-                    r.perf === null || Math.abs(r.perf) < PERF_GAP ? "text-muted-foreground" : r.perf > 0 ? "text-win" : "text-loss",
-                  )}
-                >
-                  {r.perf === null ? "" : `${signed(r.perf)}pp`}
-                </span>
+                <span className="text-right text-[12px]">{r.perf === null ? "" : <ContribScore dev={r.perf} />}</span>
               </div>
             ))}
           </div>

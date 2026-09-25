@@ -215,6 +215,23 @@ views:
           - name: enemy_damage_type
           - name: ally_damage_type
 
+      - join_path: participants.contribution
+        includes:
+          - name: score
+            alias: contribution_score
+          - name: dmg_pct
+            alias: contribution_damage
+          - name: soak_pct
+            alias: contribution_soak
+          - name: kda_pct
+            alias: contribution_kda
+          - name: kp_pct
+            alias: contribution_kill_participation
+          - name: cc_pct
+            alias: contribution_cc
+          - name: eff_pct
+            alias: contribution_efficiency
+
       - join_path: participants.augments
         includes:
           - name: name
