@@ -31,6 +31,15 @@ description: 這個專案前端的主題與動畫規範。只要動到 web/src �
 3. **勝敗不用紅綠。** 紅綠色盲分不出來。現有每組兩極都是冷色對暖色。
 4. **發散配色的中點是無彩的灰。** 用 `neutralGray()`，不要直接混主題的灰字色——霓虹的灰字偏藍，混出來的中性格和勝方藍色撞色。
 
+### 出裝定位標籤
+
+- 畫面上出現出裝定位（坦克、AD 鬥士、AD 刺客…）一律用 `components/RoleChip.tsx` 的 `<RoleChip>`，旁邊需要讀法時放 `<RoleLegend>`。
+- 八種定位**不各給一個顏色**：8 色任兩色都分得開做不到（`validate_palette.js --pairs all` 色盲 ΔE 最低 1.6）。
+  改成兩個編碼——顏色＝傷害類型（`--role-ad`／`--role-ap`／`--role-util` 三色，all-pairs 在八個主題都 PASS），
+  框線＝站位（實心前排、虛線刺客、空心後排）。文字用前景色，不用定位色。
+- 定位要從語意層查：`hooks/useBuildRoles.ts` 拿參賽者鍵（`participants.participant_key`）向 Cube 查，一批不超過 50 個鍵。
+  不要在後端或前端另寫一份分類規則。
+
 ### 圖表（ECharts）取色
 
 - 只能透過 `charts.tsx` 的 `useTheme()` 取色，它依主題名稱重算，切換主題時圖表才會跟著換。

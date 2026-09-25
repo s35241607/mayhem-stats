@@ -16,6 +16,10 @@ import { DetailDrawer, useDrawerSettled } from "@/components/DetailDrawer"
 import { cn } from "@/lib/utils"
 import { MIN_GAMES, NO_LIMIT, round0, round1, round2 } from "./shared"
 import { ROLE_SPEC, type RoleSpec } from "@/lib/roleBasis"
+import { RoleChip } from "@/components/RoleChip"
+
+/** 每隻英雄出過哪些出裝定位、各幾場（多到少） */
+type RoleMix = Map<string, { role: string; games: number }[]>
 
 const MEASURES = [
   "participants.games",
@@ -37,7 +41,7 @@ const opt = (r: Record<string, unknown>, k: string) => num(r[k] as string | numb
 
 /** 10 欄一格一個數字 → 5 欄複合格子。被合併的原始欄位留成隱藏欄，匯出 CSV 仍帶得出來。
  *  資料條的最大值與平均線依目前資料算，所以欄位定義要跟著資料重建。 */
-function buildColumns(rows: CubeRow[], overallWr: number | null): GridColumn[] {
+function buildColumns(rows: CubeRow[], overallWr: number | null, roleMix: RoleMix): GridColumn[] {
   // 最大值只看樣本夠的英雄，免得一場打出 5000 的把整欄的條壓扁
   const solid = rows.filter((r) => n0(r, "participants.games") >= MIN_GAMES)
   const pool = solid.length ? solid : rows
@@ -51,7 +55,39 @@ function buildColumns(rows: CubeRow[], overallWr: number | null): GridColumn[] {
   const avgWr = overallWr
 
   return [
-    { key: "champions.name", title: "英雄", kind: "dimension", iconKey: "champions.icon_path", flex: 1.4, minWidth: 140 },
+    {
+      key: "champions.name",
+      title: "英雄",
+      kind: "dimension",
+      iconKey: "champions.icon_path",
+      flex: 1.4,
+      minWidth: 150,
+      // 名稱下面是「你最常把它出成什麼」：同一隻英雄不同場可能不同，只列最多的那種，其餘寫在 title
+      cell: (r) => {
+        const name = String(r["champions.name"] ?? "—")
+        const mix = roleMix.get(name) ?? []
+        const total = mix.reduce((a, m) => a + m.games, 0)
+        return (
+          <span
+            className="flex min-w-0 items-center gap-2"
+            title={mix.length ? `出裝定位：${mix.map((m) => `${m.role} ${m.games} 場`).join("、")}` : undefined}
+          >
+            <img src={iconUrl(r["champions.icon_path"] as string)} alt="" className="size-7 shrink-0 rounded bg-icon-tile" />
+            <span className="flex min-w-0 flex-col items-start gap-0.5">
+              <span className="truncate font-medium">{name}</span>
+              {mix[0] && (
+                <span className="flex items-center gap-1">
+                  <RoleChip role={mix[0].role} className="text-[10px] leading-4" />
+                  {mix.length > 1 && (
+                    <span className="text-[10px] text-muted-foreground">{Math.round((100 * mix[0].games) / Math.max(1, total))}%</span>
+                  )}
+                </span>
+              )}
+            </span>
+          </span>
+        )
+      },
+    },
     { key: "participants.games", title: "場次", kind: "metric", format: round0, flex: 0.5, minWidth: 70 },
     {
       key: "participants.winrate",
@@ -422,7 +458,22 @@ export function Champions() {
   const baseline = totalGames ? (100 * n0(overall.rows[0], "participants.wins")) / totalGames : null
   const pickedRow = picked ? rows.find((r) => r["champions.name"] === picked) : undefined
   // 欄位定義只在資料換了才重建，不然每次重畫 AG Grid 都會重新套欄位
-  const columns = useMemo(() => buildColumns(rows, baseline), [rows, baseline])
+  // 每隻英雄出過的出裝定位（不跟著定位篩選：篩成某一類時仍看得出這隻平常主要出什麼）
+  const mixQuery = useCube(
+    apply({ measures: ["participants.games"], dimensions: ["champions.name", "builds.build_role"], limit: NO_LIMIT }),
+  )
+  const roleMix: RoleMix = useMemo(() => {
+    const m: RoleMix = new Map()
+    for (const r of mixQuery.rows) {
+      const name = String(r["champions.name"])
+      const list = m.get(name) ?? []
+      list.push({ role: String(r["builds.build_role"]), games: n0(r, "participants.games") })
+      m.set(name, list)
+    }
+    for (const list of m.values()) list.sort((a, b) => b.games - a.games || a.role.localeCompare(b.role, "zh-Hant"))
+    return m
+  }, [mixQuery.rows])
+  const columns = useMemo(() => buildColumns(rows, baseline, roleMix), [rows, baseline, roleMix])
 
   return (
     <div className="space-y-4">

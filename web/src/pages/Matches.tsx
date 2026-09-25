@@ -8,7 +8,8 @@ import { Panel } from "@/components/primitives"
 import { MAX_GAME_IDS, iconUrl } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 import { CubeMatchList, MatchList } from "@/components/MatchList"
-import { useCube } from "@/hooks/useCube"
+import { RoleChip, RoleLegend } from "@/components/RoleChip"
+import { participantKey, useBuildRoles } from "@/hooks/useBuildRoles"
 import { cn } from "@/lib/utils"
 
 type Item = { slot: number; item_id: number; name: string | null; icon_path: string | null }
@@ -162,7 +163,7 @@ function RosterRow({ roster, teamId, self }: { roster: Mate[]; teamId: number; s
 
 // ─────────────────────────────────────────── 計分板
 
-function Scoreboard({ players }: { players: Player[] }) {
+function Scoreboard({ players, roleOf }: { players: Player[]; roleOf: Map<string, string> }) {
   const teams = [100, 200].map((teamId) => {
     const members = players.filter((p) => p.team_id === teamId)
     return {
@@ -221,8 +222,9 @@ function Scoreboard({ players }: { players: Player[] }) {
 
                 <div className="min-w-[110px] flex-1">
                   <div className="truncate text-sm font-medium">{p.riot_id}</div>
-                  <div className="truncate text-[11px] text-muted-foreground">
-                    {p.champion_name}
+                  <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <span className="truncate">{p.champion_name}</span>
+                    {roleOf.get(keyOf(p)) && <RoleChip role={roleOf.get(keyOf(p))!} />}
                   </div>
                 </div>
 
@@ -289,7 +291,7 @@ const STAT_SECTIONS: { title: string; rows: StatRow[] }[] = [
   },
 ]
 
-function StatTable({ players }: { players: Player[] }) {
+function StatTable({ players, roleOf }: { players: Player[]; roleOf: Map<string, string> }) {
   return (
     <div className="overflow-x-auto rounded-lg border">
       <table className="w-full min-w-[900px] text-sm">
@@ -317,6 +319,7 @@ function StatTable({ players }: { players: Player[] }) {
                       p.team_id === 100 ? "bg-chart-2" : "bg-loss",
                     )}
                   />
+                  {roleOf.get(keyOf(p)) && <RoleChip role={roleOf.get(keyOf(p))!} className="px-1 text-[10px] font-normal" />}
                 </div>
               </th>
             ))}
@@ -384,6 +387,8 @@ export function MatchDetail({
 }) {
   const [data, setData] = useState<{ match: MatchRow; players: Player[] } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // 十個人各自的出裝定位
+  const roleOf = useBuildRoles(data ? data.players.map(keyOf) : [])
 
   useEffect(() => {
     setData(null)
@@ -426,12 +431,15 @@ export function MatchDetail({
           <TabsTrigger value="stats">數據</TabsTrigger>
         </TabsList>
         <TabsContent value="board">
-          <Scoreboard players={players} />
+          <div className="mb-2 flex justify-end">
+            <RoleLegend />
+          </div>
+          <Scoreboard players={players} roleOf={roleOf} />
         </TabsContent>
         <TabsContent value="stats">
-          <StatTable players={players} />
+          <StatTable players={players} roleOf={roleOf} />
           <p className="mt-2 text-xs text-muted-foreground">
-            每一列的全場最高值以主色標示。上方色條藍＝隊伍 1、紅＝隊伍 2。
+            每一列的全場最高值以主色標示。上方色條藍＝隊伍 1、紅＝隊伍 2；色條下是這場的出裝定位。
           </p>
         </TabsContent>
       </Tabs>
@@ -445,7 +453,8 @@ export function MatchDetail({
  *  捲動載入時前面幾批的鍵不變，查詢會命中快取，只有最後一批要重查。 */
 const ROLE_CHUNK = 50
 
-const participantKey = (m: MatchRow) => `${m.platform_id}:${m.game_id}:${m.participant_id}`
+const keyOf = (m: { platform_id: string; game_id: number; participant_id: number }) =>
+  participantKey(m.platform_id, m.game_id, m.participant_id)
 
 /** 一場一張卡片。對局紀錄頁和各頁的下鑽列表（英雄、時段、隊友）共用同一種呈現。 */
 export function MatchCards({
@@ -475,20 +484,13 @@ function MatchCardChunk({
   offset: number
   onPick: (match: { platformId: string; gameId: number }) => void
 }) {
-  // 這場的出裝定位：列表資料來自 /api/matches，定位的規則只在語意層有一份（builds.yml），
-  // 所以拿卡片的參賽者鍵回頭向 Cube 查，不在後端另抄一份
-  const keys = rows.map(participantKey)
-  const roles = useCube({
-    dimensions: ["participants.participant_key", "builds.build_role"],
-    filters: [{ member: "participants.participant_key", operator: "equals", values: keys }],
-    limit: ROLE_CHUNK,
-  })
-  const roleOf = new Map(roles.rows.map((r) => [String(r["participants.participant_key"]), String(r["builds.build_role"])]))
+  // 這場的出裝定位：向 Cube 查（見 useBuildRoles）
+  const roleOf = useBuildRoles(rows.map(keyOf))
   return (
     <>
       {rows.map((m, j) => {
         const i = offset + j
-        const role = roleOf.get(participantKey(m))
+        const role = roleOf.get(keyOf(m))
         const kda = m.deaths === 0 ? "Perfect" : ((m.kills + m.assists) / m.deaths).toFixed(2)
         const kp = m.team_kills ? Math.round(((m.kills + m.assists) / m.team_kills) * 100) : 0
         return (
@@ -542,11 +544,7 @@ function MatchCardChunk({
 
             <div className="ml-auto text-right">
               <div className="flex items-center justify-end gap-1.5 text-xs text-muted-foreground">
-                {role && (
-                  <span title="這場的出裝定位（依終場裝備判斷）" className="rounded border border-border px-1.5 text-[11px] text-foreground">
-                    {role}
-                  </span>
-                )}
+                {role && <RoleChip role={role} />}
                 {m.champion_name}
               </div>
               <div className="text-[11px] text-muted-foreground">{fmtDate(m.game_creation)}</div>
@@ -568,7 +566,11 @@ export function Matches() {
   const drillKey = drills.map((d) => `${d.member}=${d.values.join(",")}`).join("&")
 
   return (
-    <Panel title="近期對戰" caption="由新到舊列出全部場次，捲到底會自動載入更多；點任一場看完整戰報">
+    <Panel
+      title="近期對戰"
+      caption="由新到舊列出全部場次，捲到底會自動載入更多；點任一場看完整戰報。英雄名稱旁是這場的出裝定位"
+      action={<RoleLegend />}
+    >
       {!account ? null : drills.length ? (
         // 有全域下鑽（英雄、增幅……）時，是哪幾場交給 Cube 用同一組條件查，後端不必認得每一種維度
         <CubeMatchList

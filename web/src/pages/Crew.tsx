@@ -1,5 +1,5 @@
-import { useMemo, useState, type CSSProperties } from "react"
-import { ArrowRight, Check, ChevronsUpDown, Search } from "lucide-react"
+import { Fragment, useMemo, useState, type CSSProperties } from "react"
+import { ArrowRight, Check, ChevronDown, ChevronsUpDown, Search } from "lucide-react"
 import { RecordCell } from "@/components/cells"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -11,7 +11,8 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { RadarChart, SHRINK_K, shrunk, type RadarDatum } from "@/components/charts"
 import { DetailDrawer, useDrawerSettled } from "@/components/DetailDrawer"
 import { useCube } from "@/hooks/useCube"
-import { iconUrl, num, type CubeFilter, type CubeQuery, type CubeRow } from "@/lib/cube"
+import { MAX_GAME_IDS, iconUrl, num, type CubeFilter, type CubeQuery, type CubeRow } from "@/lib/cube"
+import { MatchList } from "@/components/MatchList"
 import { useFilters, type Player } from "@/lib/filters"
 import { useCrumb } from "@/lib/breadcrumb"
 import { useNavigate } from "@/lib/nav"
@@ -319,6 +320,59 @@ function PickList({ title, items, empty }: { title: string; items: Pick[]; empty
 
 type Analysis = { radar: RadarDatum[]; roleCall: Call; champCall: Call }
 
+/** 某個人在某些條件下（某隻英雄、某種出裝）的每一場。
+ *  是哪幾場交給 Cube 用同一組條件查（和列表上方的場次同一個來源），再送 /api/matches 列出；
+ *  帳號換成這個人（matchParams 預設是目前選的帳號），戰報也以他為主角。 */
+function PlayerMatches({ puuid, filters }: { puuid: string; filters: CubeFilter[] }) {
+  const { apply, matchParams } = useFilters()
+  const ids = useCube(
+    apply(
+      {
+        measures: ["participants.games"],
+        dimensions: ["matches.game_id"],
+        filters: [{ member: "participants.puuid", operator: "equals", values: [puuid] }, ...filters],
+        limit: MAX_GAME_IDS,
+      },
+      "all",
+    ),
+  )
+  if (ids.loading) return <Skeleton className="h-40 w-full" />
+  if (ids.error) return <div className="text-sm text-destructive">{ids.error}</div>
+  const gameIds = ids.rows.map((r) => String(r["matches.game_id"]))
+  if (!gameIds.length) return <EmptyState>這個條件下沒有對局。</EmptyState>
+  return <MatchList params={{ ...matchParams(), puuid, game_ids: gameIds.join(",") }} puuid={puuid} />
+}
+
+/** 可展開的一列：點了在正下方列出每一場，再點一次收起。箭頭轉向表示展開狀態 */
+function ExpandRow({
+  open,
+  onToggle,
+  className,
+  style,
+  children,
+  label,
+}: {
+  open: boolean
+  onToggle: () => void
+  className: string
+  style?: CSSProperties
+  children: React.ReactNode
+  label: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      title={open ? `收起${label}的每一場` : `展開${label}的每一場`}
+      style={style}
+      className={cn(className, "w-full text-left transition hover:bg-accent", open && "bg-primary/10 hover:bg-primary/15")}
+    >
+      {children}
+    </button>
+  )
+}
+
 /** 抽屜：某個人的完整分析（大雷達圖 + 判斷），以及他（在某種出裝下）玩過的每隻英雄。 */
 function PlayerDrawerBody({
   player,
@@ -341,6 +395,9 @@ function PlayerDrawerBody({
   const go = useNavigate()
   const settled = useDrawerSettled()
   const [radarMode, setRadarMode] = useState<"games" | "winrate">("games")
+  // 點英雄列展開那隻英雄的每一場（同時只開一隻，免得抽屜被好幾份列表撐得很長）
+  const [openChamp, setOpenChamp] = useState<string | null>(null)
+  useCrumb(20, openChamp ? `${openChamp}的每一場` : null, () => setOpenChamp(null))
   const roleFilter = role ? [{ member: "builds.build_role", operator: "equals" as const, values: [role] }] : []
   const contrib = useCube(
     apply({ measures: CONTRIB_MEASURES, filters: [crewFilter([player.puuid]), ...roleFilter], limit: 1 }, "all"),
@@ -457,22 +514,28 @@ function PlayerDrawerBody({
       ) : (
         <div className="space-y-1">
           <div className="grid grid-cols-[minmax(0,1fr)_4rem_minmax(9rem,13rem)_4.5rem] gap-3 px-2 text-[11px] text-muted-foreground">
-            <span>英雄</span>
+            <span>英雄（點一列看每一場）</span>
             <span>場次</span>
             <span>戰績（刻度＝他自己的整體勝率）</span>
             <span className="text-right">貢獻</span>
           </div>
           {champs.rows.map((r, i) => {
             const perf = opt(r, "participants.games") ? dev(r) : null
+            const name = String(r["champions.name"])
+            const open = openChamp === name
             return (
-              <div
-                key={String(r["champions.name"])}
+              <Fragment key={name}>
+              <ExpandRow
+                open={open}
+                onToggle={() => setOpenChamp(open ? null : name)}
+                label={name}
                 style={{ "--stagger": `${Math.min(i * 30, 400)}ms` } as CSSProperties}
                 className="slide-in grid grid-cols-[minmax(0,1fr)_4rem_minmax(9rem,13rem)_4.5rem] items-center gap-3 rounded-md px-2 py-1.5"
               >
                 <span className="flex min-w-0 items-center gap-2.5">
+                  <ChevronDown className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", !open && "-rotate-90")} />
                   <img src={iconUrl(r["champions.icon_path"] as string)} alt="" className="size-8 shrink-0 rounded-md bg-icon-tile" />
-                  <span className="truncate text-[13px] font-medium">{String(r["champions.name"])}</span>
+                  <span className="truncate text-[13px] font-medium">{name}</span>
                 </span>
                 <span className="font-mono text-xs tabular-nums text-muted-foreground">{n0(r, "participants.games")} 場</span>
                 <RecordCell
@@ -485,7 +548,16 @@ function PlayerDrawerBody({
                 <span title="這幾場的綜合貢獻（50＝同定位、同勝負的一般人，未收縮）" className="text-right text-[12px]">
                   <ContribScore dev={perf} />
                 </span>
-              </div>
+              </ExpandRow>
+              {open && (
+                <div className="reveal mb-2 ml-3 border-l-2 border-primary/40 pl-3">
+                  <PlayerMatches
+                    puuid={player.puuid}
+                    filters={[{ member: "champions.name", operator: "equals", values: [name] }, ...roleFilter]}
+                  />
+                </div>
+              )}
+              </Fragment>
             )
           })}
         </div>
@@ -754,7 +826,13 @@ export function Crew() {
   const chosen = crew.filter((p) => !excluded.has(p.puuid))
   const puuids = chosen.map((p) => p.puuid)
   const [focus, setFocus] = useState<{ puuid: string; role: string | null } | null>(null)
-  const [champion, setChampion] = useState<string | null>(null)
+  const [champion, setChampionState] = useState<string | null>(null)
+  // 查英雄：點某個人展開他玩這隻英雄的每一場；換英雄時收起
+  const [openPlayer, setOpenPlayer] = useState<string | null>(null)
+  const setChampion = (next: string | null) => {
+    setChampionState(next)
+    setOpenPlayer(null)
+  }
 
   const byId = useMemo(() => new Map(crew.map((p) => [p.puuid, p])), [crew])
   const focusPlayer = focus ? byId.get(focus.puuid) : undefined
@@ -997,7 +1075,7 @@ export function Crew() {
       {/* ── 查英雄：選一隻，看每個人玩它的勝率與貢獻 ── */}
       <Panel
         title="查英雄"
-        caption="選一隻英雄，看每個人玩它的戰績。「勝率」是和他自己整體勝率的差距（依場次收縮後），戰績條的刻度也是他自己的整體勝率；「貢獻」是這幾場的綜合貢獻（50＝同定位、同勝負的一般人，不受輸贏影響）"
+        caption="選一隻英雄，看每個人玩它的戰績，點一個人展開他玩這隻英雄的每一場。「勝率」是和他自己整體勝率的差距（依場次收縮後），戰績條的刻度也是他自己的整體勝率；「貢獻」是這幾場的綜合貢獻（50＝同定位、同勝負的一般人，不受輸贏影響）"
       >
         <div className="mb-3 flex flex-wrap items-center gap-3">
           <ChampionPicker options={championOptions} value={pickedChampion} onChange={setChampion} />
@@ -1020,16 +1098,16 @@ export function Crew() {
               <span className="text-right">勝率</span>
               <span className="text-right">貢獻</span>
             </div>
-            {championRows.map((r, i) => (
-              <div
-                key={r.player.puuid}
-                style={{ "--stagger": `${i * 35}ms` } as CSSProperties}
-                className={cn(
-                  "slide-in grid grid-cols-[minmax(0,1fr)_3.5rem_minmax(8rem,14rem)_4.5rem_4.5rem] items-center gap-3 rounded-md px-2 py-1.5",
-                  !r.games && "opacity-60",
-                )}
-              >
-                <PlayerName player={r.player} className="text-[13px]" />
+            {championRows.map((r, i) => {
+              const open = !!r.games && openPlayer === r.player.puuid
+              const cells = (
+                <>
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <ChevronDown
+                    className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", !open && "-rotate-90", !r.games && "invisible")}
+                  />
+                  <PlayerName player={r.player} className="text-[13px]" />
+                </span>
                 <span className="font-mono text-xs tabular-nums text-muted-foreground">{r.games ? `${r.games} 場` : ""}</span>
                 {r.games ? (
                   <RecordCell winrate={r.winrate} wins={r.wins} losses={r.losses} baseline={r.base} baselineLabel="他自己的整體勝率" />
@@ -1045,8 +1123,40 @@ export function Crew() {
                   {r.delta === null ? "" : `${signed(r.delta)}pp`}
                 </span>
                 <span className="text-right text-[12px]">{r.perf === null ? "" : <ContribScore dev={r.perf} />}</span>
-              </div>
-            ))}
+                </>
+              )
+              const rowClass = "slide-in grid grid-cols-[minmax(0,1fr)_3.5rem_minmax(8rem,14rem)_4.5rem_4.5rem] items-center gap-3 rounded-md px-2 py-1.5"
+              const style = { "--stagger": `${i * 35}ms` } as CSSProperties
+              // 沒玩過的人沒有東西可展開，維持一般的列
+              if (!r.games) {
+                return (
+                  <div key={r.player.puuid} style={style} className={cn(rowClass, "opacity-60")}>
+                    {cells}
+                  </div>
+                )
+              }
+              return (
+                <Fragment key={r.player.puuid}>
+                  <ExpandRow
+                    open={open}
+                    onToggle={() => setOpenPlayer(open ? null : r.player.puuid)}
+                    label={`${splitId(r.player.riot_id, r.player.puuid).name}玩${pickedChampion}`}
+                    style={style}
+                    className={rowClass}
+                  >
+                    {cells}
+                  </ExpandRow>
+                  {open && (
+                    <div className="reveal mb-2 ml-3 border-l-2 border-primary/40 pl-3">
+                      <PlayerMatches
+                        puuid={r.player.puuid}
+                        filters={[{ member: "champions.name", operator: "equals", values: [pickedChampion!] }]}
+                      />
+                    </div>
+                  )}
+                </Fragment>
+              )
+            })}
           </div>
         )}
       </Panel>

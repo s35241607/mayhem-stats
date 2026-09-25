@@ -1206,20 +1206,24 @@ async def cube_proxy(path: str, request: Request):
         )
 
     url = f"{CUBE_BASE}/{path}"
+    if request.method == "POST":
+        body = await request.json()
+        send = lambda: cube_http.post(url, json=body, headers=cube_process.auth_header(), timeout=60)  # noqa: E731
+    else:
+        params = dict(request.query_params)
+        send = lambda: cube_http.get(url, params=params, headers=cube_process.auth_header(), timeout=60)  # noqa: E731
     try:
         # requests 是同步的，直接在 async handler 裡呼叫會佔住 event loop：
         # 一個要跑兩秒的 Cube 查詢會讓其他查詢、甚至背景採集迴圈全部排隊等它。
         # 儀表板一次會發好幾個查詢，這條路徑一定要放到執行緒裡。
-        if request.method == "POST":
-            body = await request.json()
-            resp = await asyncio.to_thread(
-                lambda: cube_http.post(url, json=body, headers=cube_process.auth_header(), timeout=60)
-            )
-        else:
-            params = dict(request.query_params)
-            resp = await asyncio.to_thread(
-                lambda: cube_http.get(url, params=params, headers=cube_process.auth_header(), timeout=60)
-            )
+        try:
+            resp = await asyncio.to_thread(send)
+        except requests.exceptions.ConnectionError:
+            # 連線池裡的閒置連線可能已經被 Cube 關掉（Node 的 keep-alive 閒置 5 秒就關），
+            # 拿到它的那個請求第一次送出就是 10054「遠端主機已強制關閉」，畫面上變成「連不到 Cube」。
+            # 查詢都是唯讀的，換一條新連線重送一次是安全的；Cube 真的掛了，第二次一樣會失敗。
+            # （逾時不在這裡：ReadTimeout 不是 ConnectionError，慢查詢不會被重送成兩倍時間。）
+            resp = await asyncio.to_thread(send)
     except requests.exceptions.RequestException as exc:
         return JSONResponse(
             status_code=503,

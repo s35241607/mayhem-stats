@@ -400,6 +400,29 @@
   --sidebar-ring: #b45309;
 }
 
+/* 出裝定位標籤的顏色（components/RoleChip.tsx）。八種定位同時出現時，八個顏色任兩個一定有分不開的
+ * （dataviz validate_palette.js --pairs all：8 色的色盲 ΔE 最低 1.6），所以顏色只編「傷害類型」三種，
+ * 站位（前排／刺客／輸出）用實心、虛線、空心框分，標籤上一定有文字。
+ * 取自 dataviz 參考調色盤的橘、紫、青；暗色與亮色各一組，在八個主題的 --card 上都跑過 --pairs all：
+ * 全部 PASS，只有亮色的青色對比 2.7～2.8（WARN，標籤有文字即可）。 */
+:root,
+[data-theme="neon"],
+[data-theme="lava"],
+[data-theme="matrix"],
+[data-theme="violet"] {
+  --role-ad: #d95926;
+  --role-ap: #9085e9;
+  --role-util: #199e70;
+}
+[data-theme="daylight"],
+[data-theme="mint"],
+[data-theme="sakura"],
+[data-theme="sand"] {
+  --role-ad: #eb6834;
+  --role-ap: #4a3aa7;
+  --role-util: #1baf7a;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -426,6 +449,9 @@
   --color-prismatic: var(--prismatic);
   --color-gold: var(--gold);
   --color-silver: var(--silver);
+  --color-role-ad: var(--role-ad);
+  --color-role-ap: var(--role-ap);
+  --color-role-util: var(--role-util);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
