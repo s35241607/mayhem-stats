@@ -18,6 +18,7 @@ const stagger = (i: number, step = STAGGER_MS) => Math.min(i * step, STAGGER_CAP
 type EChartsInstance = {
   resize: () => void
   getWidth: () => number
+  getHeight: () => number
   /** zrender 的事件層：ECharts 自己的 click 只在資料元素上觸發，整張圖任一點要從這裡接。 */
   getZr: () => { on: (event: string, handler: (e: { offsetX: number; offsetY: number }) => void) => void }
   /** 像素換回資料座標。finder 指定單一座標軸時，value 給一個數字、回傳一個數字。 */
@@ -733,7 +734,11 @@ export function BarChart({
 
 // ─────────────────────────────────────────── 散布圖（找離群值）
 
-export type RadarDatum = { label: string; games: number; winrate: number | null }
+export type RadarDatum = { label: string; games: number; wins: number; winrate: number | null }
+
+/** 雷達圖的圓心與半徑（相對圖寬高）。點擊換算方向要用同一組數字，所以抽出來。 */
+const RADAR_CENTER = [0.5, 0.54] as const
+const RADAR_RADIUS = 0.7
 
 /** 六邊形（雷達）圖：一個類別一個頂點，例如英雄的六種定位。
  *
@@ -741,11 +746,14 @@ export type RadarDatum = { label: string; games: number; winrate: number | null 
  *  和「不准雙 y 軸」同一個道理。另一個指標寫在頂點的標籤裡：
  *  勝率依場次往平均收縮後，比平均高或低才上勝／敗色，否則是灰字，
  *  所以兩場全勝的那一類不會看起來最強。
- *  頂點的名稱可以點（交叉篩選），選中的那個用介面強調色、其他淡掉。 */
+ *  點某一類那個方向的任何位置就是選它（交叉篩選）：只能點頂點上的小字太難點中。
+ *  選中的那類用介面強調色，其他淡掉。 */
 export function RadarChart({
   data,
   mode,
   baseline,
+  total,
+  height = 340,
   selected = null,
   onPick,
 }: {
@@ -754,6 +762,9 @@ export function RadarChart({
   mode: "games" | "winrate"
   /** 勝率的比較基準（你的整體勝率）。勝率模式畫成虛線環 */
   baseline: number | null
+  /** 總場次，提示框換算各類佔比用 */
+  total: number
+  height?: number
   selected?: string | null
   onPick?: (label: string) => void
 }) {
@@ -790,9 +801,10 @@ export function RadarChart({
         trigger: "item",
         formatter: () =>
           data
-            .map(
-              (d) =>
-                `${d.label}　${d.games} 場 · ${d.winrate === null ? "—" : `${d.winrate.toFixed(1)}%`}`,
+            .map((d) =>
+              d.games
+                ? `${d.label}　${d.games} 場（佔 ${Math.round((100 * d.games) / Math.max(1, total))}%）· ${d.winrate === null ? "—" : `${d.winrate.toFixed(1)}%`}　${d.wins} 勝 ${d.games - d.wins} 敗`
+                : `${d.label}　沒玩過`,
             )
             .join("<br/>") +
           (baseline !== null ? `<br/><span style="opacity:.7">你的整體勝率 ${baseline.toFixed(1)}%</span>` : ""),
@@ -801,10 +813,8 @@ export function RadarChart({
         indicator: data.map((d) => ({ name: d.label, max, min: 0 })),
         shape: "polygon",
         splitNumber: 4,
-        radius: "70%",
-        center: ["50%", "54%"],
-        // 頂點名稱可以點：交叉篩選的入口
-        triggerEvent: !!onPick,
+        radius: `${RADAR_RADIUS * 100}%`,
+        center: RADAR_CENTER.map((c) => `${c * 100}%`),
         axisName: {
           formatter: (name: string) => {
             const i = byName.get(name) ?? 0
@@ -861,26 +871,31 @@ export function RadarChart({
           : []),
       ],
     }
-  }, [data, mode, baseline, selected, theme, onPick])
+  }, [data, mode, baseline, total, selected, theme])
 
-  const onEvent = useMemo(
-    () =>
-      onPick
-        ? {
-            click: (p: { componentType?: string; targetType?: string; name?: string }) => {
-              if (p.componentType !== "radar" || p.targetType !== "axisName" || !p.name) return
-              // 事件帶回來的是 formatter 排好的整段文字（{n0|坦克}\n{w0|36.7%}…），不是原本的名稱。
-              // 直接拿去篩選會查到 0 筆，從 rich 的鍵把第幾個頂點找回來。
-              const i = /^\{n(\d+)\|/.exec(p.name)?.[1]
-              const label = i !== undefined ? data[Number(i)]?.label : p.name
-              if (label) onPick(label)
-            },
-          }
-        : undefined,
-    [onPick, data],
+  // 點擊換算成方向：ECharts 的頂點從正上方開始、逆時針排，第 i 個在 90° + i·(360/n)。
+  // 離圓心太近分不出方向，太遠（圖的角落）不算點到。
+  const pixelClick = onPick
+    ? (chart: EChartsInstance, x: number, y: number) => {
+        const w = chart.getWidth()
+        const h = chart.getHeight()
+        const r = (RADAR_RADIUS * Math.min(w, h)) / 2
+        const dx = x - w * RADAR_CENTER[0]
+        const dy = h * RADAR_CENTER[1] - y
+        const dist = Math.hypot(dx, dy)
+        if (dist < r * 0.12 || dist > r * 1.6) return
+        const step = 360 / data.length
+        const deg = (Math.atan2(dy, dx) * 180) / Math.PI - 90
+        const i = ((Math.round(deg / step) % data.length) + data.length) % data.length
+        if (data[i]) onPick(data[i].label)
+      }
+    : undefined
+
+  return (
+    <div className={onPick ? "cursor-pointer" : undefined}>
+      <ResponsiveChart option={option} height={height} onPixelClick={pixelClick} />
+    </div>
   )
-
-  return <ResponsiveChart option={option} height={340} onEvent={onEvent} />
 }
 
 export type ScatterPoint = {
