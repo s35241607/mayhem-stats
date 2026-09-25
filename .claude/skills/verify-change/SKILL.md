@@ -12,7 +12,10 @@ description: 在這個專案裡驗證一個改動是否真的正確、真的變�
 前端改動**不用**重啟（靜態檔每次從磁碟讀，重新 build 就好）。
 後端 Python 改動要重啟。Cube 模型（`cube/model/**.yml`）會自己熱重載，等 12～15 秒。
 
-重啟要用跟開機自動啟動一樣的方式，才不會變成我這個 shell 的子行程：
+重啟一律交給排程工作（和開機自動啟動同一個 `MayhemStatsCollector`），**不要用 `Start-Process`**：
+從這個 shell 啟動的行程會掛在 Claude 桌面版底下，Claude 一更新或重啟就被一起帶走，
+本機服務和 Cube 無聲無息地消失、log 最後也沒有任何錯誤（2026-09-25 10:01 實際發生過）。
+排程工作啟動的行程父行程是 `svchost.exe`，不受影響。鏡像同理，用 `MayhemStatsMirror`。
 
 ```powershell
 $root = "C:\Users\User\vsdbg\Downloads\mayhem-stats"
@@ -22,7 +25,7 @@ Get-CimInstance Win32_Process |
 Get-NetTCPConnection -LocalPort 4000,3030,15432,5057 -State Listen -ErrorAction SilentlyContinue |
   ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
 Start-Sleep -Seconds 4
-Start-Process -FilePath "$root\.venv\Scripts\pythonw.exe" -ArgumentList "autostart.pyw" -WorkingDirectory $root
+Start-ScheduledTask -TaskName MayhemStatsCollector
 # 就緒要用「真的查詢有回資料」判斷，不要只看 /readyz
 $sw = [Diagnostics.Stopwatch]::StartNew()
 while ($sw.Elapsed.TotalSeconds -lt 180) {
