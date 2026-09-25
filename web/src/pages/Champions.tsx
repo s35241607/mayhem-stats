@@ -1,6 +1,7 @@
-import { useMemo, useState, type CSSProperties } from "react"
+import { useEffect, useMemo, useState, type CSSProperties } from "react"
 import { BarCell, RecordCell, StatCell } from "@/components/cells"
 import { Filter, X } from "lucide-react"
+import { Dialog as DialogPrimitive } from "radix-ui"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Kpi, Panel, EmptyState } from "@/components/primitives"
@@ -12,6 +13,7 @@ import { useCube } from "@/hooks/useCube"
 import { MAX_GAME_IDS, iconUrl, num, type CubeFilter, type CubeRow } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 import { useCrumb } from "@/lib/breadcrumb"
+import { prefersReducedMotion } from "@/lib/motion"
 import { cn } from "@/lib/utils"
 import { MIN_GAMES, NO_LIMIT, round0, round1, round2 } from "./shared"
 
@@ -35,7 +37,7 @@ const opt = (r: Record<string, unknown>, k: string) => num(r[k] as string | numb
 
 /** 10 欄一格一個數字 → 5 欄複合格子。被合併的原始欄位留成隱藏欄，匯出 CSV 仍帶得出來。
  *  資料條的最大值與平均線依目前資料算，所以欄位定義要跟著資料重建。 */
-function buildColumns(rows: CubeRow[]): GridColumn[] {
+function buildColumns(rows: CubeRow[], overallWr: number | null): GridColumn[] {
   // 最大值只看樣本夠的英雄，免得一場打出 5000 的把整欄的條壓扁
   const solid = rows.filter((r) => n0(r, "participants.games") >= MIN_GAMES)
   const pool = solid.length ? solid : rows
@@ -44,17 +46,19 @@ function buildColumns(rows: CubeRow[]): GridColumn[] {
   const avgDpm = totalGames
     ? rows.reduce((a, r) => a + n0(r, "participants.dpm") * n0(r, "participants.games"), 0) / totalGames
     : null
-  const avgWr = totalGames ? (100 * rows.reduce((a, r) => a + n0(r, "participants.wins"), 0)) / totalGames : null
+  // 戰績刻度一律是「你的整體勝率」，不從表格各列回推：六邊形篩成某一類之後，
+  // 回推出來的會變成那一類的平均，刻度跟著移動，就看不出這一類整體是高是低
+  const avgWr = overallWr
 
   return [
-    { key: "champions.name", title: "英雄", kind: "dimension", iconKey: "champions.icon_path", flex: 1.6, minWidth: 160 },
-    { key: "participants.games", title: "場次", kind: "metric", format: round0, flex: 0.6, minWidth: 80 },
+    { key: "champions.name", title: "英雄", kind: "dimension", iconKey: "champions.icon_path", flex: 1.4, minWidth: 140 },
+    { key: "participants.games", title: "場次", kind: "metric", format: round0, flex: 0.5, minWidth: 70 },
     {
       key: "participants.winrate",
       title: "戰績",
       kind: "metric",
       flex: 1.5,
-      minWidth: 170,
+      minWidth: 160,
       cell: (r) => (
         <RecordCell
           winrate={opt(r, "participants.winrate")}
@@ -70,7 +74,7 @@ function buildColumns(rows: CubeRow[]): GridColumn[] {
       title: "KDA",
       kind: "metric",
       flex: 1.2,
-      minWidth: 165,
+      minWidth: 150,
       cell: (r) => (
         <StatCell
           main={opt(r, "participants.kda")?.toFixed(2) ?? "—"}
@@ -83,7 +87,7 @@ function buildColumns(rows: CubeRow[]): GridColumn[] {
       title: "輸出（每分鐘傷害）",
       kind: "metric",
       flex: 2,
-      minWidth: 230,
+      minWidth: 195,
       cell: (r) => (
         <BarCell
           value={opt(r, "participants.dpm")}
@@ -182,8 +186,30 @@ function BuildList({
   )
 }
 
-/** 點了某隻英雄之後：摘要 + 出裝與增幅 + 這隻英雄的每一場（和對局紀錄頁同樣的卡片）。 */
-function ChampionPanel({ row, onClose }: { row: CubeRow; onClose: () => void }) {
+/** 點了某隻英雄之後：從右邊滑出的抽屜，裡面是摘要 + 出裝與增幅 + 這隻英雄的每一場。
+ *
+ *  原本是在頁面最上方插一塊 Panel 再把頁面捲回頂端：點的那一列瞬間不見、畫面整片跳走，
+ *  使用者要自己找「剛剛點的東西跑去哪了」。抽屜蓋在表格上、表格留在原位，
+ *  關掉（ESC、點遮罩、右上角）就回到剛才的位置，也不會打亂六邊形的篩選。
+ *  用 Radix Dialog 拿到焦點鎖定與 ESC；動畫用 index.css 的 drawer-in，不用 shadcn Sheet 內建的
+ *  tw-animate 類別（規則是版面動畫只走 index.css 的 utility）。不做離場動畫。 */
+function ChampionDrawer({ row, onClose }: { row: CubeRow | undefined; onClose: () => void }) {
+  return (
+    <DialogPrimitive.Root open={!!row} onOpenChange={(open) => !open && onClose()}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="drawer-overlay fixed inset-0 z-50 bg-black/40 supports-backdrop-filter:backdrop-blur-xs" />
+        <DialogPrimitive.Content
+          className="drawer-in fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l bg-background shadow-2xl sm:w-[min(980px,92vw)]"
+          aria-describedby={undefined}
+        >
+          {row && <ChampionDetail key={String(row["champions.name"])} row={row} onClose={onClose} />}
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  )
+}
+
+function ChampionDetail({ row, onClose }: { row: CubeRow; onClose: () => void }) {
   const { apply, addDrill, drills } = useFilters()
   const name = String(row["champions.name"])
   const onlyThis = useMemo(
@@ -215,32 +241,45 @@ function ChampionPanel({ row, onClose }: { row: CubeRow; onClose: () => void }) 
   }
   const winrate = num(row["participants.winrate"])
   const drilled = drills.some((d) => d.member === "champions.name" && d.values[0] === name)
+  // 逐場卡片等抽屜滑完才掛：和換頁一樣，重的東西不要和進場動畫搶主執行緒
+  const [slid, setSlid] = useState(prefersReducedMotion())
+  useEffect(() => {
+    if (slid) return
+    const timer = setTimeout(() => setSlid(true), 300)
+    return () => clearTimeout(timer)
+  }, [slid])
 
   return (
-    <Panel
-      title={`${name} 的每一場`}
-      action={
-        <span className="flex items-center gap-1">
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={drilled}
-            onClick={() =>
-              addDrill({ member: "champions.name", operator: "equals", values: [name], label: `英雄：${name}` })
-            }
-          >
-            <Filter className="size-3.5" />
-            {drilled ? "其他頁已只看這隻" : "其他頁也只看這隻"}
-          </Button>
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            <X className="size-3.5" />
-            收起
-          </Button>
-        </span>
-      }
-    >
-      <div className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+    <>
+      <div className="flex items-center gap-3 border-b px-5 py-3">
+        <img
+          src={iconUrl(row["champions.icon_path"] as string)}
+          alt=""
+          className="size-10 shrink-0 rounded-lg bg-icon-tile ring-1 ring-border"
+        />
+        <div className="min-w-0 flex-1">
+          <DialogPrimitive.Title className="truncate text-base font-semibold">{name}</DialogPrimitive.Title>
+          <div className="text-xs text-muted-foreground">
+            {metric("participants.games", round0)} 場 · 出裝、增幅與每一場
+          </div>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={drilled}
+          onClick={() =>
+            addDrill({ member: "champions.name", operator: "equals", values: [name], label: `英雄：${name}` })
+          }
+        >
+          <Filter className="size-3.5" />
+          {drilled ? "其他頁已只看這隻" : "其他頁也只看這隻"}
+        </Button>
+        <Button size="icon-sm" variant="ghost" onClick={onClose} aria-label="關閉">
+          <X className="size-4" />
+        </Button>
+      </div>
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+        <div className="grid gap-3 grid-cols-2 md:grid-cols-5">
           <Kpi
             label="勝率"
             value={metric("participants.winrate", round1, "%")}
@@ -279,18 +318,22 @@ function ChampionPanel({ row, onClose }: { row: CubeRow; onClose: () => void }) 
           場次少的那幾列只能當成看過什麼，不能當成建議。
         </p>
         {/* 是哪幾場由 Cube 用同一組條件查，上方的全域下鑽（增幅等）也會套到列表上 */}
-        <CubeMatchList
-          gameIdKey="matches.game_id"
-          listKey={name}
-          query={apply({
-            measures: ["participants.games"],
-            dimensions: ["matches.game_id"],
-            filters: onlyThis,
-            limit: MAX_GAME_IDS,
-          })}
-        />
+        {slid ? (
+          <CubeMatchList
+            gameIdKey="matches.game_id"
+            listKey={name}
+            query={apply({
+              measures: ["participants.games"],
+              dimensions: ["matches.game_id"],
+              filters: onlyThis,
+              limit: MAX_GAME_IDS,
+            })}
+          />
+        ) : (
+          <Skeleton className="h-[240px] w-full" />
+        )}
       </div>
-    </Panel>
+    </>
   )
 }
 
@@ -387,82 +430,6 @@ function RoleRadar({
   )
 }
 
-type RankBy = "winrate" | "games"
-
-type RankRow = { label: string; icon: string | null; games: number; wins: number; losses: number; winrate: number | null }
-
-/** 各英雄勝率的排行清單：頭像、場次（附場次條）、戰績（勝敗比例條 + 你的整體勝率刻度）。
- *
- *  原本是 ECharts 橫條圖，長條長度是勝率、顏色是收縮後的勝率，依場次排時「排序依據」在圖上看不到；
- *  而且 canvas 裡放 85 張英雄頭像很吃力。改成 HTML 清單：場次和勝率各有自己的條，
- *  戰績條直接用勝敗兩色分段（勝段佔的比例就是勝率），和下方表格的戰績格子同一套畫法。
- *  全部英雄都列出（使用者要求不截斷），在框裡捲動。 */
-function ChampionRanking({
-  rows,
-  baseline,
-  selected,
-  onPick,
-}: {
-  rows: RankRow[]
-  baseline: number | null
-  selected: string | null
-  onPick: (label: string) => void
-}) {
-  const maxGames = Math.max(1, ...rows.map((r) => r.games))
-  return (
-    <div className="flex flex-col">
-      <div className="grid grid-cols-[1.5rem_minmax(0,1fr)_5.5rem_minmax(8rem,11rem)] items-center gap-3 border-b px-2 pb-1.5 text-[11px] text-muted-foreground">
-        <span className="text-right">#</span>
-        <span>英雄</span>
-        <span>場次</span>
-        <span>戰績（刻度＝你的整體勝率）</span>
-      </div>
-      <div className="max-h-[476px] overflow-y-auto pr-1">
-        {rows.map((r, i) => (
-          <button
-            key={r.label}
-            onClick={() => onPick(r.label)}
-            style={{ "--stagger": `${Math.min(i * 30, 400)}ms` } as CSSProperties}
-            className={cn(
-              "slide-in grid w-full grid-cols-[1.5rem_minmax(0,1fr)_5.5rem_minmax(8rem,11rem)] items-center gap-3 rounded-md px-2 py-1.5 text-left transition hover:bg-accent",
-              selected === r.label && "bg-primary/10 ring-1 ring-primary",
-            )}
-          >
-            <span className="text-right font-mono text-[11px] tabular-nums text-muted-foreground">{i + 1}</span>
-            <span className="flex min-w-0 items-center gap-2.5">
-              <img
-                src={iconUrl(r.icon)}
-                alt=""
-                loading="lazy"
-                className="size-8 shrink-0 rounded-md bg-icon-tile ring-1 ring-border"
-              />
-              <span className="truncate text-[13px] font-medium" title={r.label}>
-                {r.label}
-              </span>
-            </span>
-            <span className="flex flex-col gap-1">
-              <span className="font-mono text-[12px] tabular-nums">{r.games} 場</span>
-              <span className="h-1 w-full rounded-full bg-muted">
-                <span
-                  className="bar-grow block h-full rounded-full bg-data"
-                  style={{ width: `${(100 * r.games) / maxGames}%` }}
-                />
-              </span>
-            </span>
-            <RecordCell
-              winrate={r.winrate}
-              wins={r.wins}
-              losses={r.losses}
-              baseline={baseline}
-              baselineLabel="你的整體勝率"
-            />
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 export function Champions() {
   const { apply } = useFilters()
   const [picked, setPicked] = useState<string | null>(null)
@@ -473,9 +440,6 @@ export function Champions() {
     setRoleState(next)
     setPicked(null)
   }
-  // 預設依場次：85 隻裡有 49 隻只玩過一場，依勝率排時前面全是一場 100% 的，
-  // 看不出「常玩的那幾隻打得怎樣」。依勝率排仍然可以切
-  const [rankBy, setRankBy] = useState<RankBy>("games")
   const roleLabel = role ? `${role}（${scope === "primary" ? "主定位" : "含次定位"}）` : null
   useCrumb(10, roleLabel, () => setRole(null))
   useCrumb(20, picked, () => setPicked(null))
@@ -484,77 +448,32 @@ export function Champions() {
       measures: MEASURES,
       dimensions: ["champions.name", "champions.icon_path"],
       filters: roleFilters(role, scope),
+      // 預設依場次：85 隻裡有 49 隻只玩過一場，依勝率排時前面全是一場 100% 的。表頭可以再改排序
       order: { "participants.games": "desc" },
       limit: NO_LIMIT,
     }),
   )
-  // 比較基準另外查、不跟著定位篩選：六邊形的虛線圈與右邊長條的平均線是同一條「你的整體勝率」，
+  // 比較基準另外查、不跟著定位篩選：六邊形的虛線圈與表格戰績條上的刻度是同一條「你的整體勝率」，
   // 篩成坦克之後才看得出坦克整體是高是低。含次定位時從各類加權回推也是偏的，所以一定要另外查
   const overall = useCube(apply({ measures: ["participants.games", "participants.wins"] }))
   const totalGames = n0(overall.rows[0] ?? {}, "participants.games")
   const baseline = totalGames ? (100 * n0(overall.rows[0], "participants.wins")) / totalGames : null
   const pickedRow = picked ? rows.find((r) => r["champions.name"] === picked) : undefined
   // 欄位定義只在資料換了才重建，不然每次重畫 AG Grid 都會重新套欄位
-  const columns = useMemo(() => buildColumns(rows), [rows])
-
-  // 全部英雄都上榜（不設場次門檻，使用者要求），長條末端同時標勝率與場次；
-  // 顏色本來就會依場次往整體平均收縮，所以一場全勝的那根是淡的，不會看起來最強
-  const top: RankRow[] = useMemo(
-    () =>
-      rows
-        .map((r) => ({
-          label: String(r["champions.name"] ?? "—"),
-          icon: (r["champions.icon_path"] as string | null) ?? null,
-          games: n0(r, "participants.games"),
-          wins: n0(r, "participants.wins"),
-          losses: n0(r, "participants.losses"),
-          winrate: opt(r, "participants.winrate"),
-        }))
-        .sort((a, b) =>
-          rankBy === "games"
-            ? b.games - a.games || (b.winrate ?? 0) - (a.winrate ?? 0)
-            : (b.winrate ?? 0) - (a.winrate ?? 0) || b.games - a.games,
-        ),
-    [rows, rankBy],
-  )
-  const openChampion = (label: string) => {
-    setPicked(label)
-    window.scrollTo({ top: 0, behavior: "smooth" })
-  }
-
-  const table = (
-    <Panel
-      title="英雄表現"
-      caption={`點英雄看這隻英雄的每一場。輸出條的長度對應最高的英雄，戰績條與輸出條上的刻度線是你的整體水準。欄位標題可排序（戰績依勝率、輸出依每分鐘傷害），匯出 CSV 含所有原始欄位`}
-    >
-      {loading ? (
-        <Skeleton className="h-[520px] w-full" />
-      ) : error ? (
-        <div className="text-sm text-destructive">{error}</div>
-      ) : (
-        <AgTable
-          columns={columns}
-          rowHeight={54}
-          rows={rows}
-          height={560}
-          fileName="champions"
-          drillOn="click"
-          onDrill={(_col, value) => openChampion(value)}
-        />
-      )}
-    </Panel>
-  )
+  const columns = useMemo(() => buildColumns(rows, baseline), [rows, baseline])
 
   return (
     <div className="space-y-4">
-      {pickedRow && <ChampionPanel key={picked} row={pickedRow} onClose={() => setPicked(null)} />}
+      <ChampionDrawer row={pickedRow} onClose={() => setPicked(null)} />
 
+      {/* 六邊形與英雄表並排：原本右側還有一份「各英雄勝率」排行，和下面的表格是同一份 85 隻英雄、
+          同樣的場次與戰績，只是少了 KDA、輸出、排序與匯出。拿掉它，六邊形直接篩這張表 */}
       <Panel
-        title="英雄類型與勝率"
+        title="英雄"
         caption={
           scope === "primary"
-            ? "每場只算英雄的主定位（客戶端列出的第一個），六類加起來就是總場次"
-            : "雙定位的英雄兩類都算（例如蓋倫同時算鬥士和坦克），所以各類的佔比加起來會超過 100%"
+            ? "左邊是六種類型（每場只算英雄的主定位，六類加起來就是總場次），點某一類的方向，右邊的表就只剩那一類。點表格的一列看那隻英雄的出裝、增幅與每一場"
+            : "左邊是六種類型（雙定位的英雄兩類都算，佔比加起來會超過 100%），點某一類的方向，右邊的表就只剩那一類。點表格的一列看那隻英雄的出裝、增幅與每一場"
         }
         action={
           <ToggleGroup type="single" size="sm" variant="outline" value={scope} onValueChange={(v) => v && setScope(v as RoleScope)}>
@@ -568,51 +487,51 @@ export function Champions() {
         ) : !overall.loading && !totalGames ? (
           <EmptyState>這個條件下還沒有對局。</EmptyState>
         ) : (
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+          <div className="grid gap-6 min-[1500px]:grid-cols-[340px_minmax(0,1fr)]">
+            {/* 表格欄位最小寬度加總約 715px（KDA、輸出的補充文字實測要 146／190px 才不被截斷），
+                加上 340px 的六邊形，1500px 以上的視窗才並排得下，更窄就上下排 */}
             <RoleRadar role={role} scope={scope} baseline={baseline} totalGames={totalGames} onRole={setRole} />
 
             <div className="flex min-w-0 flex-col gap-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <span className="text-sm font-semibold">各英雄勝率</span>
-                  {role ? (
-                    // 聚焦狀態一定要有文字說明與看得到的清除鈕，不能只靠六邊形上的顏色
-                    <button
-                      onClick={() => setRole(null)}
-                      className="flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs text-primary transition hover:bg-primary/15"
-                    >
-                      <Filter className="size-3" />
-                      只看{roleLabel}・{top.length} 隻
-                      <X className="size-3" />
-                    </button>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">全部 {top.length} 隻</span>
-                  )}
-                </div>
-                <ToggleGroup type="single" size="sm" variant="outline" value={rankBy} onValueChange={(v) => v && setRankBy(v as RankBy)}>
-                  <ToggleGroupItem value="games">依場次</ToggleGroupItem>
-                  <ToggleGroupItem value="winrate">依勝率</ToggleGroupItem>
-                </ToggleGroup>
+              <div className="flex min-h-8 flex-wrap items-center gap-2">
+                <span className="text-sm font-semibold">英雄表現</span>
+                {role ? (
+                  // 聚焦狀態一定要有文字說明與看得到的清除鈕，不能只靠六邊形上的顏色
+                  <button
+                    onClick={() => setRole(null)}
+                    className="flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs text-primary transition hover:bg-primary/15"
+                  >
+                    <Filter className="size-3" />
+                    只看{roleLabel}
+                    <X className="size-3" />
+                  </button>
+                ) : (
+                  <span className="text-xs text-muted-foreground">全部類型</span>
+                )}
               </div>
-              {loading || overall.loading ? (
-                <Skeleton className="h-[500px] w-full" />
-              ) : top.length ? (
-                <ChampionRanking rows={top} baseline={baseline} selected={picked} onPick={openChampion} />
+              {loading ? (
+                <Skeleton className="h-[560px] w-full" />
+              ) : error ? (
+                <div className="text-sm text-destructive">{error}</div>
               ) : (
-                <EmptyState>這一類還沒有對局。</EmptyState>
+                <AgTable
+                  columns={columns}
+                  rowHeight={54}
+                  rows={rows}
+                  height={560}
+                  fileName="champions"
+                  drillOn="click"
+                  highlight={picked ? { key: "champions.name", value: picked } : null}
+                  onDrill={(_col, value) => setPicked(value)}
+                />
               )}
               <p className="text-[11px] text-muted-foreground">
-                {rankBy === "winrate"
-                  ? "依勝率由高到低，同勝率時場次多的在前。前面多半是只玩過一兩場的，看場次欄判斷可不可信"
-                  : "依場次由多到少"}
-                。戰績條分成勝段與敗段，刻度線是你的整體勝率；點一列看那隻英雄的每一場
+                預設依場次由多到少。戰績條的刻度是你的整體勝率，輸出條的刻度是表中英雄的平均
               </p>
             </div>
           </div>
         )}
       </Panel>
-
-      {table}
     </div>
   )
 }
