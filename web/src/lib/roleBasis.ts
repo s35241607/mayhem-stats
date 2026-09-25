@@ -34,7 +34,7 @@ export function roleSpec(basis: RoleBasis): RoleSpec {
       base: [],
       filterFor: (role) => [{ member: "builds.build_role", operator: "equals", values: [role] }],
       tag: "出裝",
-      caption: "依每場終場出裝判斷（AD 輸出、AP 輸出、坦克、AD 鬥士、AP 坦、輔助），同一隻英雄不同場可能不一樣；太早結束沒成裝的場次不列入",
+      caption: "依每場終場出裝判斷（AD 輸出、AD 刺客、AP 輸出、AP 刺客、坦克、AD 鬥士、AP 坦、輔助；AP 刺客另看英雄的官方定位），同一隻英雄不同場可能不一樣；太早結束沒成裝的場次不列入",
     }
   }
   const primary = basis === "primary"

@@ -439,7 +439,7 @@ export function Champions() {
           同樣的場次與戰績，只是少了 KDA、輸出、排序與匯出。拿掉它，六邊形直接篩這張表 */}
       <Panel
         title="英雄"
-        caption={`左邊六邊形的分類：${spec.caption}。點某一類的方向，右邊的表就只剩那一類。點表格的一列看那隻英雄的出裝、增幅與每一場`}
+        caption={`左邊雷達圖的分類：${spec.caption}。點某一類的方向，右邊的表就只剩那一類。點表格的一列看那隻英雄的出裝、增幅與每一場`}
         action={
           <ToggleGroup type="single" size="sm" variant="outline" value={basis} onValueChange={(v) => v && setBasis(v as RoleBasis)}>
             <ToggleGroupItem value="primary">官方主定位</ToggleGroupItem>

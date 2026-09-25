@@ -8,6 +8,7 @@ import base64
 import glob
 import os
 import platform
+import re
 from pathlib import Path
 
 import requests
@@ -127,6 +128,45 @@ def _icon(row, *keys):
     return None
 
 
+# 裝備說明 <stats> 區塊裡的數值名稱 → 固定的英文鍵。說明文字跟著客戶端語言走，
+# 存成固定鍵，語意層的規則才不會因為換語言就失效。沒列到的數值（金錢、每 5 秒回復…）不存。
+_STAT_KEYS = {
+    "物理攻擊": "AttackDamage", "Attack Damage": "AttackDamage",
+    "魔法攻擊": "AbilityPower", "Ability Power": "AbilityPower",
+    "生命": "Health", "Health": "Health",
+    "物理防禦": "Armor", "Armor": "Armor",
+    "魔法防禦": "MagicResist", "Magic Resist": "MagicResist",
+    "攻擊速度": "AttackSpeed", "Attack Speed": "AttackSpeed",
+    "暴擊率": "CritChance", "Critical Strike Chance": "CritChance",
+    "暴擊傷害": "CritDamage", "Critical Strike Damage": "CritDamage",
+    "物理致命": "Lethality", "Lethality": "Lethality",
+    "物理穿透": "ArmorPenetration", "Armor Penetration": "ArmorPenetration",
+    "魔法穿透": "MagicPenetration", "Magic Penetration": "MagicPenetration",
+    "技能加速": "AbilityHaste", "Ability Haste": "AbilityHaste",
+    "跑速": "MoveSpeed", "Move Speed": "MoveSpeed",
+    "魔力": "Mana", "Mana": "Mana",
+    "普攻吸血": "LifeSteal", "Life Steal": "LifeSteal",
+    "全能吸血": "Omnivamp", "Omnivamp": "Omnivamp",
+    "治療及護盾強度": "HealShieldPower", "Heal and Shield Power": "HealShieldPower",
+    "韌性": "Tenacity", "Tenacity": "Tenacity",
+    "基礎魔力回復": "BaseManaRegen", "Base Mana Regen": "BaseManaRegen",
+    "基礎生命回復": "BaseHealthRegen", "Base Health Regen": "BaseHealthRegen",
+    "適性之力": "AdaptiveForce", "Adaptive Force": "AdaptiveForce",
+}
+
+
+def _item_stats(description):
+    """從裝備說明的 <stats> 取出數值，例如妖夢 → {"AttackDamage": 55, "Lethality": 18, "MoveSpeed": 4}。"""
+    m = re.search(r"<stats>(.*?)</stats>", description or "", re.S)
+    stats = {}
+    for part in (m.group(1).split("<br>") if m else []):
+        text = re.sub(r"<[^>]+>", "", part).strip()
+        mm = re.match(r"([\d.]+)%?\s*(.+)", text)
+        if mm and mm.group(2).strip() in _STAT_KEYS:
+            stats[_STAT_KEYS[mm.group(2).strip()]] = float(mm.group(1))
+    return stats
+
+
 def fetch_dimensions(client):
     """抓英雄/增幅/裝備/符文/召喚師技能的名稱對照表。"""
     champions = [
@@ -148,7 +188,9 @@ def fetch_dimensions(client):
     items = [
         {"id": i["id"], "name": i.get("name"), "icon_path": _icon(i, "iconPath"),
          "price_total": i.get("priceTotal"),
-         "categories": [c for c in (i.get("categories") or []) if c]}
+         "categories": [c for c in (i.get("categories") or []) if c],
+         # 類別分不出刺客裝：ArmorPenetration 同時貼在妖夢（物理致命）與蒐集者（暴擊）上，要看實際數值
+         "stats": _item_stats(i.get("description"))}
         for i in client.asset("items")
     ]
     perks = [

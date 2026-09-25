@@ -126,6 +126,14 @@ CREATE TABLE IF NOT EXISTS dim_item_categories (
   category TEXT    NOT NULL,
   PRIMARY KEY (item_id, category)
 );
+-- 裝備數值（AttackDamage、Lethality、CritChance…），從客戶端的裝備說明取出，鍵名見 lcu._STAT_KEYS。
+-- 類別分不出刺客裝（穿甲類別同時貼在致命裝與暴擊裝上），出裝定位要靠這張表。
+CREATE TABLE IF NOT EXISTS dim_item_stats (
+  item_id INTEGER NOT NULL,
+  stat    TEXT    NOT NULL,
+  value   REAL    NOT NULL,
+  PRIMARY KEY (item_id, stat)
+);
 
 CREATE INDEX IF NOT EXISTS idx_m_queue        ON matches(queue_id);
 CREATE INDEX IF NOT EXISTS idx_pa_augment     ON participant_augments(augment_id);
@@ -542,6 +550,11 @@ def replace_dimension(conn, table, rows):
             conn.executemany(
                 "INSERT OR IGNORE INTO dim_item_categories (item_id, category) VALUES (?,?)",
                 [(row["id"], cat) for row in rows for cat in (row.get("categories") or [])],
+            )
+            conn.execute("DELETE FROM dim_item_stats")
+            conn.executemany(
+                "INSERT OR IGNORE INTO dim_item_stats (item_id, stat, value) VALUES (?,?,?)",
+                [(row["id"], k, v) for row in rows for k, v in (row.get("stats") or {}).items()],
             )
 
 

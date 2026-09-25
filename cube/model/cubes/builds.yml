@@ -9,8 +9,20 @@ cubes:
   #   - 輔助裝 ≥ 35%                                   → 輔助
   #   - 坦度 ≥ 50%，且 AD、AP 都 < 25%                  → 坦克
   #   - 坦度 ≥ 30%                                     → AD 鬥士／AP 坦（看 AD、AP 哪堆多）
-  #   - 其餘                                           → AD 輸出／AP 輸出
+  #   - 其餘，AD ≥ AP：AD 金額裡「穿甲裝」最多           → AD 刺客，否則 AD 輸出
+  #   - 其餘，AP > AD：英雄的官方主定位是刺客            → AP 刺客，否則 AP 輸出
   #   - 沒有任何成裝（太早結束）                         → 未成形
+  #
+  # 刺客為什麼要另外判斷：類別 ArmorPenetration 同時貼在妖夢、傲慢（物理致命）與蒐集者、多明尼克（暴擊）上，
+  # 只看類別會把刺客全併進 AD 輸出。所以 AD 的金額再依裝備數值（dim_item_stats，從裝備說明取出）細分：
+  #   有暴擊率 → 暴擊；否則有物理致命或物理穿透 → 穿甲；否則有攻速 → 攻速；其餘 → 其他
+  # 穿甲那一堆嚴格最多才是 AD 刺客（同額不算：平手的是克黎思妲、希維爾這種射手）。
+  # 全資料庫 AD 輸出 1,088 筆裡穿甲為主的 191 筆，英雄是劫、派克、李星、塔隆、姬亞娜、卡力斯，
+  # 承傷佔比 19.5%（暴擊為主 16.8%）、勝率低 9pp，打法明顯不同。
+  # AP 刺客的裝備分不開（唯一線索魔法穿透，但黯影之炎幾乎每個法師都買），只好借英雄的官方主定位：
+  # AP 輸出裝 + 官方主定位是刺客（艾克、奈德麗、飛斯、勒布朗、阿卡莉…），擊殺佔比 24.9%，法師 18.7%。
+  # 主定位的定義同 champion_roles.is_primary（同一隻英雄 rowid 最小的那筆）。
+  #
   # 類別來自客戶端 items.json（dim_item_categories）。
   #   AD  ：Damage、CriticalStrike、AttackSpeed、ArmorPenetration、LifeSteal、OnHit
   #   AP  ：SpellDamage、MagicPenetration、SpellVamp
@@ -30,12 +42,23 @@ cubes:
           MAX(c.category IN ('SpellDamage','MagicPenetration','SpellVamp')) AS is_ap,
           MAX(c.category IN ('Health','Armor','SpellBlock','MagicResist')) AS is_tank,
           MAX(c.category = 'Boots') AS is_boots,
-          di.id IN (6617, 4005, 2530, 3504, 6621, 3107, 6616, 3222, 6620, 2065, 2526) AS is_sup
+          di.id IN (6617, 4005, 2530, 3504, 6621, 3107, 6616, 3222, 6620, 2065, 2526) AS is_sup,
+          -- AD 的細分，依序判斷：暴擊 → 穿甲 → 攻速 → 其他
+          CASE
+            WHEN EXISTS (SELECT 1 FROM dim_item_stats s WHERE s.item_id = di.id AND s.stat = 'CritChance') THEN 'crit'
+            WHEN EXISTS (SELECT 1 FROM dim_item_stats s WHERE s.item_id = di.id AND s.stat IN ('Lethality', 'ArmorPenetration')) THEN 'pen'
+            WHEN EXISTS (SELECT 1 FROM dim_item_stats s WHERE s.item_id = di.id AND s.stat = 'AttackSpeed') THEN 'as'
+            ELSE 'other'
+          END AS ad_kind
         FROM dim_items di JOIN dim_item_categories c ON c.item_id = di.id
         GROUP BY di.id
       ),
+      primary_role AS (
+        SELECT champion_id, role FROM dim_champion_roles r
+        WHERE r.rowid = (SELECT MIN(r2.rowid) FROM dim_champion_roles r2 WHERE r2.champion_id = r.champion_id)
+      ),
       per_item AS (
-        SELECT pi.platform_id, pi.game_id, pi.participant_id, g.price, g.is_sup,
+        SELECT pi.platform_id, pi.game_id, pi.participant_id, g.price, g.is_sup, g.ad_kind,
                g.is_ad, g.is_ap, g.is_tank, (g.is_ad + g.is_ap + g.is_tank) AS n
         FROM participant_items pi JOIN item_groups g ON g.item_id = pi.item_id
         WHERE pi.slot < 6 AND g.price >= 1500 AND g.is_boots = 0
@@ -45,7 +68,11 @@ cubes:
           SUM(CASE WHEN is_sup = 0 AND n > 0 THEN price * is_ad * 1.0 / n ELSE 0 END) AS ad,
           SUM(CASE WHEN is_sup = 0 AND n > 0 THEN price * is_ap * 1.0 / n ELSE 0 END) AS ap,
           SUM(CASE WHEN is_sup = 0 AND n > 0 THEN price * is_tank * 1.0 / n ELSE 0 END) AS tank,
-          SUM(CASE WHEN is_sup = 1 THEN price ELSE 0 END) AS sup
+          SUM(CASE WHEN is_sup = 1 THEN price ELSE 0 END) AS sup,
+          SUM(CASE WHEN is_sup = 0 AND n > 0 AND ad_kind = 'crit' THEN price * is_ad * 1.0 / n ELSE 0 END) AS ad_crit,
+          SUM(CASE WHEN is_sup = 0 AND n > 0 AND ad_kind = 'pen' THEN price * is_ad * 1.0 / n ELSE 0 END) AS ad_pen,
+          SUM(CASE WHEN is_sup = 0 AND n > 0 AND ad_kind = 'as' THEN price * is_ad * 1.0 / n ELSE 0 END) AS ad_as,
+          SUM(CASE WHEN is_sup = 0 AND n > 0 AND ad_kind = 'other' THEN price * is_ad * 1.0 / n ELSE 0 END) AS ad_other
         FROM per_item GROUP BY 1, 2, 3
       ),
       team_taken AS (
@@ -64,7 +91,10 @@ cubes:
                  AND g.ad / (g.ad + g.ap + g.tank + g.sup) < 0.25
                  AND g.ap / (g.ad + g.ap + g.tank + g.sup) < 0.25 THEN '坦克'
             WHEN g.tank / (g.ad + g.ap + g.tank + g.sup) >= 0.3 THEN CASE WHEN g.ad >= g.ap THEN 'AD 鬥士' ELSE 'AP 坦' END
-            WHEN g.ad >= g.ap THEN 'AD 輸出'
+            WHEN g.ad >= g.ap THEN
+              CASE WHEN g.ad_pen > g.ad_crit AND g.ad_pen > g.ad_as AND g.ad_pen > g.ad_other
+                   THEN 'AD 刺客' ELSE 'AD 輸出' END
+            WHEN pr.role = 'assassin' THEN 'AP 刺客'
             ELSE 'AP 輸出'
           END AS build_role,
           mp.dmg_to_champions * 100.0 / NULLIF(mp.team_dmg, 0) AS dmg_share,
@@ -74,12 +104,15 @@ cubes:
         JOIN matches m ON m.platform_id = mp.platform_id AND m.game_id = mp.game_id
         JOIN team_taken tt ON tt.platform_id = mp.platform_id AND tt.game_id = mp.game_id AND tt.team_id = mp.team_id
         LEFT JOIN gold g ON g.platform_id = mp.platform_id AND g.game_id = mp.game_id AND g.participant_id = mp.participant_id
+        LEFT JOIN primary_role pr ON pr.champion_id = mp.champion_id
       ),
       scored AS (
         SELECT *,
           CASE build_role
             WHEN 'AD 輸出' THEN dmg_share
             WHEN 'AP 輸出' THEN dmg_share
+            WHEN 'AD 刺客' THEN dmg_share
+            WHEN 'AP 刺客' THEN dmg_share
             WHEN '坦克' THEN taken_share
             WHEN 'AD 鬥士' THEN (dmg_share + taken_share) / 2
             WHEN 'AP 坦' THEN (dmg_share + taken_share) / 2
@@ -113,7 +146,7 @@ cubes:
       # 字串而不是數字比較：理由同 participants.is_me（CASE 運算式沒有型別親和性）
       - name: build_role
         title: 出裝定位
-        description: "依終場裝備判斷的實際定位：AD 輸出、AP 輸出、坦克、AD 鬥士、AP 坦、輔助、未成形。規則見 cube/model/cubes/builds.yml；和英雄的官方定位（champion_roles）不同，同一隻英雄不同場可能不一樣。"
+        description: "依終場裝備判斷的實際定位：AD 輸出、AD 刺客、AP 輸出、AP 刺客、坦克、AD 鬥士、AP 坦、輔助、未成形。AD 刺客＝AD 裝以物理致命／穿甲裝為主；AP 刺客＝AP 輸出裝且英雄官方主定位是刺客。規則見 cube/model/cubes/builds.yml；和英雄的官方定位（champion_roles）不同，同一隻英雄不同場可能不一樣。"
         sql: build_role
         type: string
         meta:
@@ -146,13 +179,13 @@ cubes:
     measures:
       # 表現分數：這場的「定位關鍵指標」減掉全資料庫同模式、同出裝定位的平均（百分點）。
       # 每個定位的工作不同，關鍵指標也不同：
-      #   AD／AP 輸出 → 傷害佔比；坦克 → 承傷佔比；AD 鬥士／AP 坦 → 兩者平均；輔助 → 參團率
+      #   AD／AP 輸出、AD／AP 刺客 → 傷害佔比；坦克 → 承傷佔比；AD 鬥士／AP 坦 → 兩者平均；輔助 → 參團率
       # 都是「佔我方隊伍的比例」，陣容已經內含：隊上輸出越多，同樣打法的傷害佔比自然越低。
       # 基準用全資料庫（每場 10 人都算，Mayhem 約 3,200 筆），比只看自己人穩定得多；
       # 基準不跟著期間篩選變動，所以不同期間的分數可以直接比。
       - name: perf_index
         title: 表現分數
-        description: "定位關鍵指標和全資料庫同出裝定位平均的差距（百分點）。AD／AP 輸出看傷害佔比、坦克看承傷佔比、AD 鬥士／AP 坦看兩者平均、輔助看參團率。正數代表這個定位的工作做得比一般人多。"
+        description: "定位關鍵指標和全資料庫同出裝定位平均的差距（百分點）。AD／AP 輸出與刺客看傷害佔比、坦克看承傷佔比、AD 鬥士／AP 坦看兩者平均、輔助看參團率。正數代表這個定位的工作做得比一般人多。"
         sql: perf_index
         type: avg
         meta:
@@ -163,7 +196,7 @@ cubes:
 
       - name: role_metric
         title: 定位關鍵指標
-        description: "依出裝定位取的關鍵指標（%）：輸出看傷害佔比、坦克看承傷佔比、鬥士／AP 坦看兩者平均、輔助看參團率。"
+        description: "依出裝定位取的關鍵指標（%）：輸出與刺客看傷害佔比、坦克看承傷佔比、鬥士／AP 坦看兩者平均、輔助看參團率。"
         sql: role_metric
         type: avg
         meta:

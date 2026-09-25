@@ -20,7 +20,7 @@ import { BUILD_ROLES, BUILD_SHORT, MIN_GAMES, NO_LIMIT, round0 } from "./shared"
 
 // ── 「適合／不適合」的判斷：勝率 × 表現 ───────────────────────────────
 // 勝率：和這個人「自己的」整體勝率比（每個人本來水準不同），依場次往他的平均收縮後的差距。
-// 表現：語意層的 builds.perf_index——這個出裝定位的關鍵指標（輸出看傷害佔比、坦克看承傷佔比、
+// 表現：語意層的 builds.perf_index——這個出裝定位的關鍵指標（輸出與刺客看傷害佔比、坦克看承傷佔比、
 //       鬥士／AP 坦看兩者平均、輔助看參團率）和全資料庫同定位平均的差距。同樣依場次往 0 收縮。
 // 兩個都達標才叫「適合」、兩個都不達標才叫「不適合」；只有一邊的給次級標籤，
 // 例如勝率好但表現差 =「靠隊友」：這個定位該做的事做得比一般人少，贏多半是陣容或隊友。
@@ -125,7 +125,7 @@ function verdictClass(v: Verdict) {
   return strong ? "border-loss/50 bg-loss/15 text-loss font-semibold" : "border-dashed border-loss/40 text-loss"
 }
 
-/** 迷你六邊形：形狀是各出裝定位佔他自己場次的比例（偏好怎麼玩），頂點是判斷結果。
+/** 迷你雷達（出裝定位八個頂點）：形狀是各出裝定位佔他自己場次的比例（偏好怎麼玩），頂點是判斷結果。
  *
  *  一覽表裡每人一個，七個人上下排成一欄就能一眼比形狀。用 SVG 而不是 ECharts：
  *  七個 canvas 實例的成本不值得，這裡也不需要互動。外框是「他自己最常用的那種出裝」，
@@ -151,7 +151,8 @@ function MiniHex({ data, total, call, size = 96 }: { data: RadarDatum[]; total: 
     .map((d, i) => `${d.label} ${Math.round(share[i] * 100)}%（${d.games} 場${verdictOf.get(d.label) ? `，${VERDICT[verdictOf.get(d.label)!].label}` : ""}）`)
     .join("\n")
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0">
+    // 八個頂點時左右兩端的標籤會貼到邊，overflow 放出去（欄與欄之間有 gap，不會壓到別人）
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0 overflow-visible">
       <title>{`各出裝定位佔他場次的比例\n${text}`}</title>
       <polygon points={ring(1)} className="fill-muted/30 stroke-muted-foreground/40" strokeWidth={1} />
       <polygon points={ring(0.5)} className="fill-none stroke-muted-foreground/25" strokeWidth={0.75} />
@@ -338,7 +339,7 @@ function PlayerDrawerBody({
           <PickList title="英雄：要注意的" items={analysis.champCall.neg} empty={`還沒有英雄在 ${CHAMP_MIN} 場以上明顯比平常差`} />
           <p className="text-[11px] text-muted-foreground">
             「勝」是勝率比他自己平均高幾個百分點；「表」是這個定位的關鍵指標比全資料庫同定位的人高幾個百分點
-            （輸出看傷害佔比、坦克看承傷佔比、鬥士／AP 坦看兩者平均、輔助看參團率）。都已依場次收縮
+            （輸出與刺客看傷害佔比、坦克看承傷佔比、鬥士／AP 坦看兩者平均、輔助看參團率）。都已依場次收縮
           </p>
         </div>
       </div>
@@ -826,10 +827,10 @@ export function Crew() {
         </div>
       </Panel>
 
-      {/* ── 全員一覽：每人一列，迷你六邊形 + 判斷 ── */}
+      {/* ── 全員一覽：每人一列，迷你雷達 + 判斷 ── */}
       <Panel
         title="全員一覽"
-        caption={`定位依「終場出裝」判斷（AD 輸出、AP 輸出、坦克、AD 鬥士、AP 坦、輔助），不看英雄的官方定位。六邊形是各出裝佔他場次的比例（最常用的頂到外框）。判斷同時看兩件事：勝率比他自己平均高或低（出裝 ${WR_GAP_ROLE}pp、英雄 ${WR_GAP_CHAMP}pp），以及表現——這個定位的關鍵指標比全資料庫同定位的人高或低 ${PERF_GAP}pp（輸出看傷害佔比、坦克看承傷佔比、鬥士／AP 坦看兩者平均、輔助看參團率）。兩者都好才是「適合」、都差才是「不適合」，只有一邊的給次級標籤（虛線框）。滑過看數字；點一列看完整分析`}
+        caption={`定位依「終場出裝」判斷（AD 輸出、AD 刺客、AP 輸出、AP 刺客、坦克、AD 鬥士、AP 坦、輔助）：AD 刺客是穿甲裝為主，AP 刺客是 AP 輸出裝配上官方定位為刺客的英雄，其餘不看官方定位。雷達是各出裝佔他場次的比例（最常用的頂到外框）。判斷同時看兩件事：勝率比他自己平均高或低（出裝 ${WR_GAP_ROLE}pp、英雄 ${WR_GAP_CHAMP}pp），以及表現——這個定位的關鍵指標比全資料庫同定位的人高或低 ${PERF_GAP}pp（輸出與刺客看傷害佔比、坦克看承傷佔比、鬥士／AP 坦看兩者平均、輔助看參團率）。兩者都好才是「適合」、都差才是「不適合」，只有一邊的給次級標籤（虛線框）。滑過看數字；點一列看完整分析`}
       >
         {loading ? (
           <Skeleton className="h-[640px] w-full" />
