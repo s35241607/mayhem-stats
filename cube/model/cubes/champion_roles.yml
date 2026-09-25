@@ -7,10 +7,21 @@ cubes:
   #
   # 一隻英雄可能同時屬於兩類(例如安妮是 mage + support),所以是長格式、
   # 一對多,場次類指標一律用 count_distinct。
+  #
+  # 雙定位的英雄很多(實測 187 場裡 127 場),依定位分組時各類場次加起來會遠大於總場次,
+  # 看起來「坦克玩很多」其實多半是鬥士兼坦克。is_primary 只留每隻英雄的第一個定位,
+  # 篩 is_primary = 'true' 之後一場只算一類,各類加總等於總場次。
+  #
+  # 「第一個」靠 rowid:客戶端的 roles 陣列本來就是主定位在前(Ahri = mage, assassin),
+  # db.py 每次整批 DELETE 再依陣列順序 INSERT,表清空後 rowid 從 1 重新遞增,
+  # 所以同一隻英雄 rowid 小的就是主定位。
   - name: champion_roles
     title: 英雄定位
     sql: >
       SELECT cr.rowid AS row_key, cr.champion_id, cr.role,
+             CASE WHEN cr.rowid = (SELECT MIN(x.rowid) FROM dim_champion_roles x
+                                   WHERE x.champion_id = cr.champion_id)
+                  THEN 'true' ELSE 'false' END AS is_primary,
              CASE cr.role
                WHEN 'mage' THEN '法師'
                WHEN 'fighter' THEN '鬥士'
@@ -42,6 +53,16 @@ cubes:
         title: 英雄定位
         description: "英雄定位：法師、鬥士、坦克、輔助、刺客、射手。一隻英雄可能屬於兩類，依定位分組時同一場會同時算進兩類。"
         sql: role_name
+        type: string
+        meta:
+          group: 英雄
+
+      # 字串而不是 boolean:理由同 participants.is_me(CASE 運算式沒有型別親和性,
+      # Cube 綁進來的篩選值是字串,比 1 = '1' 永遠為假)
+      - name: is_primary
+        title: 是否為主定位
+        description: "'true' 表示這是英雄的主定位（客戶端列出的第一個）。篩 'true' 之後每場只算一類，各類場次加總等於總場次；不篩時雙定位的英雄兩類都算。"
+        sql: is_primary
         type: string
         meta:
           group: 英雄

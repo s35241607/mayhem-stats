@@ -733,6 +733,156 @@ export function BarChart({
 
 // ─────────────────────────────────────────── 散布圖（找離群值）
 
+export type RadarDatum = { label: string; games: number; winrate: number | null }
+
+/** 六邊形（雷達）圖：一個類別一個頂點，例如英雄的六種定位。
+ *
+ *  形狀只畫一個指標（場次或勝率），不把兩個量級不同的數字疊在同一張圖上——
+ *  和「不准雙 y 軸」同一個道理。另一個指標寫在頂點的標籤裡：
+ *  勝率依場次往平均收縮後，比平均高或低才上勝／敗色，否則是灰字，
+ *  所以兩場全勝的那一類不會看起來最強。
+ *  頂點的名稱可以點（交叉篩選），選中的那個用介面強調色、其他淡掉。 */
+export function RadarChart({
+  data,
+  mode,
+  baseline,
+  selected = null,
+  onPick,
+}: {
+  data: RadarDatum[]
+  /** 形狀依場次或勝率 */
+  mode: "games" | "winrate"
+  /** 勝率的比較基準（你的整體勝率）。勝率模式畫成虛線環 */
+  baseline: number | null
+  selected?: string | null
+  onPick?: (label: string) => void
+}) {
+  const theme = useTheme()
+
+  const option = useMemo(() => {
+    const base = baseline ?? 50
+    const maxGames = Math.max(1, ...data.map((d) => d.games))
+    // 場次的外框取「比最多那類再多一點」的整數，最多那類才不會貼在框上看不出形狀
+    const step = maxGames > 50 ? 20 : maxGames > 20 ? 10 : 5
+    const max = mode === "games" ? Math.ceil((maxGames * 1.1) / step) * step : 100
+    const rich: Record<string, object> = {}
+    data.forEach((d, i) => {
+      const dimmed = selected !== null && selected !== d.label
+      const adj = shrunk(d.games, d.winrate, base)
+      // 收縮後偏離不到 2 個百分點就不上色：那種差距在這個樣本量下看不出來
+      const tone = !d.games || Math.abs(adj - base) < 2 ? theme.muted : adj > base ? theme.win : theme.loss
+      const opacity = dimmed ? DIM_OPACITY : 1
+      rich[`n${i}`] = {
+        color: selected === d.label ? theme.primary : theme.text,
+        fontSize: 13,
+        fontWeight: 600,
+        opacity,
+        lineHeight: 18,
+      }
+      rich[`w${i}`] = { color: tone, fontSize: 11, fontFamily: MONO, fontWeight: 600, opacity }
+      rich[`g${i}`] = { color: theme.muted, fontSize: 11, fontFamily: MONO, opacity }
+    })
+    const byName = new Map(data.map((d, i) => [d.label, i]))
+
+    return {
+      tooltip: {
+        ...baseTooltip(theme),
+        trigger: "item",
+        formatter: () =>
+          data
+            .map(
+              (d) =>
+                `${d.label}　${d.games} 場 · ${d.winrate === null ? "—" : `${d.winrate.toFixed(1)}%`}`,
+            )
+            .join("<br/>") +
+          (baseline !== null ? `<br/><span style="opacity:.7">你的整體勝率 ${baseline.toFixed(1)}%</span>` : ""),
+      },
+      radar: {
+        indicator: data.map((d) => ({ name: d.label, max, min: 0 })),
+        shape: "polygon",
+        splitNumber: 4,
+        radius: "70%",
+        center: ["50%", "54%"],
+        // 頂點名稱可以點：交叉篩選的入口
+        triggerEvent: !!onPick,
+        axisName: {
+          formatter: (name: string) => {
+            const i = byName.get(name) ?? 0
+            const d = data[i]
+            const wr = d.winrate === null ? "—" : `${d.winrate.toFixed(1)}%`
+            return `{n${i}|${name}}\n{w${i}|${wr}} {g${i}|${d.games} 場}`
+          },
+          rich,
+        },
+        axisNameGap: 10,
+        splitLine: { lineStyle: { color: alpha(theme.muted, 0.18) } },
+        splitArea: {
+          areaStyle: { color: [alpha(theme.muted, theme.isDark ? 0.03 : 0.04), "transparent"] },
+        },
+        axisLine: { lineStyle: { color: alpha(theme.muted, 0.22) } },
+      },
+      series: [
+        {
+          type: "radar",
+          symbol: "circle",
+          symbolSize: 7,
+          data: [
+            {
+              name: mode === "games" ? "場次" : "勝率",
+              value: data.map((d) => (mode === "games" ? d.games : (d.winrate ?? 0))),
+              lineStyle: { color: theme.data, width: 2 },
+              itemStyle: { color: theme.data, borderColor: theme.card, borderWidth: 1.5 },
+              areaStyle: { color: alpha(theme.data, 0.28) },
+            },
+          ],
+          emphasis: { lineStyle: { width: 3 }, areaStyle: { color: alpha(theme.data, 0.4) } },
+          z: 3,
+        },
+        // 勝率模式：你的整體勝率畫成一圈虛線，在圈外的類別就是比平常會贏
+        ...(mode === "winrate" && baseline !== null
+          ? [
+              {
+                type: "radar",
+                silent: true,
+                symbol: "none",
+                // 等形狀長得差不多了才出現，和長條圖的平均線同一個節奏
+                animationDelay: CHART_GROW_MS * 0.7,
+                animationDuration: 400,
+                data: [
+                  {
+                    name: "你的整體勝率",
+                    value: data.map(() => baseline),
+                    lineStyle: { color: alpha(theme.primary, 0.8), type: "dashed", width: 1 },
+                  },
+                ],
+                z: 2,
+              },
+            ]
+          : []),
+      ],
+    }
+  }, [data, mode, baseline, selected, theme, onPick])
+
+  const onEvent = useMemo(
+    () =>
+      onPick
+        ? {
+            click: (p: { componentType?: string; targetType?: string; name?: string }) => {
+              if (p.componentType !== "radar" || p.targetType !== "axisName" || !p.name) return
+              // 事件帶回來的是 formatter 排好的整段文字（{n0|坦克}\n{w0|36.7%}…），不是原本的名稱。
+              // 直接拿去篩選會查到 0 筆，從 rich 的鍵把第幾個頂點找回來。
+              const i = /^\{n(\d+)\|/.exec(p.name)?.[1]
+              const label = i !== undefined ? data[Number(i)]?.label : p.name
+              if (label) onPick(label)
+            },
+          }
+        : undefined,
+    [onPick, data],
+  )
+
+  return <ResponsiveChart option={option} height={340} onEvent={onEvent} />
+}
+
 export type ScatterPoint = {
   label: string
   x: number

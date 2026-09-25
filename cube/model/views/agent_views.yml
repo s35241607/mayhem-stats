@@ -196,6 +196,8 @@ views:
         includes:
           - name: name
             alias: champion_role
+          - name: is_primary
+            alias: champion_role_is_primary
 
       - join_path: participants.augments
         includes:
@@ -245,6 +247,8 @@ views:
         includes:
           - name: name
             alias: my_champion_role
+          - name: is_primary
+            alias: my_champion_role_is_primary
 
   - name: session_rhythm
     title: 連續對局的節奏
