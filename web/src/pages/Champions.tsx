@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react"
+import { useMemo, useState, type CSSProperties } from "react"
 import { BarCell, RecordCell, StatCell } from "@/components/cells"
 import { Filter, X } from "lucide-react"
-import { Dialog as DialogPrimitive } from "radix-ui"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Kpi, Panel, EmptyState } from "@/components/primitives"
@@ -13,9 +12,9 @@ import { useCube } from "@/hooks/useCube"
 import { MAX_GAME_IDS, iconUrl, num, type CubeFilter, type CubeRow } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 import { useCrumb } from "@/lib/breadcrumb"
-import { prefersReducedMotion } from "@/lib/motion"
+import { DetailDrawer, useDrawerSettled } from "@/components/DetailDrawer"
 import { cn } from "@/lib/utils"
-import { MIN_GAMES, NO_LIMIT, round0, round1, round2 } from "./shared"
+import { MIN_GAMES, NO_LIMIT, PRIMARY_ONLY, ROLES, round0, round1, round2 } from "./shared"
 
 const MEASURES = [
   "participants.games",
@@ -186,31 +185,39 @@ function BuildList({
   )
 }
 
-/** 點了某隻英雄之後：從右邊滑出的抽屜，裡面是摘要 + 出裝與增幅 + 這隻英雄的每一場。
- *
- *  原本是在頁面最上方插一塊 Panel 再把頁面捲回頂端：點的那一列瞬間不見、畫面整片跳走，
- *  使用者要自己找「剛剛點的東西跑去哪了」。抽屜蓋在表格上、表格留在原位，
- *  關掉（ESC、點遮罩、右上角）就回到剛才的位置，也不會打亂六邊形的篩選。
- *  用 Radix Dialog 拿到焦點鎖定與 ESC；動畫用 index.css 的 drawer-in，不用 shadcn Sheet 內建的
- *  tw-animate 類別（規則是版面動畫只走 index.css 的 utility）。不做離場動畫。 */
+/** 點了某隻英雄之後：右側抽屜（共用的 DetailDrawer），裡面是摘要 + 出裝與增幅 + 這隻英雄的每一場。
+ *  表格留在原位、那一列保持選取，關掉就回到剛才的位置，也不會打亂六邊形的篩選。 */
 function ChampionDrawer({ row, onClose }: { row: CubeRow | undefined; onClose: () => void }) {
+  const { addDrill, drills } = useFilters()
+  const name = row ? String(row["champions.name"]) : ""
+  const drilled = drills.some((d) => d.member === "champions.name" && d.values[0] === name)
+  const games = row ? num(row["participants.games"]) : null
   return (
-    <DialogPrimitive.Root open={!!row} onOpenChange={(open) => !open && onClose()}>
-      <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="drawer-overlay fixed inset-0 z-50 bg-black/40 supports-backdrop-filter:backdrop-blur-xs" />
-        <DialogPrimitive.Content
-          className="drawer-in fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l bg-background shadow-2xl sm:w-[min(980px,92vw)]"
-          aria-describedby={undefined}
+    <DetailDrawer
+      open={!!row}
+      onClose={onClose}
+      title={name}
+      subtitle={`${games === null ? "—" : round0(games)} 場 · 出裝、增幅與每一場`}
+      icon={row ? iconUrl(row["champions.icon_path"] as string) : undefined}
+      actions={
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={drilled}
+          onClick={() => addDrill({ member: "champions.name", operator: "equals", values: [name], label: `英雄：${name}` })}
         >
-          {row && <ChampionDetail key={String(row["champions.name"])} row={row} onClose={onClose} />}
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+          <Filter className="size-3.5" />
+          {drilled ? "其他頁已只看這隻" : "其他頁也只看這隻"}
+        </Button>
+      }
+    >
+      {row && <ChampionDetail key={name} row={row} />}
+    </DetailDrawer>
   )
 }
 
-function ChampionDetail({ row, onClose }: { row: CubeRow; onClose: () => void }) {
-  const { apply, addDrill, drills } = useFilters()
+function ChampionDetail({ row }: { row: CubeRow }) {
+  const { apply } = useFilters()
   const name = String(row["champions.name"])
   const onlyThis = useMemo(
     () => [{ member: "champions.name", operator: "equals" as const, values: [name] }],
@@ -240,45 +247,11 @@ function ChampionDetail({ row, onClose }: { row: CubeRow; onClose: () => void })
     return n === null ? "—" : `${fmt(n)}${suffix}`
   }
   const winrate = num(row["participants.winrate"])
-  const drilled = drills.some((d) => d.member === "champions.name" && d.values[0] === name)
-  // 逐場卡片等抽屜滑完才掛：和換頁一樣，重的東西不要和進場動畫搶主執行緒
-  const [slid, setSlid] = useState(prefersReducedMotion())
-  useEffect(() => {
-    if (slid) return
-    const timer = setTimeout(() => setSlid(true), 300)
-    return () => clearTimeout(timer)
-  }, [slid])
+  // 逐場卡片等抽屜滑完才掛
+  const slid = useDrawerSettled()
 
   return (
     <>
-      <div className="flex items-center gap-3 border-b px-5 py-3">
-        <img
-          src={iconUrl(row["champions.icon_path"] as string)}
-          alt=""
-          className="size-10 shrink-0 rounded-lg bg-icon-tile ring-1 ring-border"
-        />
-        <div className="min-w-0 flex-1">
-          <DialogPrimitive.Title className="truncate text-base font-semibold">{name}</DialogPrimitive.Title>
-          <div className="text-xs text-muted-foreground">
-            {metric("participants.games", round0)} 場 · 出裝、增幅與每一場
-          </div>
-        </div>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={drilled}
-          onClick={() =>
-            addDrill({ member: "champions.name", operator: "equals", values: [name], label: `英雄：${name}` })
-          }
-        >
-          <Filter className="size-3.5" />
-          {drilled ? "其他頁已只看這隻" : "其他頁也只看這隻"}
-        </Button>
-        <Button size="icon-sm" variant="ghost" onClick={onClose} aria-label="關閉">
-          <X className="size-4" />
-        </Button>
-      </div>
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
         <div className="grid gap-3 grid-cols-2 md:grid-cols-5">
           <Kpi
             label="勝率"
@@ -332,20 +305,14 @@ function ChampionDetail({ row, onClose }: { row: CubeRow; onClose: () => void })
         ) : (
           <Skeleton className="h-[240px] w-full" />
         )}
-      </div>
     </>
   )
 }
 
-/** 六種定位在六邊形上的順序：相鄰的是性質相近的——坦克、鬥士、刺客是近戰，
- *  射手、法師是遠程，輔助接回坦克（開團／保人）。固定順序，形狀才能跨篩選比較。 */
-const ROLES = ["坦克", "鬥士", "刺客", "射手", "法師", "輔助"]
 
 type RoleScope = "primary" | "all"
 type RadarMode = "games" | "winrate"
 
-/** 主定位模式：每場只算英雄的第一個定位，六類加總等於總場次。 */
-const PRIMARY_ONLY: CubeFilter[] = [{ member: "champion_roles.is_primary", operator: "equals", values: ["true"] }]
 
 /** 依定位篩的條件（給下面的排行與表格用）。 */
 function roleFilters(role: string | null, scope: RoleScope): CubeFilter[] {

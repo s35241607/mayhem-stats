@@ -215,6 +215,9 @@ type Theme = ReturnType<typeof useTheme>
 
 function baseTooltip(theme: Theme) {
   return {
+    // 掛到 body 而不是圖表容器：容器外層的卡片是 overflow-hidden，
+    // 圖表貼著卡片邊緣時（例如英雄頁左欄的六邊形），提示框往外長的那一半會被裁掉
+    appendTo: "body",
     backgroundColor: alpha(theme.card, 0.92),
     borderColor: alpha(theme.primary, 0.35),
     borderWidth: 1,
@@ -736,9 +739,38 @@ export function BarChart({
 
 export type RadarDatum = { label: string; games: number; wins: number; winrate: number | null }
 
-/** 雷達圖的圓心與半徑（相對圖寬高）。點擊換算方向要用同一組數字，所以抽出來。 */
-const RADAR_CENTER = [0.5, 0.54] as const
-const RADAR_RADIUS = 0.7
+/** 量文字寬度（px）。雷達圖要知道頂點標籤多寬，才算得出半徑能開多大。 */
+let measureCtx: CanvasRenderingContext2D | null = null
+function textWidth(text: string, font: string) {
+  measureCtx ??= document.createElement("canvas").getContext("2d")
+  if (!measureCtx) return text.length * 7
+  measureCtx.font = font
+  return measureCtx.measureText(text).width
+}
+
+const RADAR_NAME_GAP = 10
+/** 頂點標籤兩行（名稱 18px 行高 + 數字 14px）的高度 */
+const RADAR_LABEL_H = 34
+
+/** 雷達圖的圓心與半徑（px）。
+ *
+ *  原本半徑固定是寬高較小者的 70%：英雄頁左欄只有 340px 寬時，左右兩個頂點的標籤
+ *  （「法師 34.3% 35 場」）會超出圖的邊界被切掉。改成反過來算：先量最寬的標籤，
+ *  左右各留「間距 + 標籤寬」，上下各留兩行標籤高，剩下的空間才是半徑。
+ *  點擊換算方向也用這一份，兩邊的圓心與半徑才會一致。 */
+function radarGeometry(w: number, h: number, n: number, labelW: number) {
+  const cx = w / 2
+  const cy = h / 2
+  // 除了正上、正下之外的頂點，水平方向伸出去 r·|cos θ|，標籤再往外長一整個寬度
+  let side = 0
+  for (let i = 0; i < n; i++) {
+    const c = Math.abs(Math.cos(((90 + (i * 360) / n) * Math.PI) / 180))
+    if (c > 0.05) side = Math.max(side, c)
+  }
+  const byWidth = side ? (w / 2 - RADAR_NAME_GAP - labelW - 6) / side : Infinity
+  const byHeight = h / 2 - RADAR_NAME_GAP - RADAR_LABEL_H - 6
+  return { cx, cy, r: Math.max(40, Math.min(byWidth, byHeight)) }
+}
 
 /** 六邊形（雷達）圖：一個類別一個頂點，例如英雄的六種定位。
  *
@@ -769,6 +801,35 @@ export function RadarChart({
   onPick?: (label: string) => void
 }) {
   const theme = useTheme()
+  // 自己量寬度：半徑要跟著寬度算（見 radarGeometry）。量到之前不畫，免得第一次用錯的半徑長出來再縮
+  const boxRef = useRef<HTMLDivElement>(null)
+  const [width, setWidth] = useState(0)
+  useEffect(() => {
+    const box = boxRef.current
+    if (!box) return
+    const sync = () => setWidth(box.clientWidth)
+    sync()
+    const observer = new ResizeObserver(sync)
+    observer.observe(box)
+    return () => observer.disconnect()
+  }, [])
+
+  // 最寬的頂點標籤：名稱一行、「勝率 場次」一行，取兩行裡寬的那個
+  const labelW = useMemo(
+    () =>
+      Math.max(
+        0,
+        ...data.map((d) =>
+          Math.max(
+            textWidth(d.label, "600 13px sans-serif"),
+            textWidth(d.winrate === null ? "—" : `${d.winrate.toFixed(1)}%`, `600 11px ${MONO}`) +
+              textWidth(` ${d.games} 場`, `11px ${MONO}`),
+          ),
+        ),
+      ),
+    [data],
+  )
+  const geo = radarGeometry(width, height, data.length, labelW)
 
   const option = useMemo(() => {
     const base = baseline ?? 50
@@ -813,8 +874,8 @@ export function RadarChart({
         indicator: data.map((d) => ({ name: d.label, max, min: 0 })),
         shape: "polygon",
         splitNumber: 4,
-        radius: `${RADAR_RADIUS * 100}%`,
-        center: RADAR_CENTER.map((c) => `${c * 100}%`),
+        radius: geo.r,
+        center: [geo.cx, geo.cy],
         axisName: {
           formatter: (name: string) => {
             const i = byName.get(name) ?? 0
@@ -824,7 +885,7 @@ export function RadarChart({
           },
           rich,
         },
-        axisNameGap: 10,
+        axisNameGap: RADAR_NAME_GAP,
         splitLine: { lineStyle: { color: alpha(theme.muted, 0.18) } },
         splitArea: {
           areaStyle: { color: [alpha(theme.muted, theme.isDark ? 0.03 : 0.04), "transparent"] },
@@ -871,17 +932,15 @@ export function RadarChart({
           : []),
       ],
     }
-  }, [data, mode, baseline, total, selected, theme])
+  }, [data, mode, baseline, total, selected, theme, geo.r, geo.cx, geo.cy])
 
   // 點擊換算成方向：ECharts 的頂點從正上方開始、逆時針排，第 i 個在 90° + i·(360/n)。
   // 離圓心太近分不出方向，太遠（圖的角落）不算點到。
   const pixelClick = onPick
     ? (chart: EChartsInstance, x: number, y: number) => {
-        const w = chart.getWidth()
-        const h = chart.getHeight()
-        const r = (RADAR_RADIUS * Math.min(w, h)) / 2
-        const dx = x - w * RADAR_CENTER[0]
-        const dy = h * RADAR_CENTER[1] - y
+        const { cx, cy, r } = radarGeometry(chart.getWidth(), chart.getHeight(), data.length, labelW)
+        const dx = x - cx
+        const dy = cy - y
         const dist = Math.hypot(dx, dy)
         if (dist < r * 0.12 || dist > r * 1.6) return
         const step = 360 / data.length
@@ -892,8 +951,12 @@ export function RadarChart({
     : undefined
 
   return (
-    <div className={onPick ? "cursor-pointer" : undefined}>
-      <ResponsiveChart option={option} height={height} onPixelClick={pixelClick} />
+    <div ref={boxRef} className={onPick ? "cursor-pointer" : undefined}>
+      {width > 0 ? (
+        <ResponsiveChart option={option} height={height} onPixelClick={pixelClick} />
+      ) : (
+        <div style={{ height }} />
+      )}
     </div>
   )
 }

@@ -1,3 +1,5 @@
+import type { CubeFilter } from "@/lib/cube"
+
 export const round1 = (value: number) => value.toFixed(1)
 export const round0 = (value: number) => Math.round(value).toLocaleString()
 export const round2 = (value: number) => value.toFixed(2)
@@ -47,3 +49,10 @@ export function toBlocks(hours: HourCell[]): BlockCell[] {
     winrate: c.games ? (c.wins / c.games) * 100 : null,
   }))
 }
+
+/** 六種定位在六邊形上的順序：相鄰的是性質相近的——坦克、鬥士、刺客是近戰，
+ *  射手、法師是遠程，輔助接回坦克（開團／保人）。固定順序，形狀才能跨篩選、跨頁比較。 */
+export const ROLES = ["坦克", "鬥士", "刺客", "射手", "法師", "輔助"]
+
+/** 只算主定位：每場只算英雄的第一個定位，六類加總等於總場次（見 champion_roles.is_primary）。 */
+export const PRIMARY_ONLY: CubeFilter[] = [{ member: "champion_roles.is_primary", operator: "equals", values: ["true"] }]
