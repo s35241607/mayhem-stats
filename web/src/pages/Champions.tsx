@@ -15,7 +15,7 @@ import { useCrumb } from "@/lib/breadcrumb"
 import { DetailDrawer, useDrawerSettled } from "@/components/DetailDrawer"
 import { cn } from "@/lib/utils"
 import { MIN_GAMES, NO_LIMIT, round0, round1, round2 } from "./shared"
-import { roleSpec, useRoleBasis, type RoleBasis, type RoleSpec } from "@/lib/roleBasis"
+import { ROLE_SPEC, type RoleSpec } from "@/lib/roleBasis"
 
 const MEASURES = [
   "participants.games",
@@ -318,7 +318,7 @@ function roleFilters(role: string | null, spec: RoleSpec): CubeFilter[] {
   return role ? spec.filterFor(role) : []
 }
 
-/** 左半邊：六邊形。點某一類（點那個方向的任何位置），右邊的英雄勝率與下面的表格就只剩那一類。 */
+/** 左半邊：出裝定位雷達。點某一類（點那個方向的任何位置），右邊的英雄勝率與下面的表格就只剩那一類。 */
 function RoleRadar({
   role,
   spec,
@@ -338,12 +338,11 @@ function RoleRadar({
     apply({
       measures: ["participants.games", "participants.wins", "participants.winrate"],
       dimensions: [spec.dimension],
-      filters: spec.base,
       limit: NO_LIMIT,
     }),
   )
 
-  // 沒玩過的類別也要留一個頂點（場次 0），六邊形才不會少一角、換篩選時形狀才對得起來
+  // 沒玩過的類別也要留一個頂點（場次 0），雷達才不會少一角、換篩選時形狀才對得起來
   const data: RadarDatum[] = useMemo(
     () =>
       spec.labels.map((label) => {
@@ -361,7 +360,7 @@ function RoleRadar({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
-        <div className="text-sm font-semibold">{spec.basis === "build" ? "出裝定位" : "英雄類型"}</div>
+        <div className="text-sm font-semibold">出裝定位</div>
         <ToggleGroup type="single" size="sm" variant="outline" value={mode} onValueChange={(v) => v && setMode(v as RadarMode)}>
           <ToggleGroupItem value="games">形狀：場次</ToggleGroupItem>
           <ToggleGroupItem value="winrate">形狀：勝率</ToggleGroupItem>
@@ -396,20 +395,14 @@ export function Champions() {
   const { apply } = useFilters()
   const [picked, setPicked] = useState<string | null>(null)
   const [role, setRoleState] = useState<string | null>(null)
-  const [basis, setBasisStored] = useRoleBasis()
-  const spec = roleSpec(basis)
+  const spec = ROLE_SPEC
   // 定位是比英雄高一層的聚焦：換定位時，原本點開的那隻英雄可能已經不在這一類裡
   const setRole = (next: string | null) => {
     setRoleState(next)
     setPicked(null)
   }
-  // 換定位依據時兩邊的類別名稱不同（官方「鬥士」vs 出裝「AD 鬥士」），選到的那一類一併清掉
-  const setBasis = (next: RoleBasis) => {
-    setBasisStored(next)
-    setRole(null)
-  }
   const activeRole = role && spec.labels.includes(role) ? role : null
-  const roleLabel = activeRole ? `${activeRole}（${spec.tag}）` : null
+  const roleLabel = activeRole ? `出裝是${activeRole}` : null
   useCrumb(10, roleLabel, () => setRole(null))
   useCrumb(20, picked, () => setPicked(null))
   const { rows, loading, error } = useCube(
@@ -423,7 +416,7 @@ export function Champions() {
     }),
   )
   // 比較基準另外查、不跟著定位篩選：六邊形的虛線圈與表格戰績條上的刻度是同一條「你的整體勝率」，
-  // 篩成坦克之後才看得出坦克整體是高是低。含次定位時從各類加權回推也是偏的，所以一定要另外查
+  // 篩成坦克之後才看得出坦克整體是高是低
   const overall = useCube(apply({ measures: ["participants.games", "participants.wins"] }))
   const totalGames = n0(overall.rows[0] ?? {}, "participants.games")
   const baseline = totalGames ? (100 * n0(overall.rows[0], "participants.wins")) / totalGames : null
@@ -435,18 +428,11 @@ export function Champions() {
     <div className="space-y-4">
       <ChampionDrawer row={pickedRow} onClose={() => setPicked(null)} />
 
-      {/* 六邊形與英雄表並排：原本右側還有一份「各英雄勝率」排行，和下面的表格是同一份 85 隻英雄、
-          同樣的場次與戰績，只是少了 KDA、輸出、排序與匯出。拿掉它，六邊形直接篩這張表 */}
+      {/* 雷達與英雄表並排：原本右側還有一份「各英雄勝率」排行，和下面的表格是同一份 85 隻英雄、
+          同樣的場次與戰績，只是少了 KDA、輸出、排序與匯出。拿掉它，雷達直接篩這張表 */}
       <Panel
         title="英雄"
         caption={`左邊雷達圖的分類：${spec.caption}。點某一類的方向，右邊的表就只剩那一類。點表格的一列看那隻英雄的出裝、增幅與每一場`}
-        action={
-          <ToggleGroup type="single" size="sm" variant="outline" value={basis} onValueChange={(v) => v && setBasis(v as RoleBasis)}>
-            <ToggleGroupItem value="primary">官方主定位</ToggleGroupItem>
-            <ToggleGroupItem value="all">官方含次定位</ToggleGroupItem>
-            <ToggleGroupItem value="build">出裝定位</ToggleGroupItem>
-          </ToggleGroup>
-        }
       >
         {overall.error ? (
           <div className="text-sm text-destructive">{overall.error}</div>
@@ -455,8 +441,8 @@ export function Champions() {
         ) : (
           <div className="grid gap-6 min-[1500px]:grid-cols-[340px_minmax(0,1fr)]">
             {/* 表格欄位最小寬度加總約 715px（KDA、輸出的補充文字實測要 146／190px 才不被截斷），
-                加上 340px 的六邊形，1500px 以上的視窗才並排得下，更窄就上下排 */}
-            <RoleRadar key={basis} role={activeRole} spec={spec} baseline={baseline} totalGames={totalGames} onRole={setRole} />
+                加上 340px 的雷達，1500px 以上的視窗才並排得下，更窄就上下排 */}
+            <RoleRadar role={activeRole} spec={spec} baseline={baseline} totalGames={totalGames} onRole={setRole} />
 
             <div className="flex min-w-0 flex-col gap-2">
               <div className="flex min-h-8 flex-wrap items-center gap-2">

@@ -7,6 +7,7 @@ cubes:
   - name: teammates
     sql: >
       SELECT me.rowid * 16 + other.participant_id AS row_key,
+             me.rowid AS subject_rowid,
              me.platform_id, me.game_id, me.participant_id, me.win,
              me.champion_id AS subject_champion_id,
              me.puuid      AS subject_puuid,
@@ -34,6 +35,11 @@ cubes:
       - name: champion_roles
         sql: "{CUBE}.subject_champion_id = {champion_roles}.champion_id"
         relationship: one_to_many
+
+      # 「我這一場」的出裝定位：隊友／對手頁的「我玩哪類比較會贏」用它，和其他頁的定位一致
+      - name: builds
+        sql: "{CUBE}.subject_rowid = {builds}.participant_rowid"
+        relationship: many_to_one
 
       - name: matches
         sql: "{CUBE}.platform_id = {matches}.platform_id AND {CUBE}.game_id = {matches}.game_id"

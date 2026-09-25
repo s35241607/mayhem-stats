@@ -30,7 +30,7 @@ export function dimensionsOf(meta: CubeMeta, family: Family): Member[] {
   return meta.dimensions.filter((d) => {
     const cube = d.name.split(".")[0]
     if (cube === "my_games") return false
-    if (family === "teammates") return cube === "teammates" || cube === "matches" || cube === "champion_roles"
+    if (family === "teammates") return cube === "teammates" || cube === "matches" || cube === "champion_roles" || cube === "builds"
     return cube !== "teammates"
   })
 }

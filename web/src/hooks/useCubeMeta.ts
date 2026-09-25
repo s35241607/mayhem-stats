@@ -43,7 +43,7 @@ const EMPTY: CubeMeta = {
 
 /** 這些成員是給程式內部用的（主鍵、原始 id、篩選旗標），不該出現在選單。 */
 const HIDDEN =
-  /\.(id|game_key|puuid|subject_puuid|champion_id|team_id|win|is_me|icon_path|alias|slot|augment_id|item_id|game_id|duration_minutes|ended_surrender|queue_id)$/
+  /\.(id|game_key|puuid|subject_puuid|champion_id|team_id|win|is_me|icon_path|alias|slot|augment_id|item_id|game_id|duration_minutes|ended_surrender|queue_id|participant_key)$/
 
 /** 模型裡沒給中文標題的成員不進選單——多半是內部欄位，
  *  暴露出來只會讓人選到看不懂的東西。 */

@@ -156,6 +156,9 @@ const PARTICIPANT_CUBES = new Set([
   "items",
   "participant_context",
   "team_context",
+  "builds",
+  "comp_context",
+  "contribution",
 ])
 
 function analysisFamily(member: string) {

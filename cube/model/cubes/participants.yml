@@ -160,6 +160,14 @@ cubes:
         type: string
         public: false
 
+      # 公開：對局卡片要標出「這一場的出裝定位」，列表的資料來自 /api/matches，
+      # 定位的規則只在語意層有一份，所以前端拿卡片上的這個鍵回頭向 Cube 查（一場一人一列）。
+      - name: participant_key
+        title: 參賽者鍵
+        description: "某一場的某一位參賽者：platform_id:game_id:participant_id。把逐場資料對回語意層的欄位用。"
+        sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id || ':' || {CUBE}.participant_id"
+        type: string
+
       # 公開：好友比較頁要「依玩家分組」，名稱（riot_id）會改、也可能撞名，分組鍵只能用 puuid。
       # 和 teammates.puuid 一樣公開；自由探索頁的欄位清單本來就會濾掉 *.puuid（useCubeMeta），不會出現在選單。
       - name: puuid

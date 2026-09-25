@@ -8,6 +8,7 @@ import { Panel } from "@/components/primitives"
 import { MAX_GAME_IDS, iconUrl } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 import { CubeMatchList, MatchList } from "@/components/MatchList"
+import { useCube } from "@/hooks/useCube"
 import { cn } from "@/lib/utils"
 
 type Item = { slot: number; item_id: number; name: string | null; icon_path: string | null }
@@ -440,6 +441,12 @@ export function MatchDetail({
 
 // ─────────────────────────────────────────── 對局列表
 
+/** 每批卡片向 Cube 查一次出裝定位。查詢走 GET，一次帶太多鍵網址會太長；
+ *  捲動載入時前面幾批的鍵不變，查詢會命中快取，只有最後一批要重查。 */
+const ROLE_CHUNK = 50
+
+const participantKey = (m: MatchRow) => `${m.platform_id}:${m.game_id}:${m.participant_id}`
+
 /** 一場一張卡片。對局紀錄頁和各頁的下鑽列表（英雄、時段、隊友）共用同一種呈現。 */
 export function MatchCards({
   rows,
@@ -448,9 +455,40 @@ export function MatchCards({
   rows: MatchRow[]
   onPick: (match: { platformId: string; gameId: number }) => void
 }) {
+  const chunks: MatchRow[][] = []
+  for (let i = 0; i < rows.length; i += ROLE_CHUNK) chunks.push(rows.slice(i, i + ROLE_CHUNK))
   return (
     <div className="space-y-1.5">
-      {rows.map((m, i) => {
+      {chunks.map((chunk, ci) => (
+        <MatchCardChunk key={ci} rows={chunk} offset={ci * ROLE_CHUNK} onPick={onPick} />
+      ))}
+    </div>
+  )
+}
+
+function MatchCardChunk({
+  rows,
+  offset,
+  onPick,
+}: {
+  rows: MatchRow[]
+  offset: number
+  onPick: (match: { platformId: string; gameId: number }) => void
+}) {
+  // 這場的出裝定位：列表資料來自 /api/matches，定位的規則只在語意層有一份（builds.yml），
+  // 所以拿卡片的參賽者鍵回頭向 Cube 查，不在後端另抄一份
+  const keys = rows.map(participantKey)
+  const roles = useCube({
+    dimensions: ["participants.participant_key", "builds.build_role"],
+    filters: [{ member: "participants.participant_key", operator: "equals", values: keys }],
+    limit: ROLE_CHUNK,
+  })
+  const roleOf = new Map(roles.rows.map((r) => [String(r["participants.participant_key"]), String(r["builds.build_role"])]))
+  return (
+    <>
+      {rows.map((m, j) => {
+        const i = offset + j
+        const role = roleOf.get(participantKey(m))
         const kda = m.deaths === 0 ? "Perfect" : ((m.kills + m.assists) / m.deaths).toFixed(2)
         const kp = m.team_kills ? Math.round(((m.kills + m.assists) / m.team_kills) * 100) : 0
         return (
@@ -503,7 +541,14 @@ export function MatchCards({
             <RosterRow roster={m.roster ?? []} teamId={m.team_id} self={m.participant_id} />
 
             <div className="ml-auto text-right">
-              <div className="text-xs text-muted-foreground">{m.champion_name}</div>
+              <div className="flex items-center justify-end gap-1.5 text-xs text-muted-foreground">
+                {role && (
+                  <span title="這場的出裝定位（依終場裝備判斷）" className="rounded border border-border px-1.5 text-[11px] text-foreground">
+                    {role}
+                  </span>
+                )}
+                {m.champion_name}
+              </div>
               <div className="text-[11px] text-muted-foreground">{fmtDate(m.game_creation)}</div>
             </div>
 
@@ -512,7 +557,7 @@ export function MatchCards({
           </button>
         )
       })}
-    </div>
+    </>
   )
 }
 

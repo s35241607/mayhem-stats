@@ -340,6 +340,7 @@ function PlayerDrawerBody({
   const { apply, setAccount } = useFilters()
   const go = useNavigate()
   const settled = useDrawerSettled()
+  const [radarMode, setRadarMode] = useState<"games" | "winrate">("games")
   const roleFilter = role ? [{ member: "builds.build_role", operator: "equals" as const, values: [role] }] : []
   const contrib = useCube(
     apply({ measures: CONTRIB_MEASURES, filters: [crewFilter([player.puuid]), ...roleFilter], limit: 1 }, "all"),
@@ -374,14 +375,24 @@ function PlayerDrawerBody({
       </div>
       <div className="grid gap-4 rounded-lg border p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div>
-          <div className="text-sm font-semibold">各出裝定位的勝率</div>
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-sm font-semibold">出裝定位</div>
+            {/* 和英雄頁、儀表板同一種雷達：預設形狀是場次，可切成勝率 */}
+            <ToggleGroup type="single" size="sm" variant="outline" value={radarMode} onValueChange={(v) => v && setRadarMode(v as "games" | "winrate")}>
+              <ToggleGroupItem value="games" className="h-7 px-2 text-xs">形狀：場次</ToggleGroupItem>
+              <ToggleGroupItem value="winrate" className="h-7 px-2 text-xs">形狀：勝率</ToggleGroupItem>
+            </ToggleGroup>
+          </div>
           <div className="text-[11px] text-muted-foreground">
-            依終場裝備判斷的定位；虛線圈是他自己的整體勝率 {overallWr?.toFixed(1) ?? "—"}%。點某一類的方向，下面只列那種出裝的英雄
+            {radarMode === "games"
+              ? "形狀是場次；頂點下是勝率與場次，比他自己的整體勝率明顯高／低才上色"
+              : `形狀是勝率（外框 100%）；虛線圈是他自己的整體勝率 ${overallWr?.toFixed(1) ?? "—"}%`}
+            。點某一類的方向，下面只列那種出裝的英雄
           </div>
           {settled ? (
             <RadarChart
               data={analysis.radar}
-              mode="winrate"
+              mode={radarMode}
               baseline={overallWr}
               total={total}
               height={280}

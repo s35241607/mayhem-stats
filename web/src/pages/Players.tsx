@@ -122,8 +122,8 @@ function TogetherPanel({
   const { player, puuid, relation } = picked
   const { timeFilter, matchParams, account } = useFilters()
   const [sideChoice, setSide] = useState<"mine" | "theirs">("mine")
-  // 交叉篩選：點定位長條，下面的逐隻英雄只剩那個定位。定位是「我的英雄」的定位
-  // （teammates 只和我這邊的英雄 join 定位），所以選了定位時固定看我的英雄。
+  // 交叉篩選：點定位長條，下面的逐隻英雄只剩那個定位。定位是「我這一場」的出裝定位
+  // （teammates 只和我這邊 join 出裝），所以選了定位時固定看我的英雄。
   const [role, setRole] = useState<string | null>(null)
   const side = role ? "mine" : sideChoice
   useCrumb(20, role, () => setRole(null))
@@ -140,7 +140,7 @@ function TogetherPanel({
   const totals = useCube({ measures: ["teammates.games", "teammates.wins", "teammates.winrate"], filters, ...time })
   const roles = useCube({
     measures: ["teammates.games", "teammates.winrate"],
-    dimensions: ["champion_roles.name"],
+    dimensions: ["builds.build_role"],
     filters,
     order: { "teammates.games": "desc" },
     limit: 10,
@@ -152,7 +152,7 @@ function TogetherPanel({
       side === "mine"
         ? ["teammates.my_champion", "teammates.my_champion_icon"]
         : ["teammates.other_champion", "teammates.other_champion_icon"],
-    filters: role ? [...filters, { member: "champion_roles.name", operator: "equals", values: [role] }] : filters,
+    filters: role ? [...filters, { member: "builds.build_role", operator: "equals", values: [role] }] : filters,
     order: { "teammates.games": "desc" },
     limit: NO_LIMIT,
     ...time,
@@ -163,7 +163,7 @@ function TogetherPanel({
   const diff = winrate !== null && myWinrate !== null ? winrate - myWinrate : null
 
   const roleBars: BarDatum[] = roles.rows.map((r) => ({
-    label: String(r["champion_roles.name"] ?? "—"),
+    label: String(r["builds.build_role"] ?? "—"),
     value: num(r["teammates.winrate"]) ?? 0,
     games: num(r["teammates.games"]) ?? 0,
   }))
@@ -229,7 +229,7 @@ function TogetherPanel({
             <div>
               <div className="mb-1 text-xs font-medium">我玩哪類英雄比較會贏</div>
               <p className="mb-2 text-[11px] text-muted-foreground">
-                英雄層級一隻通常只有一兩場，看不出東西；併成六類之後每類才有十幾到五十場。點一個定位，下面的逐隻英雄只列出那個定位。
+                英雄層級一隻通常只有一兩場，看不出東西；併成出裝定位（依終場出裝判斷，和其他頁一致）之後每類才有十幾到五十場。點一個定位，下面的逐隻英雄只列出那場出那種裝的。
               </p>
               {roles.loading ? (
                 <Skeleton className="h-[220px] w-full" />
