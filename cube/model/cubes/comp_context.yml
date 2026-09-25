@@ -1,0 +1,100 @@
+cubes:
+  # 陣容情境：這一場我方隊友、敵方的陣容長什麼樣。每位參賽者每場一列，用 rowid 和 participants 一對一。
+  #
+  # 用來回答「隊上沒前排時，你玩坦克的勝率如何」「敵方魔法傷害多時你適合什麼」。
+  # 表現分數（builds.perf_index）已經是「佔隊伍的比例」，但沒有把「在什麼陣容下」明確分組，這裡補上。
+  #
+  # 前排 = 出裝定位是坦克、AD 鬥士、AP 坦（定義在 builds.yml，這裡直接引用它的 SQL，不另抄一份）。
+  # 隊友都「不含自己」：問的是「你進場時隊上已經有什麼」，把自己算進去會和你自己的出裝混在一起
+  # （你出坦克，隊友前排數就自動 +1）。
+  #
+  # 分組界線看過資料分布（全資料庫 Mayhem 640 隊）：
+  #   每隊前排數 0 個 94、1 個 247、2 個 207、3 個 73、4 個 19
+  #   隊伍魔法傷害比例的四分位數 39%／50%／59%，所以用 40%、60% 切：約 1/4、1/2、1/4
+  - name: comp_context
+    title: 陣容情境
+    sql: >
+      WITH p AS (
+        SELECT mp.rowid AS participant_rowid, mp.platform_id, mp.game_id, mp.team_id,
+          CASE WHEN b.build_role IN ('坦克', 'AD 鬥士', 'AP 坦') THEN 1 ELSE 0 END AS front,
+          COALESCE(mp.dmg_magic, 0) AS magic,
+          COALESCE(mp.dmg_physical, 0) + COALESCE(mp.dmg_magic, 0) + COALESCE(mp.dmg_true, 0) AS total
+        FROM match_participants mp
+        JOIN {builds.sql()} AS b ON b.participant_rowid = mp.rowid
+      ),
+      sums AS (
+        SELECT *,
+          SUM(front) OVER (PARTITION BY platform_id, game_id, team_id) AS team_front,
+          SUM(front) OVER (PARTITION BY platform_id, game_id) AS game_front,
+          SUM(magic) OVER (PARTITION BY platform_id, game_id, team_id) AS team_magic,
+          SUM(total) OVER (PARTITION BY platform_id, game_id, team_id) AS team_total,
+          SUM(magic) OVER (PARTITION BY platform_id, game_id) AS game_magic,
+          SUM(total) OVER (PARTITION BY platform_id, game_id) AS game_total
+        FROM p
+      )
+      SELECT participant_rowid,
+        team_front - front AS ally_front,
+        game_front - team_front AS enemy_front,
+        (team_magic - magic) * 1.0 / NULLIF(team_total - total, 0) AS ally_magic_ratio,
+        (game_magic - team_magic) * 1.0 / NULLIF(game_total - team_total, 0) AS enemy_magic_ratio
+      FROM sums
+
+    # 與 participants.yml 相同的 refresh key，理由寫在那裡。SQL 必須一字不差才會被合併。
+    refresh_key:
+      sql: >
+        SELECT (SELECT COALESCE(MAX(ingested_at), 0) FROM matches) || ':' || (SELECT COUNT(*) FROM dim_augments) || ':' || (SELECT group_concat(puuid || is_me || tracked) FROM accounts)
+
+    # 查詢裡只有這個 cube 的維度加 participants 的指標時，路徑從 participants 走；
+    # 反方向也留一條，讓以這裡為起點的查詢找得到 matches。
+    joins:
+      - name: participants
+        sql: "{CUBE}.participant_rowid = {participants}.rowid"
+        relationship: one_to_one
+
+    dimensions:
+      - name: id
+        sql: participant_rowid
+        type: number
+        primary_key: true
+        public: false
+
+      # 字串而不是數字：理由同 participants.is_me（CASE 運算式沒有型別親和性，篩選值綁成字串會比不到）
+      - name: ally_frontline
+        title: 隊友前排數
+        description: "同隊另外四人裡，出裝是坦克、AD 鬥士或 AP 坦的人數（不含自己）：0 個、1 個、2 個以上。"
+        sql: "CASE WHEN ally_front = 0 THEN '0 個' WHEN ally_front = 1 THEN '1 個' ELSE '2 個以上' END"
+        type: string
+        meta:
+          group: 陣容
+
+      - name: enemy_frontline
+        title: 敵方前排數
+        description: "敵方五人裡，出裝是坦克、AD 鬥士或 AP 坦的人數：0 個、1 個、2 個、3 個以上。"
+        sql: "CASE WHEN enemy_front = 0 THEN '0 個' WHEN enemy_front = 1 THEN '1 個' WHEN enemy_front = 2 THEN '2 個' ELSE '3 個以上' END"
+        type: string
+        meta:
+          group: 陣容
+
+      - name: enemy_damage_type
+        title: 敵方傷害類型
+        description: "敵方對英雄傷害中魔法傷害的比例：60% 以上為「魔法偏多」、40% 以下為「物理偏多」，其餘「均衡」。"
+        sql: >
+          CASE WHEN enemy_magic_ratio IS NULL THEN '無資料'
+               WHEN enemy_magic_ratio >= 0.6 THEN '魔法偏多'
+               WHEN enemy_magic_ratio <= 0.4 THEN '物理偏多'
+               ELSE '均衡' END
+        type: string
+        meta:
+          group: 陣容
+
+      - name: ally_damage_type
+        title: 隊友傷害類型
+        description: "同隊另外四人對英雄傷害中魔法傷害的比例（不含自己）：60% 以上為「魔法偏多」、40% 以下為「物理偏多」，其餘「均衡」。"
+        sql: >
+          CASE WHEN ally_magic_ratio IS NULL THEN '無資料'
+               WHEN ally_magic_ratio >= 0.6 THEN '魔法偏多'
+               WHEN ally_magic_ratio <= 0.4 THEN '物理偏多'
+               ELSE '均衡' END
+        type: string
+        meta:
+          group: 陣容

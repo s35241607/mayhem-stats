@@ -51,6 +51,11 @@ cubes:
         sql: "{CUBE}.rowid = {builds}.participant_rowid"
         relationship: one_to_one
 
+      # 陣容情境（隊友／敵方前排數、傷害類型），同樣一對一
+      - name: comp_context
+        sql: "{CUBE}.rowid = {comp_context}.participant_rowid"
+        relationship: one_to_one
+
       - name: team_context
         sql: >
           {CUBE}.platform_id = {team_context}.platform_id

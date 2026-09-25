@@ -208,6 +208,13 @@ views:
           - name: perf_index
           - name: role_metric
 
+      - join_path: participants.comp_context
+        includes:
+          - name: ally_frontline
+          - name: enemy_frontline
+          - name: enemy_damage_type
+          - name: ally_damage_type
+
       - join_path: participants.augments
         includes:
           - name: name
