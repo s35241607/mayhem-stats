@@ -337,7 +337,7 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
 export type HeatCell = { weekday: number; x: number; games: number; winrate: number | null }
 
 /** 樣本數多少才算「這格的勝率可以看」。低於這個數會被拉回整體平均。 */
-const SHRINK_K = 6
+export const SHRINK_K = 6
 /** 顏色飽和到頂的偏離幅度。用 ±20 個百分點,不是 0~100,否則真實差距全被壓成一團。 */
 const SPREAD = 20
 
@@ -346,7 +346,7 @@ const SPREAD = 20
  *  一場 100% 和二十場 60%,原始數字看起來前者比較強,但前者只是還沒輸過而已。
  *  收縮之後 (wins + k*base) / (n + k),一場的格子幾乎貼著平均、顏色很淡,
  *  場次夠多才會真的往兩端跑。這樣顏色本身就帶著「可不可信」的資訊。 */
-function shrunk(games: number, winrate: number | null, base: number) {
+export function shrunk(games: number, winrate: number | null, base: number) {
   if (!games || winrate === null) return base
   const wins = (winrate / 100) * games
   return ((wins + SHRINK_K * (base / 100)) / (games + SHRINK_K)) * 100

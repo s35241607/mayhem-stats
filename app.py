@@ -737,6 +737,11 @@ def list_players(request: Request):
         )]
     finally:
         conn.close()
+    # crew:好友比較頁要並排的那一群人——站長自己的帳號、追蹤中的好友、
+    # 以及公開模式下登入者自己綁定的帳號。要在下面改寫 is_me 之前算:
+    # 鏡像上 is_me 會換成登入者自己,站長的帳號就變成 0,不另外記會被漏掉。
+    for row in rows:
+        row["crew"] = int(bool(row["is_me"] or row["tracked"]) or (links is not None and row["puuid"] in links))
     if links is not None:
         for row in rows:
             row["is_me"] = int(row["puuid"] in links)

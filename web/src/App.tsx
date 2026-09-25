@@ -20,6 +20,7 @@ const LOADERS = {
   champions: () => import("@/pages/Champions").then((m) => m.Champions),
   augments: () => import("@/pages/Augments").then((m) => m.Augments),
   players: () => import("@/pages/Players").then((m) => m.Players),
+  crew: () => import("@/pages/Crew").then((m) => m.Crew),
   time: () => import("@/pages/TimeAnalysis").then((m) => m.TimeAnalysis),
   explore: () => import("@/pages/Explore").then((m) => m.Explore),
   tracked: () => import("@/pages/Tracked").then((m) => m.Tracked),

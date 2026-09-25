@@ -145,11 +145,13 @@ cubes:
         type: string
         public: false
 
+      # 公開：好友比較頁要「依玩家分組」，名稱（riot_id）會改、也可能撞名，分組鍵只能用 puuid。
+      # 和 teammates.puuid 一樣公開；自由探索頁的欄位清單本來就會濾掉 *.puuid（useCubeMeta），不會出現在選單。
       - name: puuid
         title: 玩家 ID
+        description: "玩家的 puuid，依玩家分組或篩選用。要顯示名稱請用 riot_id。"
         sql: puuid
         type: string
-        public: false
 
       - name: riot_id
         title: 玩家

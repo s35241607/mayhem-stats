@@ -16,6 +16,8 @@ export type Player = {
   games: number
   is_me: number
   tracked: number
+  /** 好友比較頁要並排的人：站長自己、追蹤中的好友、登入者自己綁定的帳號（見 /api/players） */
+  crew: number
 }
 
 /** 誰在看。公開鏡像用 Discord 登入時，「我」是他自己綁定的帳號。 */

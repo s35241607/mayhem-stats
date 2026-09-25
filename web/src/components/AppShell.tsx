@@ -16,6 +16,7 @@ import {
   TrendingDown,
   ChevronRight,
   Filter,
+  GitCompareArrows,
 } from "lucide-react"
 import {
   Sidebar,
@@ -55,6 +56,7 @@ export type PageId =
   | "champions"
   | "augments"
   | "players"
+  | "crew"
   | "time"
   | "tilt"
   | "losses"
@@ -75,6 +77,7 @@ const NAV: { group: string; items: { id: PageId; label: string; icon: typeof Zap
       { id: "champions", label: "英雄", icon: Swords },
       { id: "augments", label: "增幅裝置", icon: Sparkles },
       { id: "players", label: "隊友 / 對手", icon: Users },
+      { id: "crew", label: "好友比較", icon: GitCompareArrows },
       { id: "time", label: "時段", icon: CalendarClock },
       { id: "tilt", label: "節奏與連敗", icon: Activity },
       { id: "losses", label: "敗因分析", icon: TrendingDown },
@@ -97,6 +100,7 @@ const PAGE_TITLES: Record<PageId, { title: string; caption: string }> = {
   champions: { title: "英雄", caption: "每個英雄的場次、勝率與輸出表現" },
   augments: { title: "增幅裝置", caption: "各增幅的勝率，以及在特定英雄上的契合度" },
   players: { title: "隊友 / 對手", caption: "和朋友一起打會不會贏、和誰同隊會贏、遇到誰會輸" },
+  crew: { title: "好友比較", caption: "你和追蹤中的好友並排比較：整體戰績、各類型勝率與擅長的英雄" },
   time: { title: "時段", caption: "每天、星期與時段的表現分佈" },
   explore: { title: "自由探索", caption: "自選維度與指標，做任意組合的分析" },
   tracked: { title: "追蹤對象", caption: "除了自己以外，還要一併採集誰的戰績" },
