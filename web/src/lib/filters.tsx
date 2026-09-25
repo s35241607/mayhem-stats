@@ -18,6 +18,15 @@ export type Player = {
   tracked: number
 }
 
+/** 誰在看。公開鏡像用 Discord 登入時，「我」是他自己綁定的帳號。 */
+export type Viewer = {
+  public: boolean
+  name: string | null
+  /** 只有公開模式的 Discord 登入可以綁定「這是我」 */
+  canLink: boolean
+  linked: string[]
+}
+
 export const DATE_RANGES = [
   { value: "all", label: "全部期間", days: 0 },
   { value: "last 7 days", label: "最近 7 天", days: 7 },
@@ -52,6 +61,9 @@ type FilterState = {
   setAccount: (player: Player) => void
   players: Player[]
   isMe: boolean
+  viewer: Viewer | null
+  /** 把帳號標成（或取消標成）「我」。成功回 null，失敗回錯誤訊息。 */
+  setLinked: (puuid: string, linked: boolean) => Promise<string | null>
   queueId: string | null
   setQueueId: (id: string | null) => void
   dateRange: string
@@ -81,6 +93,7 @@ export function FilterProvider({ children }: { children: ReactNode }) {
   const [dateRange, setDateRange] = useState<string>("all")
   const [drills, setDrills] = useState<Drill[]>([])
   const [ready, setReady] = useState(false)
+  const [viewer, setViewer] = useState<Viewer | null>(null)
 
   useEffect(() => {
     fetch("/api/players")
@@ -93,7 +106,30 @@ export function FilterProvider({ children }: { children: ReactNode }) {
       .catch(() => undefined)
       // 載不到也要放行，否則後端一掛整個畫面就永遠停在骨架
       .finally(() => setReady(true))
+    fetch("/api/me")
+      .then((r) => r.json())
+      .then(setViewer)
+      .catch(() => undefined)
   }, [])
+
+  const setLinked = async (puuid: string, linked: boolean) => {
+    const res = await fetch("/api/me/link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ puuid, linked }),
+    })
+    const body = await res.json()
+    if (!res.ok) return (body.error as string) ?? "綁定失敗"
+    setViewer(body)
+    // is_me 只影響標示與排序，查詢條件是 puuid，所以就地改、不必重新載入整份清單
+    const mine = new Set<string>(body.linked)
+    const next = players
+      .map((p) => ({ ...p, is_me: mine.has(p.puuid) ? 1 : 0 }))
+      .sort((a, b) => b.is_me - a.is_me)
+    setPlayers(next)
+    setAccount((current) => (current ? (next.find((p) => p.puuid === current.puuid) ?? current) : current))
+    return null
+  }
 
   const value = useMemo<FilterState>(() => {
     const baseline: CubeFilter[] = []
@@ -117,6 +153,8 @@ export function FilterProvider({ children }: { children: ReactNode }) {
       },
       players,
       isMe: !!account?.is_me,
+      viewer,
+      setLinked,
       queueId,
       setQueueId,
       dateRange,
@@ -185,7 +223,9 @@ export function FilterProvider({ children }: { children: ReactNode }) {
         return merged
       },
     }
-  }, [ready, account, players, queueId, dateRange, drills])
+    // setLinked 每次渲染都是新函式，但它讀的 players 已經在依賴裡
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, account, players, viewer, queueId, dateRange, drills])
 
   return <FilterContext.Provider value={value}>{children}</FilterContext.Provider>
 }

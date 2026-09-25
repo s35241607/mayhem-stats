@@ -37,3 +37,7 @@ icon_cache/
 
 # Discord 登入的 client id/secret 與白名單，不進版控
 .public_oauth
+
+# 公開鏡像的登入 session(只存 token 雜湊)與「這是我」的綁定
+.public_state.db
+.public_state.db-journal

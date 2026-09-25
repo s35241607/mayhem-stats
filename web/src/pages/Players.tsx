@@ -50,7 +50,7 @@ type Picked = { player: string; puuid: string; relation: string }
 
 /** 在下鑽面板裡直接追蹤這個人，不必切到「追蹤對象」頁再找一次。 */
 function TrackButton({ puuid }: { puuid: string }) {
-  const { account } = useFilters()
+  const { account, viewer } = useFilters()
   // 狀態每次向後端問。不能用 FilterProvider 的 players：那份只在開頁時載入一次，
   // 這裡切換過之後收起再打開，會顯示成切換前的狀態。
   const [tracked, setTracked] = useState<boolean | null>(null)
@@ -71,7 +71,8 @@ function TrackButton({ puuid }: { puuid: string }) {
   }, [puuid])
 
   // 只有在看自己的數據時才提供：追蹤名單是「我要一併採集誰」，不是別人的
-  if (!account?.is_me || tracked === null) return null
+  // 公開鏡像唯讀，而且那裡的「我」是登入的朋友，不是採集的帳號
+  if (!account?.is_me || viewer?.public || tracked === null) return null
 
   const toggle = async () => {
     setBusy(true)

@@ -18,8 +18,9 @@ import json
 import os
 import urllib.parse
 import secrets
+import sqlite3
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, closing
 from pathlib import Path
 from typing import Optional
 
@@ -149,11 +150,73 @@ def mask_cube(payload):
 # 兩種方式,都只在公開模式下生效:
 #   1. Discord 登入(.public_oauth):每個人是獨立身分,踢人就是把名字從白名單拿掉。
 #   2. 共用密碼(MAYHEM_PASSWORD):沒有個別身分,外流就得全體換。留著當備援用。
-# session token 放在記憶體:重啟要重新登入,
-# 換來的是「不必在磁碟上多放一份可以冒充你的東西」。
+# session 存在 .public_state.db(不進版控),重啟鏡像不必重新登入。
+# 磁碟上只放 token 的 SHA-256:檔案外流也拿不到能塞進 cookie 的東西。
 SESSION_COOKIE = "mayhem_session"
 SESSION_MAX_AGE = 30 * 86400
-_sessions: dict = {}
+# 每個人最多綁幾個 Riot 帳號(大號、小號)。只是防表無限長,不是安全邊界。
+MAX_LINKS = 5
+STATE_DB = BASE_DIR / ".public_state.db"
+
+
+def _state_db():
+    """獨立的小資料庫,不放進 mayhem.db:鏡像不動主資料庫的 schema,也不寫它。"""
+    conn = sqlite3.connect(STATE_DB, timeout=5)
+    conn.row_factory = sqlite3.Row
+    conn.executescript(
+        """CREATE TABLE IF NOT EXISTS sessions (
+               token_hash TEXT PRIMARY KEY,
+               issued REAL NOT NULL,
+               discord_id TEXT,          -- 共用密碼登入時是 NULL
+               name TEXT);
+           CREATE TABLE IF NOT EXISTS links (
+               discord_id TEXT NOT NULL,
+               puuid TEXT NOT NULL,
+               PRIMARY KEY (discord_id, puuid));"""
+    )
+    return conn
+
+
+def _hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _save_session(token: str, discord_id: Optional[str] = None, name: Optional[str] = None):
+    now = time.time()
+    with closing(_state_db()) as conn, conn:
+        conn.execute("DELETE FROM sessions WHERE issued < ?", (now - SESSION_MAX_AGE,))
+        conn.execute(
+            "INSERT INTO sessions (token_hash, issued, discord_id, name) VALUES (?, ?, ?, ?)",
+            (_hash_token(token), now, discord_id, name),
+        )
+
+
+def _session(request: Request) -> Optional[dict]:
+    """目前這個請求的登入身分;沒登入或過期回 None。"""
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        return None
+    with closing(_state_db()) as conn:
+        row = conn.execute(
+            "SELECT issued, discord_id, name FROM sessions WHERE token_hash = ?", (_hash_token(token),)
+        ).fetchone()
+    if row is None or time.time() - row["issued"] > SESSION_MAX_AGE:
+        return None
+    return dict(row)
+
+
+def _viewer_links(request: Request) -> Optional[set]:
+    """公開模式下用 Discord 登入的人自己綁定的 puuid。
+    不是這種情況(本機、共用密碼)回 None,呼叫端沿用 accounts.is_me。"""
+    if not PUBLIC:
+        return None
+    who = _session(request)
+    if not who or not who["discord_id"]:
+        return None
+    with closing(_state_db()) as conn:
+        return {r["puuid"] for r in conn.execute(
+            "SELECT puuid FROM links WHERE discord_id = ?", (who["discord_id"],)
+        )}
 
 # 通道後面的請求來源一律是 127.0.0.1(通道程式自己),所以按來源 IP 限制沒有意義,
 # 改成全域的失敗計數:連續失敗到上限就整站冷卻,把線上暴力猜解壓到不可行。
@@ -307,14 +370,7 @@ def login_page(note: str = "") -> str:
 
 
 def _logged_in(request: Request) -> bool:
-    token = request.cookies.get(SESSION_COOKIE)
-    issued = _sessions.get(token) if token else None
-    if issued is None:
-        return False
-    if time.time() - issued > SESSION_MAX_AGE:
-        _sessions.pop(token, None)
-        return False
-    return True
+    return _session(request) is not None
 
 
 def readonly_error():
@@ -399,9 +455,9 @@ async def require_login(request: Request, call_next):
     return HTMLResponse(login_page(), status_code=401)
 
 
-def _start_session(request: Request, who: str):
+def _start_session(request: Request, who: str, discord_id: str, name: str):
     token = secrets.token_urlsafe(32)
-    _sessions[token] = time.time()
+    _save_session(token, discord_id, name)
     print(f"登入成功: {who}")
     response = RedirectResponse("/", status_code=303)
     response.set_cookie(
@@ -490,12 +546,20 @@ async def auth_callback(request: Request, code: str = "", state: str = ""):
             ),
             status_code=403,
         )
-    return _start_session(request, f"{name} (id {user.get('id')}) 透過 Discord（{'白名單' if by_list else '群組成員'}）")
+    return _start_session(
+        request,
+        f"{name} (id {user.get('id')}) 透過 Discord（{'白名單' if by_list else '群組成員'}）",
+        str(user.get("id")),
+        name,
+    )
 
 
 @app.get("/logout")
 async def logout(request: Request):
-    _sessions.pop(request.cookies.get(SESSION_COOKIE), None)
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        with closing(_state_db()) as conn, conn:
+            conn.execute("DELETE FROM sessions WHERE token_hash = ?", (_hash_token(token),))
     response = RedirectResponse("/", status_code=303)
     response.delete_cookie(SESSION_COOKIE)
     return response
@@ -519,7 +583,7 @@ async def login(request: Request):
         return JSONResponse(status_code=401, content={"error": "密碼不對"})
     _login_fails.clear()
     token = secrets.token_urlsafe(32)
-    _sessions[token] = now
+    _save_session(token)
     print("登入成功: 共用密碼")
     response = JSONResponse({"ok": True})
     response.set_cookie(
@@ -564,23 +628,82 @@ async def ingest_now():
 
 
 @app.get("/api/players")
-def list_players():
-    """資料庫裡出現過的所有玩家，給帳號快速切換用。本機帳號排最前面。"""
+def list_players(request: Request):
+    """資料庫裡出現過的所有玩家，給帳號快速切換用。本機帳號排最前面。
+
+    公開模式下用 Discord 登入的人，「我」是他自己綁定的帳號，不是站長的——
+    否則每個朋友打開都在看站長的數據，看自己的反而被標成「他人」。"""
+    links = _viewer_links(request)
     conn = db.connect()
     try:
-        rows = conn.execute(
+        rows = [dict(r) for r in conn.execute(
             """SELECT mp.puuid, mp.riot_id, COUNT(DISTINCT mp.game_id) AS games,
                       COALESCE(a.is_me, 0) AS is_me, COALESCE(a.tracked, 0) AS tracked
                FROM match_participants mp
                LEFT JOIN accounts a ON a.puuid = mp.puuid
                GROUP BY mp.puuid
                ORDER BY is_me DESC, tracked DESC, games DESC"""
-        ).fetchall()
-        return {
-            "players": [{**dict(row), "riot_id": mask_name(row["riot_id"])} for row in rows]
-        }
+        )]
     finally:
         conn.close()
+    if links is not None:
+        for row in rows:
+            row["is_me"] = int(row["puuid"] in links)
+        rows.sort(key=lambda r: -r["is_me"])  # 穩定排序:其餘維持原本順序
+    return {"players": [{**row, "riot_id": mask_name(row["riot_id"])} for row in rows]}
+
+
+@app.get("/api/me")
+def whoami(request: Request):
+    """前端用來決定要不要顯示「這是我」:只有公開模式的 Discord 登入才能綁定。"""
+    who = _session(request) if PUBLIC else None
+    discord_id = who["discord_id"] if who else None
+    return {
+        "public": PUBLIC,
+        "name": who["name"] if who else None,
+        "canLink": bool(discord_id),
+        "linked": sorted(_viewer_links(request) or []),
+    }
+
+
+class LinkBody(BaseModel):
+    puuid: str
+    linked: bool = True
+
+
+@app.post("/api/me/link")
+def link_account(body: LinkBody, request: Request):
+    """把一個 Riot 帳號標成「我」。寫的是 .public_state.db,不是 mayhem.db,
+    所以唯讀的鏡像也能用;影響範圍只有這個 Discord 使用者自己看到的畫面。"""
+    who = _session(request) if PUBLIC else None
+    if not who or not who["discord_id"]:
+        return JSONResponse(status_code=403, content={"error": "只有用 Discord 登入時才能綁定帳號"})
+    conn = db.connect()
+    try:
+        known = conn.execute(
+            "SELECT 1 FROM match_participants WHERE puuid = ? LIMIT 1", (body.puuid,)
+        ).fetchone()
+    finally:
+        conn.close()
+    if not known:
+        return JSONResponse(status_code=404, content={"error": "資料庫裡沒有這個玩家"})
+    with closing(_state_db()) as state, state:
+        if body.linked:
+            count = state.execute(
+                "SELECT COUNT(*) FROM links WHERE discord_id = ?", (who["discord_id"],)
+            ).fetchone()[0]
+            if count >= MAX_LINKS:
+                return JSONResponse(status_code=400, content={"error": f"最多綁 {MAX_LINKS} 個帳號"})
+            state.execute(
+                "INSERT OR IGNORE INTO links (discord_id, puuid) VALUES (?, ?)",
+                (who["discord_id"], body.puuid),
+            )
+        else:
+            state.execute(
+                "DELETE FROM links WHERE discord_id = ? AND puuid = ?", (who["discord_id"], body.puuid)
+            )
+    print(f"{who['name']} {'綁定' if body.linked else '解除'}帳號 {body.puuid[:8]}…")
+    return whoami(request)
 
 
 def _resolve_puuid(conn, puuid: Optional[str]) -> Optional[str]:

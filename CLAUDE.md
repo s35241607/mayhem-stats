@@ -30,4 +30,4 @@ ARAM: Mayhem 的本機戰績採集與分析工具。FastAPI（`app.py`）+ Cube 
   排程工作 `MayhemStatsMirror`）。動到 `app.py` 時記得它也會載入同一份程式：
   `MAYHEM_PUBLIC` 會開啟唯讀、名稱遮罩（可用 `MAYHEM_MASK_NAMES` 關）、Discord 登入與查詢速率限制；
   `MAYHEM_MIRROR` 讓它不建表、不採集、不管 Cube 的生死。改完要一併重啟鏡像，
-  不然外面跑的是舊版。`.public_oauth`（含 client secret）與 `.public_salt` 絕對不能進版控。
+  不然外面跑的是舊版。`.public_oauth`（含 client secret）、`.public_salt`、`.public_state.db`（登入 session 與朋友各自綁定的帳號）絕對不能進版控。
