@@ -7,7 +7,7 @@ import { Kpi, Panel, EmptyState } from "@/components/primitives"
 import { AgTable, type GridColumn } from "@/components/AgTable"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { CubeMatchList } from "@/components/MatchList"
-import { BarChart, RadarChart, type BarDatum, type RadarDatum } from "@/components/charts"
+import { RadarChart, type RadarDatum } from "@/components/charts"
 import { useCube } from "@/hooks/useCube"
 import { MAX_GAME_IDS, iconUrl, num, type CubeFilter, type CubeRow } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
@@ -389,6 +389,80 @@ function RoleRadar({
 
 type RankBy = "winrate" | "games"
 
+type RankRow = { label: string; icon: string | null; games: number; wins: number; losses: number; winrate: number | null }
+
+/** 各英雄勝率的排行清單：頭像、場次（附場次條）、戰績（勝敗比例條 + 你的整體勝率刻度）。
+ *
+ *  原本是 ECharts 橫條圖，長條長度是勝率、顏色是收縮後的勝率，依場次排時「排序依據」在圖上看不到；
+ *  而且 canvas 裡放 85 張英雄頭像很吃力。改成 HTML 清單：場次和勝率各有自己的條，
+ *  戰績條直接用勝敗兩色分段（勝段佔的比例就是勝率），和下方表格的戰績格子同一套畫法。
+ *  全部英雄都列出（使用者要求不截斷），在框裡捲動。 */
+function ChampionRanking({
+  rows,
+  baseline,
+  selected,
+  onPick,
+}: {
+  rows: RankRow[]
+  baseline: number | null
+  selected: string | null
+  onPick: (label: string) => void
+}) {
+  const maxGames = Math.max(1, ...rows.map((r) => r.games))
+  return (
+    <div className="flex flex-col">
+      <div className="grid grid-cols-[1.5rem_minmax(0,1fr)_5.5rem_minmax(8rem,11rem)] items-center gap-3 border-b px-2 pb-1.5 text-[11px] text-muted-foreground">
+        <span className="text-right">#</span>
+        <span>英雄</span>
+        <span>場次</span>
+        <span>戰績（刻度＝你的整體勝率）</span>
+      </div>
+      <div className="max-h-[476px] overflow-y-auto pr-1">
+        {rows.map((r, i) => (
+          <button
+            key={r.label}
+            onClick={() => onPick(r.label)}
+            style={{ "--stagger": `${Math.min(i * 30, 400)}ms` } as CSSProperties}
+            className={cn(
+              "slide-in grid w-full grid-cols-[1.5rem_minmax(0,1fr)_5.5rem_minmax(8rem,11rem)] items-center gap-3 rounded-md px-2 py-1.5 text-left transition hover:bg-accent",
+              selected === r.label && "bg-primary/10 ring-1 ring-primary",
+            )}
+          >
+            <span className="text-right font-mono text-[11px] tabular-nums text-muted-foreground">{i + 1}</span>
+            <span className="flex min-w-0 items-center gap-2.5">
+              <img
+                src={iconUrl(r.icon)}
+                alt=""
+                loading="lazy"
+                className="size-8 shrink-0 rounded-md bg-icon-tile ring-1 ring-border"
+              />
+              <span className="truncate text-[13px] font-medium" title={r.label}>
+                {r.label}
+              </span>
+            </span>
+            <span className="flex flex-col gap-1">
+              <span className="font-mono text-[12px] tabular-nums">{r.games} 場</span>
+              <span className="h-1 w-full rounded-full bg-muted">
+                <span
+                  className="bar-grow block h-full rounded-full bg-data"
+                  style={{ width: `${(100 * r.games) / maxGames}%` }}
+                />
+              </span>
+            </span>
+            <RecordCell
+              winrate={r.winrate}
+              wins={r.wins}
+              losses={r.losses}
+              baseline={baseline}
+              baselineLabel="你的整體勝率"
+            />
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function Champions() {
   const { apply } = useFilters()
   const [picked, setPicked] = useState<string | null>(null)
@@ -399,9 +473,9 @@ export function Champions() {
     setRoleState(next)
     setPicked(null)
   }
-  // 拿掉場次門檻之後，依勝率排會被一堆一場 100% 的英雄佔滿前面；
-  // 想看「常玩的那幾隻打得怎樣」就切成依場次排，長條仍然是勝率
-  const [rankBy, setRankBy] = useState<RankBy>("winrate")
+  // 預設依場次：85 隻裡有 49 隻只玩過一場，依勝率排時前面全是一場 100% 的，
+  // 看不出「常玩的那幾隻打得怎樣」。依勝率排仍然可以切
+  const [rankBy, setRankBy] = useState<RankBy>("games")
   const roleLabel = role ? `${role}（${scope === "primary" ? "主定位" : "含次定位"}）` : null
   useCrumb(10, roleLabel, () => setRole(null))
   useCrumb(20, picked, () => setPicked(null))
@@ -425,13 +499,24 @@ export function Champions() {
 
   // 全部英雄都上榜（不設場次門檻，使用者要求），長條末端同時標勝率與場次；
   // 顏色本來就會依場次往整體平均收縮，所以一場全勝的那根是淡的，不會看起來最強
-  const top: BarDatum[] = rows
-    .map((r) => ({
-      label: String(r["champions.name"] ?? "—"),
-      value: num(r["participants.winrate"]) ?? 0,
-      games: num(r["participants.games"]) ?? 0,
-    }))
-    .sort((a, b) => (rankBy === "games" ? b.games - a.games || b.value - a.value : b.value - a.value || b.games - a.games))
+  const top: RankRow[] = useMemo(
+    () =>
+      rows
+        .map((r) => ({
+          label: String(r["champions.name"] ?? "—"),
+          icon: (r["champions.icon_path"] as string | null) ?? null,
+          games: n0(r, "participants.games"),
+          wins: n0(r, "participants.wins"),
+          losses: n0(r, "participants.losses"),
+          winrate: opt(r, "participants.winrate"),
+        }))
+        .sort((a, b) =>
+          rankBy === "games"
+            ? b.games - a.games || (b.winrate ?? 0) - (a.winrate ?? 0)
+            : (b.winrate ?? 0) - (a.winrate ?? 0) || b.games - a.games,
+        ),
+    [rows, rankBy],
+  )
   const openChampion = (label: string) => {
     setPicked(label)
     window.scrollTo({ top: 0, behavior: "smooth" })
@@ -505,22 +590,22 @@ export function Champions() {
                   )}
                 </div>
                 <ToggleGroup type="single" size="sm" variant="outline" value={rankBy} onValueChange={(v) => v && setRankBy(v as RankBy)}>
-                  <ToggleGroupItem value="winrate">依勝率</ToggleGroupItem>
                   <ToggleGroupItem value="games">依場次</ToggleGroupItem>
+                  <ToggleGroupItem value="winrate">依勝率</ToggleGroupItem>
                 </ToggleGroup>
               </div>
               {loading || overall.loading ? (
-                <Skeleton className="h-[476px] w-full" />
+                <Skeleton className="h-[500px] w-full" />
               ) : top.length ? (
-                <BarChart data={top} suffix="%" showGames baseline={baseline ?? undefined} onPick={openChampion} />
+                <ChampionRanking rows={top} baseline={baseline} selected={picked} onPick={openChampion} />
               ) : (
                 <EmptyState>這一類還沒有對局。</EmptyState>
               )}
               <p className="text-[11px] text-muted-foreground">
                 {rankBy === "winrate"
-                  ? "虛線是你的整體勝率；顏色依場次往它收縮，一兩場的那幾根很淡。依勝率排時前面多半是只玩過一兩場的，想看常玩的切成「依場次」"
-                  : "依場次由多到少，長條長度仍然是勝率；虛線是你的整體勝率"}
-                。點長條看那隻英雄的每一場
+                  ? "依勝率由高到低，同勝率時場次多的在前。前面多半是只玩過一兩場的，看場次欄判斷可不可信"
+                  : "依場次由多到少"}
+                。戰績條分成勝段與敗段，刻度線是你的整體勝率；點一列看那隻英雄的每一場
               </p>
             </div>
           </div>
