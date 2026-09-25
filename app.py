@@ -14,6 +14,7 @@
 
 import asyncio
 import hashlib
+import html
 import json
 import os
 import urllib.parse
@@ -152,28 +153,49 @@ def mask_cube(payload):
 #   2. 共用密碼(MAYHEM_PASSWORD):沒有個別身分,外流就得全體換。留著當備援用。
 # session 存在 .public_state.db(不進版控),重啟鏡像不必重新登入。
 # 磁碟上只放 token 的 SHA-256:檔案外流也拿不到能塞進 cookie 的東西。
+#
+# session 會活很久,所以「踢人」不能只在登入那一刻生效——每次請求都重新對照設定檔:
+#   - 靠白名單進來的:名字或 ID 從 allow 拿掉,下一個請求就進不來。
+#   - 靠群組進來的:離開群組這件事只有 Discord 知道,不存他的 Discord token 就問不到,
+#     所以 session 只給 GUILD_SESSION_MAX_AGE,到期重按一次 Discord 登入(會重新檢查群組)。
+#   - 寫進 deny 的:不管怎麼進來的,立刻失效。
 SESSION_COOKIE = "mayhem_session"
 SESSION_MAX_AGE = 30 * 86400
+GUILD_SESSION_MAX_AGE = 7 * 86400
 # 每個人最多綁幾個 Riot 帳號(大號、小號)。只是防表無限長,不是安全邊界。
 MAX_LINKS = 5
 STATE_DB = BASE_DIR / ".public_state.db"
 
 
+_state_ready = False
+
+
 def _state_db():
     """獨立的小資料庫,不放進 mayhem.db:鏡像不動主資料庫的 schema,也不寫它。"""
+    global _state_ready
     conn = sqlite3.connect(STATE_DB, timeout=5)
     conn.row_factory = sqlite3.Row
-    conn.executescript(
-        """CREATE TABLE IF NOT EXISTS sessions (
-               token_hash TEXT PRIMARY KEY,
-               issued REAL NOT NULL,
-               discord_id TEXT,          -- 共用密碼登入時是 NULL
-               name TEXT);
-           CREATE TABLE IF NOT EXISTS links (
-               discord_id TEXT NOT NULL,
-               puuid TEXT NOT NULL,
-               PRIMARY KEY (discord_id, puuid));"""
-    )
+    if not _state_ready:
+        conn.executescript(
+            """CREATE TABLE IF NOT EXISTS sessions (
+                   token_hash TEXT PRIMARY KEY,
+                   issued REAL NOT NULL,
+                   discord_id TEXT,          -- 共用密碼登入時是 NULL
+                   name TEXT,
+                   username TEXT,            -- Discord 的唯一使用者名稱,對照白名單用
+                   via TEXT);                -- list / guild:當初憑什麼放行
+               CREATE TABLE IF NOT EXISTS links (
+                   discord_id TEXT NOT NULL,
+                   puuid TEXT NOT NULL,
+                   PRIMARY KEY (discord_id, puuid));"""
+        )
+        # 舊版建的表少這兩欄。舊 session 的 via 是 NULL,當成群組放行處理(期限較短的那種)。
+        have = {r["name"] for r in conn.execute("PRAGMA table_info(sessions)")}
+        for col in ("username", "via"):
+            if col not in have:
+                conn.execute(f"ALTER TABLE sessions ADD COLUMN {col} TEXT")
+        conn.commit()
+        _state_ready = True
     return conn
 
 
@@ -181,28 +203,56 @@ def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def _save_session(token: str, discord_id: Optional[str] = None, name: Optional[str] = None):
+def _save_session(
+    token: str,
+    discord_id: Optional[str] = None,
+    name: Optional[str] = None,
+    username: Optional[str] = None,
+    via: Optional[str] = None,
+):
     now = time.time()
     with closing(_state_db()) as conn, conn:
         conn.execute("DELETE FROM sessions WHERE issued < ?", (now - SESSION_MAX_AGE,))
         conn.execute(
-            "INSERT INTO sessions (token_hash, issued, discord_id, name) VALUES (?, ?, ?, ?)",
-            (_hash_token(token), now, discord_id, name),
+            "INSERT INTO sessions (token_hash, issued, discord_id, name, username, via)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (_hash_token(token), now, discord_id, name, username, via),
         )
 
 
+def _still_allowed(row: dict) -> bool:
+    """Discord 登入的 session 在這一刻還該不該放行。說明見本節開頭。"""
+    cfg = oauth_config()
+    if not cfg:
+        return False  # 設定檔被拿掉或壞掉:寧可全部登出,也不要沿用舊的放行
+    ident = {"id": row["discord_id"], "username": row["username"] or ""}
+    if _matches(cfg.get("deny", []), ident):
+        return False
+    if _matches(cfg.get("allow", []), ident):
+        return True
+    return (
+        row["via"] != "list"
+        and bool(str(cfg.get("allow_guild") or "").strip())
+        and time.time() - row["issued"] <= GUILD_SESSION_MAX_AGE
+    )
+
+
 def _session(request: Request) -> Optional[dict]:
-    """目前這個請求的登入身分;沒登入或過期回 None。"""
+    """目前這個請求的登入身分;沒登入、過期或已被踢掉回 None。"""
     token = request.cookies.get(SESSION_COOKIE)
     if not token:
         return None
     with closing(_state_db()) as conn:
         row = conn.execute(
-            "SELECT issued, discord_id, name FROM sessions WHERE token_hash = ?", (_hash_token(token),)
+            "SELECT issued, discord_id, name, username, via FROM sessions WHERE token_hash = ?",
+            (_hash_token(token),),
         ).fetchone()
     if row is None or time.time() - row["issued"] > SESSION_MAX_AGE:
         return None
-    return dict(row)
+    row = dict(row)
+    if row["discord_id"] and not _still_allowed(row):
+        return None
+    return row
 
 
 def _viewer_links(request: Request) -> Optional[set]:
@@ -227,12 +277,14 @@ _login_fails: list = []
 # Discord OAuth。設定檔不進版控,格式:
 #   { "client_id": "...", "client_secret": "...",
 #     "allow": ["朋友的discord帳號", "另一個", "123456789012345678"],
+#     "deny": ["123456789012345678"],     ← 立刻踢掉,連群組放行也不算(可省略)
 #     "allow_guild": "伺服器ID",          ← 這個群的成員都放行(可省略)
 #     "allow_roles": ["身分組ID", ...],   ← 再限定到某些身分組(可省略)
 #     "redirect_uri": "https://…/auth/callback"   ← 可省略,省略時依請求的網域推出來
 #   }
-# allow 可以寫 Discord 的使用者名稱或數字 ID。名稱可以改、ID 不會,
-# 所以被擋下來的人畫面上會直接顯示他的 ID,你複製進白名單就好。
+# allow / deny 可以寫 Discord 的使用者名稱(username,全站唯一)或數字 ID。
+# 不比對顯示名稱(global_name):那是誰都能改成一樣的字,拿來放行等於沒鎖。
+# 被擋下來的人畫面上會直接顯示他的 ID,你複製進白名單就好。
 #
 # allow_guild 用的是 guilds.members.read 而不是 guilds:前者只問「他在不在這一個群」,
 # 後者會把他加入的所有伺服器清單都拿回來——放行一個群不需要知道他還加了哪些群。
@@ -244,35 +296,58 @@ DISCORD_GUILD_MEMBER = "https://discord.com/api/users/@me/guilds/{guild}/member"
 # state 防的是「別人把他自己的授權碼塞給你的瀏覽器」。存在記憶體、十分鐘過期。
 # 另外設一個上限:/auth/start 不需要登入,有人反覆打它就會一直長,
 # 十分鐘的過期時間擋不住高速的請求(實測外部可以打到每秒 175 次)。
+#
+# state 同時寫進發起登入那個瀏覽器的 cookie,回來時兩邊要對得上。
+# 只存在伺服器的話,任何人拿到的 state 都通用:別人可以自己跑完授權,
+# 再把 /auth/callback?code=…&state=… 丟給你點,讓你的瀏覽器登入成他的身分。
 STATE_MAX_AGE = 600
 MAX_STATES = 500
+STATE_COOKIE = "mayhem_oauth_state"
 _states: dict = {}
+_oauth_cache: tuple = (None, {})
 
 
 def oauth_config() -> dict:
-    """每次讀檔:這樣加一個朋友只要改檔案,不必重啟服務。"""
-    if not OAUTH_FILE.is_file():
+    """依檔案修改時間快取:加一個朋友只要改檔案,不必重啟服務;
+    但每個請求都要對照白名單,所以不能每次都重新解析。"""
+    global _oauth_cache
+    try:
+        mtime = OAUTH_FILE.stat().st_mtime_ns
+    except OSError:
         return {}
+    if _oauth_cache[0] == mtime:
+        return _oauth_cache[1]
     try:
         cfg = json.loads(OAUTH_FILE.read_text(encoding="utf-8"))
     except (ValueError, OSError) as exc:
         print(f"讀不到 {OAUTH_FILE.name}: {exc}")
-        return {}
-    return cfg if cfg.get("client_id") and cfg.get("client_secret") else {}
+        cfg = {}
+    cfg = cfg if isinstance(cfg, dict) and cfg.get("client_id") and cfg.get("client_secret") else {}
+    _oauth_cache = (mtime, cfg)
+    return cfg
 
 
 OAUTH_ENABLED = bool(oauth_config())
 
+# 公開模式卻沒有任何登入方式時,require_login 會整個放行——那就是一個誰都能看的公開網址。
+# 最常見的成因不是故意的:.public_oauth 的 JSON 少了一個逗號,讀檔失敗就等於沒設。
+# 所以直接拒絕啟動,讓錯誤出現在 mirror.log 裡,而不是悄悄把資料開出去。
+if PUBLIC and not (PASSWORD or OAUTH_ENABLED):
+    raise SystemExit(
+        f"公開模式需要登入方式:{OAUTH_FILE.name} 讀不到(檔案不存在或 JSON 格式錯誤),"
+        "也沒有設 MAYHEM_PASSWORD。不啟動。"
+    )
+
+
+def _matches(entries, user: dict) -> bool:
+    """名單比對:使用者名稱或數字 ID,大小寫不計。刻意不含顯示名稱,見上面的說明。"""
+    wanted = {str(x).strip().lower() for x in entries if str(x).strip()}
+    candidates = {str(user.get("id") or "").lower(), str(user.get("username") or "").lower()}
+    return bool(wanted & (candidates - {""}))
+
 
 def _on_list(cfg: dict, user: dict) -> bool:
-    """個別白名單:比對使用者名稱或數字 ID,大小寫不計。"""
-    allow = {str(x).strip().lower() for x in cfg.get("allow", []) if str(x).strip()}
-    candidates = {
-        str(user.get("id", "")).lower(),
-        str(user.get("username", "")).lower(),
-        str(user.get("global_name") or "").lower(),
-    }
-    return bool(allow & (candidates - {""}))
+    return _matches(cfg.get("allow", []), user)
 
 
 def _guild_ok(cfg: dict, member: Optional[dict]) -> bool:
@@ -455,11 +530,12 @@ async def require_login(request: Request, call_next):
     return HTMLResponse(login_page(), status_code=401)
 
 
-def _start_session(request: Request, who: str, discord_id: str, name: str):
+def _start_session(request: Request, who: str, discord_id: str, name: str, username: str, via: str):
     token = secrets.token_urlsafe(32)
-    _save_session(token, discord_id, name)
+    _save_session(token, discord_id, name, username, via)
     print(f"登入成功: {who}")
     response = RedirectResponse("/", status_code=303)
+    response.delete_cookie(STATE_COOKIE)
     response.set_cookie(
         SESSION_COOKIE, token,
         max_age=SESSION_MAX_AGE, httponly=True, samesite="lax",
@@ -490,7 +566,14 @@ async def auth_start(request: Request):
         "scope": "identify guilds.members.read" if cfg.get("allow_guild") else "identify",
         "state": state,
     })
-    return RedirectResponse(f"{DISCORD_AUTH}?{params}", status_code=303)
+    response = RedirectResponse(f"{DISCORD_AUTH}?{params}", status_code=303)
+    # Lax:從 Discord 導回來是頂層 GET 導覽,cookie 會帶上;別的網站在背景發的請求不會
+    response.set_cookie(
+        STATE_COOKIE, state,
+        max_age=STATE_MAX_AGE, httponly=True, samesite="lax",
+        secure=request.headers.get("x-forwarded-proto", request.url.scheme) == "https",
+    )
+    return response
 
 
 @app.get("/auth/callback")
@@ -499,8 +582,13 @@ async def auth_callback(request: Request, code: str = "", state: str = ""):
     if not cfg:
         return HTMLResponse(login_page("<p>這個站台沒有啟用 Discord 登入。</p>"), status_code=404)
     issued = _states.pop(state, None) if state else None
-    if issued is None or time.time() - issued > STATE_MAX_AGE:
-        # state 對不上:可能是別人把授權碼塞給你的瀏覽器,也可能只是放太久
+    mine = request.cookies.get(STATE_COOKIE) or ""
+    if (
+        issued is None
+        or time.time() - issued > STATE_MAX_AGE
+        or not secrets.compare_digest(mine.encode(), state.encode())
+    ):
+        # state 對不上:可能是別人把他的授權碼塞給你的瀏覽器,也可能只是放太久
         return HTMLResponse(login_page("<p>登入逾時或連結不對,請再試一次。</p>"), status_code=400)
     if not code:
         return HTMLResponse(login_page("<p>Discord 沒有回傳授權碼。</p>"), status_code=400)
@@ -541,7 +629,8 @@ async def auth_callback(request: Request, code: str = "", state: str = ""):
         return HTMLResponse(
             login_page(
                 f"<p>這個 Discord 帳號{why}。</p>"
-                f'<p class="hint">帳號：{name}<br>ID：{user.get("id")}</p>'
+                # 顯示名稱是對方自己取的,可以是 <script>——不跳脫就是一個在本站執行的 XSS
+                f'<p class="hint">帳號：{html.escape(name)}<br>ID：{html.escape(str(user.get("id")))}</p>'
                 "<p>把上面的帳號或 ID 給站長，或請他把你加進群組。</p>"
             ),
             status_code=403,
@@ -551,6 +640,8 @@ async def auth_callback(request: Request, code: str = "", state: str = ""):
         f"{name} (id {user.get('id')}) 透過 Discord（{'白名單' if by_list else '群組成員'}）",
         str(user.get("id")),
         name,
+        str(user.get("username") or ""),
+        "list" if by_list else "guild",
     )
 
 
@@ -1094,9 +1185,10 @@ cube_http.mount("http://", requests.adapters.HTTPAdapter(pool_connections=4, poo
 async def cube_proxy(path: str, request: Request):
     """把 Cube 的查詢 API 代理到本服務底下。
 
-    Cube 沒有提供繫結位址的設定,它的埠一律開在所有網路介面上,而開發模式
-    又不驗證身分。前端改走這裡之後,瀏覽器只需要連 127.0.0.1:5057,
-    Cube 的埠就不必讓任何人碰到(仍建議用防火牆擋掉對外連線)。
+    Cube 沒有提供繫結位址的設定,它的埠一律開在所有網路介面上。所以 Cube 跑正式模式、
+    每個請求都要 JWT(cube_process.auth_header()),憑證只在這裡加上,不會送到瀏覽器。
+    前端改走這裡之後,瀏覽器只需要連 127.0.0.1:5057,Cube 的埠就不必讓任何人碰到
+    (仍建議用防火牆擋掉對外連線)。
     順帶好處是前端與 API 同源,不必處理 CORS。
     """
     if path not in {"load", "meta", "sql"}:
@@ -1116,12 +1208,12 @@ async def cube_proxy(path: str, request: Request):
         if request.method == "POST":
             body = await request.json()
             resp = await asyncio.to_thread(
-                lambda: cube_http.post(url, json=body, timeout=60)
+                lambda: cube_http.post(url, json=body, headers=cube_process.auth_header(), timeout=60)
             )
         else:
             params = dict(request.query_params)
             resp = await asyncio.to_thread(
-                lambda: cube_http.get(url, params=params, timeout=60)
+                lambda: cube_http.get(url, params=params, headers=cube_process.auth_header(), timeout=60)
             )
     except requests.exceptions.RequestException as exc:
         return JSONResponse(
@@ -1165,10 +1257,8 @@ if __name__ == "__main__":
     print(" ARAM: Mayhem 戰績採集 + BI")
     if PUBLIC:
         print(" 公開模式:唯讀" + ("、其他玩家的名稱已換成代號" if MASK_NAMES else "、其他玩家顯示真名"))
-        print(
-            "  密碼保護:已啟用" if PASSWORD else
-            "  ⚠ 沒有設 MAYHEM_PASSWORD——拿到網址的人就能看到全部內容"
-        )
+        print("  登入:" + "＋".join(w for w in (
+            "Discord" if OAUTH_ENABLED else "", "共用密碼" if PASSWORD else "") if w))
     print(f" 開瀏覽器到 http://127.0.0.1:{PORT}")
     print(" 客戶端開著的時候會自動採集,關掉也不會掉資料(下次開再補)")
     print("=" * 62)

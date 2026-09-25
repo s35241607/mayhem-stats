@@ -7,6 +7,9 @@
 很容易靜默失敗。直接餵 node 進入點,由 subprocess 處理視窗與輸出。
 """
 
+import base64
+import hashlib
+import hmac
 import json
 import socket
 import subprocess
@@ -25,6 +28,42 @@ STARTUP_TIMEOUT = 60
 LOG_MAX_BYTES = 5 * 1024 * 1024
 
 _process: subprocess.Popen | None = None
+_auth: dict | None = None
+
+
+def _api_secret() -> str:
+    """從 cube/.env 讀 CUBEJS_API_SECRET。這個檔不進版控,Cube 自己也是讀它。"""
+    env = CUBE_DIR / ".env"
+    if env.is_file():
+        for line in env.read_text(encoding="utf-8").splitlines():
+            key, _, value = line.partition("=")
+            if key.strip() == "CUBEJS_API_SECRET":
+                return value.strip().strip('"').strip("'")
+    return ""
+
+
+def auth_header() -> dict:
+    """呼叫 Cube 要帶的 Authorization 標頭。
+
+    Cube 跑在正式模式(見 cube/cube.js 的說明),每個請求都要一個用 API secret 簽的 JWT。
+    只在這台機器上的後端與 Cube 之間傳,不會送到瀏覽器,所以不設到期時間;
+    要作廢就換掉 .env 裡的 secret(兩邊都要重啟)。
+    簽章只需要 HS256,自己算就好,不為這個多裝一個套件。
+    """
+    global _auth
+    if _auth is None:
+        secret = _api_secret()
+        if not secret:
+            _auth = {}
+        else:
+            def b64(raw: bytes) -> str:
+                return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+            head = b64(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
+            body = b64(json.dumps({"sub": "mayhem-stats", "iat": int(time.time())}).encode())
+            sig = b64(hmac.new(secret.encode(), f"{head}.{body}".encode(), hashlib.sha256).digest())
+            _auth = {"Authorization": f"{head}.{body}.{sig}"}
+    return _auth
 
 
 def port_open(port, host="127.0.0.1"):
@@ -133,7 +172,7 @@ def warm():
         url = (f"http://127.0.0.1:{CUBE_PORT}/cubejs-api/v1/load?query="
                + urllib.parse.quote(json.dumps(query)))
         try:
-            with urllib.request.urlopen(url, timeout=120) as resp:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=auth_header()), timeout=120) as resp:
                 resp.read()
             ok += 1
         except Exception:
