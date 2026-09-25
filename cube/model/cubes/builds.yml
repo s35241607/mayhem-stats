@@ -1,0 +1,172 @@
+cubes:
+  # 出裝定位：依這場終場的裝備判斷「實際怎麼玩」，不看英雄的官方定位。
+  #
+  # 為什麼需要：官方定位看不出實際出裝。好友圈 938 場裡，官方「鬥士」271 場有 132 場是出純 AD 輸出裝、
+  # 「輔助」57 場有 22 場是出 AP 輸出裝——用官方定位問「適不適合鬥士」，其實混了兩種完全不同的玩法。
+  #
+  # 怎麼算：終場 6 格裝備（不含飾品），排除鞋子與總價 1500 以下的零件，依各裝備的類別把「總價」分給
+  # AD／AP／坦度三堆（一件裝備同時屬於幾堆就平分），輔助裝另成一堆。再看各堆佔的金額比例：
+  #   - 輔助裝 ≥ 35%                                   → 輔助
+  #   - 坦度 ≥ 50%，且 AD、AP 都 < 25%                  → 坦克
+  #   - 坦度 ≥ 30%                                     → AD 鬥士／AP 坦（看 AD、AP 哪堆多）
+  #   - 其餘                                           → AD 輸出／AP 輸出
+  #   - 沒有任何成裝（太早結束）                         → 未成形
+  # 類別來自客戶端 items.json（dim_item_categories）。
+  #   AD  ：Damage、CriticalStrike、AttackSpeed、ArmorPenetration、LifeSteal、OnHit
+  #   AP  ：SpellDamage、MagicPenetration、SpellVamp
+  #   坦度：Health、Armor、SpellBlock、MagicResist
+  # 輔助裝沒有可用的類別（「法力回復」同時出現在時光之杖、奪魄之鐮；「光環」多半是坦克裝），
+  # 只能明列：月之石再生裝置、帝王命令、歌謠之冠、熾灼魔器、破曉之核、贖罪神石、流水之杖、
+  # 米凱的祝福、希利亞的迴響、蘇瑞亞的戰歌、低語之環。騎士誓願、日輪的加冕本質是坦克裝，照金額算進坦度。
+  #
+  # 驗證（全資料庫 Mayhem 3,200 筆參賽者）：各類的傷害佔比／承傷佔比明顯分得開——
+  # 坦克 16%／31%、AD 輸出 22%／18%、輔助 8%／14%（平均治療 21k，其他類 6～16k）。
+  - name: builds
+    title: 出裝定位
+    sql: >
+      WITH item_groups AS (
+        SELECT di.id AS item_id, di.price_total AS price,
+          MAX(c.category IN ('Damage','CriticalStrike','AttackSpeed','ArmorPenetration','LifeSteal','OnHit')) AS is_ad,
+          MAX(c.category IN ('SpellDamage','MagicPenetration','SpellVamp')) AS is_ap,
+          MAX(c.category IN ('Health','Armor','SpellBlock','MagicResist')) AS is_tank,
+          MAX(c.category = 'Boots') AS is_boots,
+          di.id IN (6617, 4005, 2530, 3504, 6621, 3107, 6616, 3222, 6620, 2065, 2526) AS is_sup
+        FROM dim_items di JOIN dim_item_categories c ON c.item_id = di.id
+        GROUP BY di.id
+      ),
+      per_item AS (
+        SELECT pi.platform_id, pi.game_id, pi.participant_id, g.price, g.is_sup,
+               g.is_ad, g.is_ap, g.is_tank, (g.is_ad + g.is_ap + g.is_tank) AS n
+        FROM participant_items pi JOIN item_groups g ON g.item_id = pi.item_id
+        WHERE pi.slot < 6 AND g.price >= 1500 AND g.is_boots = 0
+      ),
+      gold AS (
+        SELECT platform_id, game_id, participant_id,
+          SUM(CASE WHEN is_sup = 0 AND n > 0 THEN price * is_ad * 1.0 / n ELSE 0 END) AS ad,
+          SUM(CASE WHEN is_sup = 0 AND n > 0 THEN price * is_ap * 1.0 / n ELSE 0 END) AS ap,
+          SUM(CASE WHEN is_sup = 0 AND n > 0 THEN price * is_tank * 1.0 / n ELSE 0 END) AS tank,
+          SUM(CASE WHEN is_sup = 1 THEN price ELSE 0 END) AS sup
+        FROM per_item GROUP BY 1, 2, 3
+      ),
+      team_taken AS (
+        SELECT platform_id, game_id, team_id, SUM(dmg_taken) AS taken
+        FROM match_participants GROUP BY 1, 2, 3
+      ),
+      classified AS (
+        SELECT mp.rowid AS participant_rowid, m.queue_id,
+          COALESCE(g.ad, 0) AS ad_gold, COALESCE(g.ap, 0) AS ap_gold,
+          COALESCE(g.tank, 0) AS tank_gold, COALESCE(g.sup, 0) AS sup_gold,
+          COALESCE(g.ad + g.ap + g.tank + g.sup, 0) AS core_gold,
+          CASE
+            WHEN COALESCE(g.ad + g.ap + g.tank + g.sup, 0) = 0 THEN '未成形'
+            WHEN g.sup / (g.ad + g.ap + g.tank + g.sup) >= 0.35 THEN '輔助'
+            WHEN g.tank / (g.ad + g.ap + g.tank + g.sup) >= 0.5
+                 AND g.ad / (g.ad + g.ap + g.tank + g.sup) < 0.25
+                 AND g.ap / (g.ad + g.ap + g.tank + g.sup) < 0.25 THEN '坦克'
+            WHEN g.tank / (g.ad + g.ap + g.tank + g.sup) >= 0.3 THEN CASE WHEN g.ad >= g.ap THEN 'AD 鬥士' ELSE 'AP 坦' END
+            WHEN g.ad >= g.ap THEN 'AD 輸出'
+            ELSE 'AP 輸出'
+          END AS build_role,
+          mp.dmg_to_champions * 100.0 / NULLIF(mp.team_dmg, 0) AS dmg_share,
+          mp.dmg_taken * 100.0 / NULLIF(tt.taken, 0) AS taken_share,
+          (mp.kills + mp.assists) * 100.0 / NULLIF(mp.team_kills, 0) AS kp
+        FROM match_participants mp
+        JOIN matches m ON m.platform_id = mp.platform_id AND m.game_id = mp.game_id
+        JOIN team_taken tt ON tt.platform_id = mp.platform_id AND tt.game_id = mp.game_id AND tt.team_id = mp.team_id
+        LEFT JOIN gold g ON g.platform_id = mp.platform_id AND g.game_id = mp.game_id AND g.participant_id = mp.participant_id
+      ),
+      scored AS (
+        SELECT *,
+          CASE build_role
+            WHEN 'AD 輸出' THEN dmg_share
+            WHEN 'AP 輸出' THEN dmg_share
+            WHEN '坦克' THEN taken_share
+            WHEN 'AD 鬥士' THEN (dmg_share + taken_share) / 2
+            WHEN 'AP 坦' THEN (dmg_share + taken_share) / 2
+            WHEN '輔助' THEN kp
+          END AS role_metric
+        FROM classified
+      )
+      SELECT *,
+        role_metric - AVG(role_metric) OVER (PARTITION BY queue_id, build_role) AS perf_index
+      FROM scored
+
+    # 反方向也要一條：查詢裡有 builds 的指標時，Cube 會從這裡出發找 matches、participants 的路徑
+    joins:
+      - name: participants
+        sql: "{CUBE}.participant_rowid = {participants}.rowid"
+        relationship: one_to_one
+
+    # 與 participants.yml 相同的 refresh key，理由寫在那裡。SQL 必須一字不差才會被合併。
+    # 裝備類別只在服務重啟時重抓，重啟會一併清掉 Cube 的快取，不必另外納入。
+    refresh_key:
+      sql: >
+        SELECT (SELECT COALESCE(MAX(ingested_at), 0) FROM matches) || ':' || (SELECT COUNT(*) FROM dim_augments) || ':' || (SELECT group_concat(puuid || is_me || tracked) FROM accounts)
+
+    dimensions:
+      - name: id
+        sql: participant_rowid
+        type: number
+        primary_key: true
+        public: false
+
+      # 字串而不是數字比較：理由同 participants.is_me（CASE 運算式沒有型別親和性）
+      - name: build_role
+        title: 出裝定位
+        description: "依終場裝備判斷的實際定位：AD 輸出、AP 輸出、坦克、AD 鬥士、AP 坦、輔助、未成形。規則見 cube/model/cubes/builds.yml；和英雄的官方定位（champion_roles）不同，同一隻英雄不同場可能不一樣。"
+        sql: build_role
+        type: string
+        meta:
+          group: 配置
+
+      - name: ad_gold_share
+        title: 出裝 AD 金額比例
+        description: "成裝（不含鞋子與 1500 以下零件）裡，花在 AD 類裝備的金額比例（%）。"
+        sql: "CASE WHEN core_gold > 0 THEN ROUND(ad_gold * 100.0 / core_gold, 1) END"
+        type: number
+        meta:
+          group: 配置
+
+      - name: ap_gold_share
+        title: 出裝 AP 金額比例
+        description: "成裝裡花在 AP 類裝備的金額比例（%）。"
+        sql: "CASE WHEN core_gold > 0 THEN ROUND(ap_gold * 100.0 / core_gold, 1) END"
+        type: number
+        meta:
+          group: 配置
+
+      - name: tank_gold_share
+        title: 出裝坦度金額比例
+        description: "成裝裡花在生命／護甲／魔抗類裝備的金額比例（%）。"
+        sql: "CASE WHEN core_gold > 0 THEN ROUND(tank_gold * 100.0 / core_gold, 1) END"
+        type: number
+        meta:
+          group: 配置
+
+    measures:
+      # 表現分數：這場的「定位關鍵指標」減掉全資料庫同模式、同出裝定位的平均（百分點）。
+      # 每個定位的工作不同，關鍵指標也不同：
+      #   AD／AP 輸出 → 傷害佔比；坦克 → 承傷佔比；AD 鬥士／AP 坦 → 兩者平均；輔助 → 參團率
+      # 都是「佔我方隊伍的比例」，陣容已經內含：隊上輸出越多，同樣打法的傷害佔比自然越低。
+      # 基準用全資料庫（每場 10 人都算，Mayhem 約 3,200 筆），比只看自己人穩定得多；
+      # 基準不跟著期間篩選變動，所以不同期間的分數可以直接比。
+      - name: perf_index
+        title: 表現分數
+        description: "定位關鍵指標和全資料庫同出裝定位平均的差距（百分點）。AD／AP 輸出看傷害佔比、坦克看承傷佔比、AD 鬥士／AP 坦看兩者平均、輔助看參團率。正數代表這個定位的工作做得比一般人多。"
+        sql: perf_index
+        type: avg
+        meta:
+          group: 表現
+          unit: pp
+          decimals: 1
+          higherIsBetter: true
+
+      - name: role_metric
+        title: 定位關鍵指標
+        description: "依出裝定位取的關鍵指標（%）：輸出看傷害佔比、坦克看承傷佔比、鬥士／AP 坦看兩者平均、輔助看參團率。"
+        sql: role_metric
+        type: avg
+        meta:
+          group: 表現
+          unit: "%"
+          decimals: 1

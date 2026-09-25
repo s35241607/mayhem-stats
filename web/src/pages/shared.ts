@@ -56,3 +56,17 @@ export const ROLES = ["坦克", "鬥士", "刺客", "射手", "法師", "輔助"
 
 /** 只算主定位：每場只算英雄的第一個定位，六類加總等於總場次（見 champion_roles.is_primary）。 */
 export const PRIMARY_ONLY: CubeFilter[] = [{ member: "champion_roles.is_primary", operator: "equals", values: ["true"] }]
+
+/** 出裝定位（builds.build_role）在六邊形上的順序：坦克 → AD 鬥士 → AD 輸出 → AP 輸出 → 輔助 → AP 坦 → 回到坦克。
+ *  相鄰的是性質相近的（鬥士介於坦克與 AD 輸出之間、AP 坦介於輔助與坦克之間）。「未成形」不畫。 */
+export const BUILD_ROLES = ["坦克", "AD 鬥士", "AD 輸出", "AP 輸出", "輔助", "AP 坦"]
+
+/** 迷你六邊形與標籤用的短名 */
+export const BUILD_SHORT: Record<string, string> = {
+  坦克: "坦",
+  "AD 鬥士": "鬥",
+  "AD 輸出": "AD",
+  "AP 輸出": "AP",
+  輔助: "輔",
+  "AP 坦": "AP坦",
+}

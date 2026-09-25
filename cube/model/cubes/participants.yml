@@ -46,6 +46,11 @@ cubes:
         sql: "{CUBE}.rowid = {participant_context}.participant_rowid"
         relationship: one_to_one
 
+      # 出裝定位：每位參賽者每場一列，和 participant_context 一樣用 rowid 一對一對回來
+      - name: builds
+        sql: "{CUBE}.rowid = {builds}.participant_rowid"
+        relationship: one_to_one
+
       - name: team_context
         sql: >
           {CUBE}.platform_id = {team_context}.platform_id

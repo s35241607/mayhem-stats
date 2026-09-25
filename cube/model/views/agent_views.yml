@@ -199,6 +199,15 @@ views:
           - name: is_primary
             alias: champion_role_is_primary
 
+      - join_path: participants.builds
+        includes:
+          - name: build_role
+          - name: ad_gold_share
+          - name: ap_gold_share
+          - name: tank_gold_share
+          - name: perf_index
+          - name: role_metric
+
       - join_path: participants.augments
         includes:
           - name: name
