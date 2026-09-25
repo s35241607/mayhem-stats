@@ -1,23 +1,31 @@
-import { lazy, Suspense, useMemo, useState, type CSSProperties } from "react"
-import { ArrowRight } from "lucide-react"
+import { lazy, Suspense, useEffect, useMemo, useState, type CSSProperties } from "react"
+import { ArrowDownRight, ArrowRight, ArrowUpRight, Flame } from "lucide-react"
 import { CountUp } from "@/components/CountUp"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Kpi, Panel, EmptyState, QueryError } from "@/components/primitives"
-import { DailyChart, type DayDatum } from "@/components/charts"
+import { DailyChart, RadarChart, type DayDatum, type RadarDatum } from "@/components/charts"
+import { DetailDrawer, useDrawerSettled } from "@/components/DetailDrawer"
 import type { PageId } from "@/components/AppShell"
 import { useCube } from "@/hooks/useCube"
 import { MAX_GAME_IDS, iconUrl, num, type CubeRow } from "@/lib/cube"
 import { useFilters, type Drill } from "@/lib/filters"
 import { useCrumb } from "@/lib/breadcrumb"
 import { useNavigate } from "@/lib/nav"
-import { BLOCKS, MIN_GAMES, NO_LIMIT, WEEKDAYS, round0, round1, round2, toBlocks } from "./shared"
+import { cn } from "@/lib/utils"
+import type { MatchRow } from "./Matches"
+import { BLOCKS, MIN_GAMES, NO_LIMIT, PRIMARY_ONLY, ROLES, WEEKDAYS, round0, round1, round2, toBlocks } from "./shared"
 
-/** 逐場列表只有點了某一天才用得到，延後載入：儀表板是首屏，
+/** 逐場列表與單場戰報只有點了才用得到，延後載入：儀表板是首屏，
  *  直接靜態引入會把對局卡片與戰報（約 20KB）併進主程式。
  *  那個 chunk 本來就會在瀏覽器閒下來時預先抓好（App 的 usePrefetchPages）。 */
-const DrillPanel = lazy(() => import("@/components/MatchList").then((m) => ({ default: m.DrillPanel })))
+const CubeMatchList = lazy(() => import("@/components/MatchList").then((m) => ({ default: m.CubeMatchList })))
+const MatchDetail = lazy(() => import("./Matches").then((m) => ({ default: m.MatchDetail })))
+
+/** 最近幾場要列幾場；連勝連敗往回數到幾場為止（超過就顯示「20+」） */
+const RECENT_SHOWN = 10
+const RECENT_FETCHED = 20
 
 /** 儀表板只放總覽。細節各有分頁，這裡的每張卡右上角都連過去——
  *  原本儀表板和分頁各畫一份一樣的熱力圖、每日趨勢、勝率長條。 */
@@ -80,10 +88,7 @@ function TopList({
   )
 }
 
-type PeriodSummary = {
-  games: number
-  winrate: number | null
-}
+type PeriodSummary = { games: number; winrate: number | null }
 
 function summarizePeriod(points: DayDatum[]): PeriodSummary {
   const games = points.reduce((sum, point) => sum + point.games, 0)
@@ -95,10 +100,217 @@ function summarizePeriod(points: DayDatum[]): PeriodSummary {
   return { games, winrate: (wins / games) * 100 }
 }
 
-export function Dashboard() {
+/** 第一眼要看到的：勝率大字、勝敗比例條、最近一週比前一週是變好還是變差。
+ *
+ *  原本七個 KPI 一樣大排成一排，勝率和「每分鐘經濟」一樣顯眼；
+ *  近期動能又放在頁面最底下，還要自己拿去和上面的勝率對照。 */
+function RecordHero({
+  winrate,
+  wins,
+  losses,
+  recent,
+  previous,
+  loading,
+}: {
+  winrate: number | null
+  wins: number
+  losses: number
+  recent: PeriodSummary
+  previous: PeriodSummary
+  loading: boolean
+}) {
+  const delta = recent.winrate !== null && previous.winrate !== null ? recent.winrate - previous.winrate : null
+  return (
+    <div className="flex h-full flex-col gap-4">
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <div className="text-[11px] uppercase tracking-wide text-muted-foreground">整體勝率</div>
+          {loading ? (
+            <Skeleton className="mt-2 h-12 w-40" />
+          ) : (
+            <div
+              className={cn(
+                "font-mono text-5xl font-bold tabular-nums leading-none tracking-tight",
+                winrate === null ? "text-muted-foreground" : winrate >= 50 ? "text-win" : "text-loss",
+              )}
+            >
+              <CountUp text={winrate === null ? "—" : `${winrate.toFixed(1)}%`} />
+            </div>
+          )}
+        </div>
+        <div className="text-right text-sm tabular-nums text-muted-foreground">
+          <CountUp text={`${wins + losses} 場`} className="block font-mono text-base font-semibold text-foreground" />
+          <CountUp text={`${wins} 勝 ${losses} 敗`} />
+        </div>
+      </div>
+
+      {/* 勝／敗兩段，勝段的比例就是勝率；下方小刻度是 50%，和表格裡的戰績條同一種讀法 */}
+      <div className="relative flex h-2.5 gap-0.5">
+        {wins > 0 && <span className="bar-grow rounded-full bg-win" style={{ flexGrow: wins }} />}
+        {losses > 0 && <span className="bar-grow rounded-full bg-loss" style={{ flexGrow: losses }} />}
+        <span
+          aria-hidden
+          className="pointer-events-none absolute left-1/2 top-full mt-0.5 h-1.5 w-0.5 -translate-x-1/2 rounded-full bg-muted-foreground"
+        />
+      </div>
+
+      <div className="mt-auto grid grid-cols-2 gap-3 border-t pt-3">
+        <div>
+          <div className="text-[11px] text-muted-foreground">最近 7 個有資料的日子</div>
+          <div
+            className={cn(
+              "font-mono text-xl font-semibold tabular-nums",
+              recent.winrate === null ? "text-muted-foreground" : recent.winrate >= 50 ? "text-win" : "text-loss",
+            )}
+          >
+            <CountUp text={recent.winrate === null ? "—" : `${recent.winrate.toFixed(1)}%`} />
+          </div>
+          <div className="text-[11px] text-muted-foreground">{recent.games} 場</div>
+        </div>
+        <div>
+          <div className="text-[11px] text-muted-foreground">比前 7 個有資料的日子</div>
+          <div
+            className={cn(
+              "flex items-center gap-1 font-mono text-xl font-semibold tabular-nums",
+              delta === null ? "text-muted-foreground" : delta >= 0 ? "text-win" : "text-loss",
+            )}
+          >
+            {delta !== null && (delta >= 0 ? <ArrowUpRight className="size-4" /> : <ArrowDownRight className="size-4" />)}
+            <CountUp text={delta === null ? "—" : `${delta >= 0 ? "+" : ""}${delta.toFixed(1)}pp`} />
+          </div>
+          <div className="text-[11px] text-muted-foreground">
+            {previous.games ? `前期 ${previous.winrate?.toFixed(1)}%・${previous.games} 場` : "前期資料不足"}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const shortDate = (ms: number) => {
+  const d = new Date(ms)
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+}
+
+/** 最近幾場：英雄頭像一排，外框是勝敗色，底下是 KDA。點一場開右側抽屜看戰報。
+ *
+ *  是哪幾場照規則走：先用全域條件向 Cube 查 game_id，再交給 /api/matches 列出來（後端依時間新到舊排）。
+ *  直接打 /api/matches 的話，其他頁加的全域下鑽（例如「只看某隻英雄」）不會套上，
+ *  儀表板上其他卡片都篩了、只有這一排沒篩。 */
+function RecentForm({ onPick }: { onPick: (m: MatchRow) => void }) {
+  const { apply, matchParams } = useFilters()
+  const ids = useCube(apply({ measures: ["participants.games"], dimensions: ["matches.game_id"], limit: MAX_GAME_IDS }))
+  const gameIds = ids.rows.map((r) => String(r["matches.game_id"])).join(",")
+  const params = new URLSearchParams({ ...matchParams(), game_ids: gameIds, limit: String(RECENT_FETCHED) }).toString()
+  const [state, setState] = useState<{ key: string; rows: MatchRow[] | null; error: string | null }>({ key: "", rows: null, error: null })
+
+  useEffect(() => {
+    if (ids.loading || ids.error || !gameIds) return
+    const ctrl = new AbortController()
+    fetch(`/api/matches?${params}`, { signal: ctrl.signal })
+      .then((r) => r.json())
+      .then((d) => setState({ key: params, rows: d.matches ?? [], error: d.error ?? null }))
+      .catch((e: Error) => e.name !== "AbortError" && setState({ key: params, rows: null, error: e.message }))
+    return () => ctrl.abort()
+  }, [params, ids.loading, ids.error, gameIds])
+
+  if (ids.error || state.error) return <div className="text-sm text-destructive">{ids.error ?? state.error}</div>
+  if (!ids.loading && !gameIds) return <EmptyState>這個條件下還沒有對局。</EmptyState>
+  const rows = state.key === params ? state.rows : null
+  if (!rows) return <Skeleton className="h-[176px] w-full" />
+
+  const shown = rows.slice(0, RECENT_SHOWN)
+  const wins = shown.filter((m) => m.win).length
+  let streak = 0
+  while (streak < rows.length && rows[streak].win === rows[0].win) streak++
+  const capped = streak === rows.length && rows.length === RECENT_FETCHED
+
+  return (
+    <div className="flex h-full flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="font-mono tabular-nums">
+          最近 {shown.length} 場 <span className="font-semibold text-win">{wins} 勝</span>{" "}
+          <span className="font-semibold text-loss">{shown.length - wins} 敗</span>
+        </span>
+        {rows.length > 0 && streak >= 2 && (
+          <Badge
+            variant="outline"
+            className={rows[0].win ? "border-win/30 bg-win/10 text-win" : "border-loss/30 bg-loss/10 text-loss"}
+          >
+            <Flame className="size-3" />
+            目前 {streak}
+            {capped ? "+" : ""} {rows[0].win ? "連勝" : "連敗"}
+          </Badge>
+        )}
+        <span className="ml-auto text-[11px] text-muted-foreground">左邊是最新的一場・點一場看戰報</span>
+      </div>
+      <div className="grid grid-cols-5 gap-2 sm:grid-cols-10">
+        {shown.map((m, i) => (
+          <button
+            key={`${m.platform_id}:${m.game_id}`}
+            onClick={() => onPick(m)}
+            title={`${m.champion_name}・${m.win ? "勝利" : "戰敗"}・${shortDate(m.game_creation)}`}
+            style={{ "--stagger": `${i * 35}ms` } as CSSProperties}
+            className={cn(
+              "slide-in flex flex-col items-center gap-1.5 rounded-lg border px-1 py-2 transition",
+              m.win ? "border-win/25 bg-win/[0.06] hover:bg-win/[0.12]" : "border-loss/25 bg-loss/[0.06] hover:bg-loss/[0.12]",
+            )}
+          >
+            <img
+              src={iconUrl(m.champion_icon)}
+              alt=""
+              className={cn("size-11 rounded-md bg-icon-tile ring-2", m.win ? "ring-win/70" : "ring-loss/70")}
+            />
+            <span className={cn("text-[11px] font-bold", m.win ? "text-win" : "text-loss")}>{m.win ? "勝" : "敗"}</span>
+            <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+              {m.kills}/{m.deaths}/{m.assists}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** 抽屜裡的單場戰報。等抽屜滑完才掛（戰報含兩張十人的表）。 */
+function MatchDrawerBody({ match, puuid, onClose }: { match: MatchRow; puuid?: string; onClose: () => void }) {
+  const settled = useDrawerSettled()
+  if (!settled) return <Skeleton className="h-[560px] w-full" />
+  return (
+    <Suspense fallback={<Skeleton className="h-[560px] w-full" />}>
+      <MatchDetail platformId={match.platform_id} gameId={match.game_id} puuid={puuid} onBack={onClose} backLabel="關閉" />
+    </Suspense>
+  )
+}
+
+/** 抽屜裡某一天的每一場。 */
+function DayDrawerBody({ day }: { day: string }) {
   const { apply } = useFilters()
-  // 點每日圖的某一天，下面就列出那天的每一場（和時段頁同樣的下鑽）
+  const settled = useDrawerSettled()
+  if (!settled) return <Skeleton className="h-[320px] w-full" />
+  return (
+    <Suspense fallback={<Skeleton className="h-[320px] w-full" />}>
+      {/* 是哪幾場由 Cube 用和每日圖同一組條件查：全域下鑽（例如某隻英雄）才會一起套上，
+          否則圖上那天 5 場、點進去卻列出那天全部 28 場 */}
+      <CubeMatchList
+        gameIdKey="matches.game_id"
+        listKey={day}
+        query={apply({
+          measures: ["participants.games"],
+          dimensions: ["matches.game_id"],
+          filters: [{ member: "matches.local_date", operator: "equals", values: [day] }],
+          limit: MAX_GAME_IDS,
+        })}
+      />
+    </Suspense>
+  )
+}
+
+export function Dashboard() {
+  const { apply, account } = useFilters()
+  // 點每日圖的某一天、或最近戰績的某一場，右邊滑出抽屜（和英雄頁同一種）
   const [day, setDay] = useState<string | null>(null)
+  const [match, setMatch] = useState<MatchRow | null>(null)
   useCrumb(10, day, () => setDay(null))
 
   const totals = useCube(
@@ -130,7 +342,7 @@ export function Dashboard() {
       measures: ["participants.games", "participants.winrate"],
       dimensions: ["champions.name", "champions.icon_path"],
       order: { "participants.games": "desc" },
-      limit: 200,
+      limit: NO_LIMIT,
     }),
   )
 
@@ -143,7 +355,17 @@ export function Dashboard() {
     }),
   )
 
-  // 和時段頁的熱力圖同一個查詢，這裡只摘要成兩句話
+  // 和英雄頁的六邊形同一個查詢（只算主定位），快取共用
+  const roles = useCube(
+    apply({
+      measures: ["participants.games", "participants.wins", "participants.winrate"],
+      dimensions: ["champion_roles.name"],
+      filters: PRIMARY_ONLY,
+      limit: NO_LIMIT,
+    }),
+  )
+
+  // 和時段頁的熱力圖同一個查詢，這裡只摘要成三句話
   const heat = useCube(
     apply({
       measures: ["participants.games", "participants.winrate"],
@@ -152,7 +374,7 @@ export function Dashboard() {
     }),
   )
 
-  const queryError = totals.error ?? daily.error ?? champions.error ?? augments.error ?? heat.error
+  const queryError = totals.error ?? daily.error ?? champions.error ?? augments.error ?? heat.error ?? roles.error
 
   const row = totals.rows[0] ?? {}
   const metric = (key: string, fmt: (n: number) => string, suffix = "") => {
@@ -176,14 +398,23 @@ export function Dashboard() {
         .sort((a, b) => a.date.localeCompare(b.date)),
     [daily.rows],
   )
-
-  // 用相同的每日資料做一個簡短的近期動能比較，避免只看整體勝率而錯過最近的變化。
   const recentPeriod = summarizePeriod(points.slice(-7))
   const previousPeriod = summarizePeriod(points.slice(-14, -7))
-  const recentDelta =
-    recentPeriod.winrate === null || previousPeriod.winrate === null
-      ? null
-      : recentPeriod.winrate - previousPeriod.winrate
+
+  const roleData: RadarDatum[] = useMemo(
+    () =>
+      ROLES.map((label) => {
+        const r = roles.rows.find((x) => x["champion_roles.name"] === label)
+        return {
+          label,
+          games: r ? (num(r["participants.games"]) ?? 0) : 0,
+          wins: r ? (num(r["participants.wins"]) ?? 0) : 0,
+          winrate: r ? num(r["participants.winrate"]) : null,
+        }
+      }),
+    [roles.rows],
+  )
+  const topRole = [...roleData].sort((a, b) => b.games - a.games)[0]
 
   const blocks = toBlocks(
     heat.rows.map((r) => ({
@@ -202,56 +433,62 @@ export function Dashboard() {
   return (
     <div className="space-y-4">
       {queryError && <QueryError error={queryError} />}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-        <Kpi index={0} label="總場次" value={metric("participants.games", round0)} loading={totals.loading} />
-        <Kpi index={1}
-          label="勝率"
-          value={metric("participants.winrate", round1, "%")}
-          tone={winrate === null ? undefined : winrate >= 50 ? "win" : "loss"}
-          hint={`${metric("participants.wins", round0)} 勝 ${metric("participants.losses", round0)} 敗`}
-          loading={totals.loading}
-        />
+
+      {/* 第一排：整體戰績（勝率 + 近期變化）與最近幾場。首頁最常被問的兩件事：「我整體怎樣」「最近怎樣」 */}
+      <div className="grid gap-4 xl:grid-cols-12">
+        <Panel className="xl:col-span-5" title="整體戰績" index={0}>
+          <RecordHero
+            winrate={winrate}
+            wins={num(row["participants.wins"]) ?? 0}
+            losses={num(row["participants.losses"]) ?? 0}
+            recent={recentPeriod}
+            previous={previousPeriod}
+            loading={totals.loading || daily.loading}
+          />
+        </Panel>
+        <Panel className="xl:col-span-7" title="最近戰績" index={1} action={<SeeAll page="matches" label="對局紀錄" />}>
+          <RecentForm onPick={setMatch} />
+        </Panel>
+      </div>
+
+      {/* 次要數字：打法的總量指標，比勝率次要，縮成一排小卡 */}
+      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
         <Kpi index={2} label="KDA" value={metric("participants.kda", round2)} loading={totals.loading} />
         <Kpi index={3} label="每分鐘傷害" value={metric("participants.dpm", round0)} loading={totals.loading} />
         <Kpi index={4} label="每分鐘經濟" value={metric("participants.gpm", round0)} loading={totals.loading} />
-        <Kpi index={5}
-          label="參團率"
-          value={metric("participants.kill_participation", round1, "%")}
-          loading={totals.loading}
-        />
-        <Kpi index={6}
-          label="用過的英雄"
-          value={champions.loading ? "—" : String(champions.rows.length)}
-          hint={`共 ${games} 場`}
-          loading={champions.loading}
-        />
+        <Kpi index={5} label="參團率" value={metric("participants.kill_participation", round1, "%")} loading={totals.loading} />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-3">
+      <div className="grid gap-4 xl:grid-cols-12">
         <Panel
-          className="xl:col-span-2"
+          className="xl:col-span-8"
           title="每日勝率趨勢"
-          caption="上面是勝率、下面是場次，虛線是你的整體水準；沒打的日子留白。點一天列出那天的每一場"
-          action={<SeeAll page="time" label="逐日下鑽" />}
+          caption="上面是勝率、下面是場次，虛線是你的整體水準；沒打的日子留白。點一天看那天的每一場"
+          action={<SeeAll page="time" label="時段分析" />}
         >
           {daily.loading ? (
-            <Skeleton className="h-[320px] w-full" />
+            <Skeleton className="h-[300px] w-full" />
           ) : points.length < 2 ? (
             <EmptyState>資料還不夠畫趨勢（至少要兩天）。</EmptyState>
           ) : (
             // 和時段頁同一個元件：兩頁的每日圖讀法一致，只有高度為了卡片版面矮一點
             <DailyChart
               days={points}
-              height={320}
+              height={300}
               selected={day}
               onPick={(picked) => setDay((cur) => (cur === picked ? null : picked))}
             />
           )}
         </Panel>
 
-        <Panel title="最常用英雄" caption="點一列可下鑽" action={<SeeAll page="champions" />}>
+        <Panel
+          className="xl:col-span-4"
+          title="最常用英雄"
+          caption={champions.loading ? "點一列可下鑽" : `共用過 ${champions.rows.length} 隻・點一列可下鑽`}
+          action={<SeeAll page="champions" />}
+        >
           {champions.loading ? (
-            <Skeleton className="h-[240px] w-full" />
+            <Skeleton className="h-[300px] w-full" />
           ) : (
             <TopList
               rows={champions.rows}
@@ -263,10 +500,24 @@ export function Dashboard() {
         </Panel>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+        <Panel
+          title="英雄類型"
+          caption={topRole?.games ? `最常玩${topRole.label}（${Math.round((100 * topRole.games) / Math.max(1, games))}%）・只算主定位` : "只算主定位"}
+          action={<SeeAll page="champions" />}
+        >
+          {roles.loading || totals.loading ? (
+            <Skeleton className="h-[300px] w-full" />
+          ) : !games ? (
+            <EmptyState>還沒有資料。</EmptyState>
+          ) : (
+            <RadarChart data={roleData} mode="games" baseline={winrate} total={games} height={300} />
+          )}
+        </Panel>
+
         <Panel title="最常選的增幅" caption="點一列可下鑽" action={<SeeAll page="augments" />}>
           {augments.loading ? (
-            <Skeleton className="h-[240px] w-full" />
+            <Skeleton className="h-[300px] w-full" />
           ) : (
             <TopList
               rows={augments.rows}
@@ -283,11 +534,11 @@ export function Dashboard() {
           action={<SeeAll page="time" label="看熱力圖" />}
         >
           {heat.loading ? (
-            <Skeleton className="h-[240px] w-full" />
+            <Skeleton className="h-[300px] w-full" />
           ) : !busiest ? (
             <EmptyState>還沒有資料。</EmptyState>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
+            <div className="grid gap-3">
               <Kpi label="最常打" value={slotName(busiest)} hint={`${busiest.games} 場`} />
               <Kpi
                 label="表現最好"
@@ -306,51 +557,26 @@ export function Dashboard() {
         </Panel>
       </div>
 
-      <Panel title="近期動能" caption="最近 7 個有資料的日子，和前 7 個有資料日比較">
-        {daily.loading ? (
-          <Skeleton className="h-[160px] w-full" />
-        ) : recentPeriod.games === 0 ? (
-          <EmptyState>還沒有足夠的每日資料。</EmptyState>
-        ) : (
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Kpi
-              label="最近勝率"
-              value={recentPeriod.winrate === null ? "—" : `${recentPeriod.winrate.toFixed(1)}%`}
-              hint={`${recentPeriod.games} 場`}
-              tone={recentPeriod.winrate === null ? undefined : recentPeriod.winrate >= 50 ? "win" : "loss"}
-            />
-            <Kpi
-              label="對前期變化"
-              value={recentDelta === null ? "—" : `${recentDelta >= 0 ? "+" : ""}${recentDelta.toFixed(1)} 個百分點`}
-              hint={previousPeriod.games ? `前期 ${previousPeriod.games} 場` : "前期資料不足"}
-              tone={recentDelta === null ? undefined : recentDelta >= 0 ? "win" : "loss"}
-            />
-            <Kpi
-              label="最近日期"
-              value={points.at(-1)?.date ?? "—"}
-              hint={points.length >= 7 ? "以最近 7 個有資料日計算" : `目前只有 ${points.length} 個有資料日`}
-            />
-          </div>
-        )}
-      </Panel>
+      <DetailDrawer
+        open={!!day}
+        onClose={() => setDay(null)}
+        title={day ?? ""}
+        subtitle="這一天的每一場（點一場看戰報）"
+      >
+        {day && <DayDrawerBody key={day} day={day} />}
+      </DetailDrawer>
 
-      {day && (
-        <Suspense fallback={<Skeleton className="h-[320px] w-full" />}>
-          {/* 是哪幾場由 Cube 用和每日圖同一組條件查：全域下鑽（例如某隻英雄）才會一起套上，
-              否則圖上那天 5 場、點進去卻列出那天全部 28 場 */}
-          <DrillPanel
-            title={day}
-            gameIdKey="matches.game_id"
-            query={apply({
-              measures: ["participants.games"],
-              dimensions: ["matches.game_id"],
-              filters: [{ member: "matches.local_date", operator: "equals", values: [day] }],
-              limit: MAX_GAME_IDS,
-            })}
-            onClose={() => setDay(null)}
-          />
-        </Suspense>
-      )}
+      <DetailDrawer
+        open={!!match}
+        onClose={() => setMatch(null)}
+        title={match ? `${match.champion_name}・${match.win ? "勝利" : "戰敗"}` : ""}
+        subtitle={match ? `${shortDate(match.game_creation)}・${match.kills}/${match.deaths}/${match.assists}` : undefined}
+        icon={match ? iconUrl(match.champion_icon) : undefined}
+      >
+        {match && (
+          <MatchDrawerBody key={`${match.platform_id}:${match.game_id}`} match={match} puuid={account?.puuid} onClose={() => setMatch(null)} />
+        )}
+      </DetailDrawer>
     </div>
   )
 }

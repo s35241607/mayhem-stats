@@ -167,6 +167,11 @@ description: 這個專案前端的主題與動畫規範。只要動到 web/src �
 
 ## 五、下鑽到明細（Drill-through）與麵包屑
 
+**詳細抽屜**：點了「一個東西」要看它的細節（一隻英雄、一天、一場對局），用 `components/DetailDrawer.tsx`
+從右邊滑出，原頁面留在原位；抽屜裡的重內容（逐場卡片、戰報）用 `useDrawerSettled()` 等滑完再掛。
+英雄頁、儀表板已改用；其他頁的 `DrillPanel` 還是頁內展開，之後要統一時照這個改。
+**不要**再用「在頁面頂端插一塊 Panel + `scrollTo`」——剛點的東西會瞬間不見。
+
 **下鑽**：點圖表的一組 → 列出組成它的每一場 → 點一場看戰報。一律用 `components/MatchList.tsx`：
 - `<DrillPanel title params onClose />`：「XX 的每一場」面板，出現時自動捲到看得到的位置。
 - `params` 直接送 `/api/matches`，先展開 `matchParams()`（帳號、模式、期間），再加這一組的條件。
@@ -204,7 +209,7 @@ node .claude/skills/ui-conventions/scripts/perf_nav.mjs after.json 9451
 
 看每一頁的三個數字：
 - **動畫期最長**：點下去 250ms 內最長的一格停頓。回訪頁應在 ~40ms 以內，超過 60ms 就是看得出來的卡頓。
-- **CLS**：版面跳動，應接近 0（目前除儀表板 0.025 外都 ≤ 0.005）。
+- **CLS**：版面跳動，應接近 0（目前儀表板 0.007、增幅頁 0.031，其餘 ≤ 0.005）。
 - **long tot / max**：長任務。表格頁有 50～140ms 是 AG Grid 本身的成本，重點是它不能落在動畫期間。
 
 量測陷阱：

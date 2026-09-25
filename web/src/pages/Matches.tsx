@@ -372,11 +372,14 @@ export function MatchDetail({
   gameId,
   puuid,
   onBack,
+  backLabel = "回列表",
 }: {
   platformId: string
   gameId: number
   puuid?: string
   onBack: () => void
+  /** 從抽屜打開時沒有列表可回，改成「關閉」 */
+  backLabel?: string
 }) {
   const [data, setData] = useState<{ match: MatchRow; players: Player[] } | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -400,7 +403,7 @@ export function MatchDetail({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <Button size="sm" variant="outline" onClick={onBack}>
-          <ChevronLeft /> 回列表
+          <ChevronLeft /> {backLabel}
         </Button>
         <span
           className={cn(
