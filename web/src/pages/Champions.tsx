@@ -14,7 +14,8 @@ import { useFilters } from "@/lib/filters"
 import { useCrumb } from "@/lib/breadcrumb"
 import { DetailDrawer, useDrawerSettled } from "@/components/DetailDrawer"
 import { cn } from "@/lib/utils"
-import { MIN_GAMES, NO_LIMIT, PRIMARY_ONLY, ROLES, round0, round1, round2 } from "./shared"
+import { MIN_GAMES, NO_LIMIT, round0, round1, round2 } from "./shared"
+import { roleSpec, useRoleBasis, type RoleBasis, type RoleSpec } from "@/lib/roleBasis"
 
 const MEASURES = [
   "participants.games",
@@ -310,29 +311,23 @@ function ChampionDetail({ row }: { row: CubeRow }) {
 }
 
 
-type RoleScope = "primary" | "all"
 type RadarMode = "games" | "winrate"
 
-
-/** 依定位篩的條件（給下面的排行與表格用）。 */
-function roleFilters(role: string | null, scope: RoleScope): CubeFilter[] {
-  if (!role) return []
-  return [
-    { member: "champion_roles.name", operator: "equals", values: [role] },
-    ...(scope === "primary" ? PRIMARY_ONLY : []),
-  ]
+/** 依定位篩的條件（給下面的表格用）。 */
+function roleFilters(role: string | null, spec: RoleSpec): CubeFilter[] {
+  return role ? spec.filterFor(role) : []
 }
 
 /** 左半邊：六邊形。點某一類（點那個方向的任何位置），右邊的英雄勝率與下面的表格就只剩那一類。 */
 function RoleRadar({
   role,
-  scope,
+  spec,
   baseline,
   totalGames,
   onRole,
 }: {
   role: string | null
-  scope: RoleScope
+  spec: RoleSpec
   baseline: number | null
   totalGames: number
   onRole: (role: string | null) => void
@@ -342,8 +337,8 @@ function RoleRadar({
   const byRole = useCube(
     apply({
       measures: ["participants.games", "participants.wins", "participants.winrate"],
-      dimensions: ["champion_roles.name"],
-      filters: scope === "primary" ? PRIMARY_ONLY : [],
+      dimensions: [spec.dimension],
+      filters: spec.base,
       limit: NO_LIMIT,
     }),
   )
@@ -351,8 +346,8 @@ function RoleRadar({
   // 沒玩過的類別也要留一個頂點（場次 0），六邊形才不會少一角、換篩選時形狀才對得起來
   const data: RadarDatum[] = useMemo(
     () =>
-      ROLES.map((label) => {
-        const r = byRole.rows.find((x) => x["champion_roles.name"] === label)
+      spec.labels.map((label) => {
+        const r = byRole.rows.find((x) => x[spec.dimension] === label)
         return {
           label,
           games: r ? n0(r, "participants.games") : 0,
@@ -360,13 +355,13 @@ function RoleRadar({
           winrate: r ? opt(r, "participants.winrate") : null,
         }
       }),
-    [byRole.rows],
+    [byRole.rows, spec],
   )
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
-        <div className="text-sm font-semibold">英雄類型</div>
+        <div className="text-sm font-semibold">{spec.basis === "build" ? "出裝定位" : "英雄類型"}</div>
         <ToggleGroup type="single" size="sm" variant="outline" value={mode} onValueChange={(v) => v && setMode(v as RadarMode)}>
           <ToggleGroupItem value="games">形狀：場次</ToggleGroupItem>
           <ToggleGroupItem value="winrate">形狀：勝率</ToggleGroupItem>
@@ -401,20 +396,27 @@ export function Champions() {
   const { apply } = useFilters()
   const [picked, setPicked] = useState<string | null>(null)
   const [role, setRoleState] = useState<string | null>(null)
-  const [scope, setScope] = useState<RoleScope>("primary")
+  const [basis, setBasisStored] = useRoleBasis()
+  const spec = roleSpec(basis)
   // 定位是比英雄高一層的聚焦：換定位時，原本點開的那隻英雄可能已經不在這一類裡
   const setRole = (next: string | null) => {
     setRoleState(next)
     setPicked(null)
   }
-  const roleLabel = role ? `${role}（${scope === "primary" ? "主定位" : "含次定位"}）` : null
+  // 換定位依據時兩邊的類別名稱不同（官方「鬥士」vs 出裝「AD 鬥士」），選到的那一類一併清掉
+  const setBasis = (next: RoleBasis) => {
+    setBasisStored(next)
+    setRole(null)
+  }
+  const activeRole = role && spec.labels.includes(role) ? role : null
+  const roleLabel = activeRole ? `${activeRole}（${spec.tag}）` : null
   useCrumb(10, roleLabel, () => setRole(null))
   useCrumb(20, picked, () => setPicked(null))
   const { rows, loading, error } = useCube(
     apply({
       measures: MEASURES,
       dimensions: ["champions.name", "champions.icon_path"],
-      filters: roleFilters(role, scope),
+      filters: roleFilters(activeRole, spec),
       // 預設依場次：85 隻裡有 49 隻只玩過一場，依勝率排時前面全是一場 100% 的。表頭可以再改排序
       order: { "participants.games": "desc" },
       limit: NO_LIMIT,
@@ -437,15 +439,12 @@ export function Champions() {
           同樣的場次與戰績，只是少了 KDA、輸出、排序與匯出。拿掉它，六邊形直接篩這張表 */}
       <Panel
         title="英雄"
-        caption={
-          scope === "primary"
-            ? "左邊是六種類型（每場只算英雄的主定位，六類加起來就是總場次），點某一類的方向，右邊的表就只剩那一類。點表格的一列看那隻英雄的出裝、增幅與每一場"
-            : "左邊是六種類型（雙定位的英雄兩類都算，佔比加起來會超過 100%），點某一類的方向，右邊的表就只剩那一類。點表格的一列看那隻英雄的出裝、增幅與每一場"
-        }
+        caption={`左邊六邊形的分類：${spec.caption}。點某一類的方向，右邊的表就只剩那一類。點表格的一列看那隻英雄的出裝、增幅與每一場`}
         action={
-          <ToggleGroup type="single" size="sm" variant="outline" value={scope} onValueChange={(v) => v && setScope(v as RoleScope)}>
-            <ToggleGroupItem value="primary">只算主定位</ToggleGroupItem>
-            <ToggleGroupItem value="all">含次定位</ToggleGroupItem>
+          <ToggleGroup type="single" size="sm" variant="outline" value={basis} onValueChange={(v) => v && setBasis(v as RoleBasis)}>
+            <ToggleGroupItem value="primary">官方主定位</ToggleGroupItem>
+            <ToggleGroupItem value="all">官方含次定位</ToggleGroupItem>
+            <ToggleGroupItem value="build">出裝定位</ToggleGroupItem>
           </ToggleGroup>
         }
       >
@@ -457,12 +456,12 @@ export function Champions() {
           <div className="grid gap-6 min-[1500px]:grid-cols-[340px_minmax(0,1fr)]">
             {/* 表格欄位最小寬度加總約 715px（KDA、輸出的補充文字實測要 146／190px 才不被截斷），
                 加上 340px 的六邊形，1500px 以上的視窗才並排得下，更窄就上下排 */}
-            <RoleRadar role={role} scope={scope} baseline={baseline} totalGames={totalGames} onRole={setRole} />
+            <RoleRadar key={basis} role={activeRole} spec={spec} baseline={baseline} totalGames={totalGames} onRole={setRole} />
 
             <div className="flex min-w-0 flex-col gap-2">
               <div className="flex min-h-8 flex-wrap items-center gap-2">
                 <span className="text-sm font-semibold">英雄表現</span>
-                {role ? (
+                {activeRole ? (
                   // 聚焦狀態一定要有文字說明與看得到的清除鈕，不能只靠六邊形上的顏色
                   <button
                     onClick={() => setRole(null)}

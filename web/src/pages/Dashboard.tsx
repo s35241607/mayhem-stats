@@ -15,7 +15,9 @@ import { useCrumb } from "@/lib/breadcrumb"
 import { useNavigate } from "@/lib/nav"
 import { cn } from "@/lib/utils"
 import type { MatchRow } from "./Matches"
-import { BLOCKS, MIN_GAMES, NO_LIMIT, PRIMARY_ONLY, ROLES, WEEKDAYS, round0, round1, round2, toBlocks } from "./shared"
+import { BLOCKS, MIN_GAMES, NO_LIMIT, WEEKDAYS, round0, round1, round2, toBlocks } from "./shared"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { roleSpec, useRoleBasis } from "@/lib/roleBasis"
 
 /** 逐場列表與單場戰報只有點了才用得到，延後載入：儀表板是首屏，
  *  直接靜態引入會把對局卡片與戰報（約 20KB）併進主程式。
@@ -355,12 +357,14 @@ export function Dashboard() {
     }),
   )
 
-  // 和英雄頁的六邊形同一個查詢（只算主定位），快取共用
+  // 和英雄頁的六邊形同一個查詢，快取共用；定位依據（官方／出裝）也和英雄頁同步
+  const [basis, setBasis] = useRoleBasis()
+  const spec = roleSpec(basis)
   const roles = useCube(
     apply({
       measures: ["participants.games", "participants.wins", "participants.winrate"],
-      dimensions: ["champion_roles.name"],
-      filters: PRIMARY_ONLY,
+      dimensions: [spec.dimension],
+      filters: spec.base,
       limit: NO_LIMIT,
     }),
   )
@@ -403,8 +407,8 @@ export function Dashboard() {
 
   const roleData: RadarDatum[] = useMemo(
     () =>
-      ROLES.map((label) => {
-        const r = roles.rows.find((x) => x["champion_roles.name"] === label)
+      spec.labels.map((label) => {
+        const r = roles.rows.find((x) => x[spec.dimension] === label)
         return {
           label,
           games: r ? (num(r["participants.games"]) ?? 0) : 0,
@@ -412,7 +416,7 @@ export function Dashboard() {
           winrate: r ? num(r["participants.winrate"]) : null,
         }
       }),
-    [roles.rows],
+    [roles.rows, spec],
   )
   const topRole = [...roleData].sort((a, b) => b.games - a.games)[0]
 
@@ -502,16 +506,35 @@ export function Dashboard() {
 
       <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
         <Panel
-          title="英雄類型"
-          caption={topRole?.games ? `最常玩${topRole.label}（${Math.round((100 * topRole.games) / Math.max(1, games))}%）・只算主定位` : "只算主定位"}
-          action={<SeeAll page="champions" />}
+          title={basis === "build" ? "出裝定位" : "英雄類型"}
+          caption={
+            topRole?.games
+              ? `最常${basis === "build" ? "出" : "玩"}${topRole.label}（${Math.round((100 * topRole.games) / Math.max(1, games))}%）・${basis === "build" ? "依終場出裝" : `官方${spec.tag}`}`
+              : basis === "build" ? "依終場出裝" : `官方${spec.tag}`
+          }
+          action={
+            <span className="flex items-center gap-1">
+              {/* 官方 = 英雄是什麼、出裝 = 這場實際怎麼玩；和英雄頁的切換同步 */}
+              <ToggleGroup
+                type="single"
+                size="sm"
+                variant="outline"
+                value={basis === "build" ? "build" : "official"}
+                onValueChange={(v) => v && setBasis(v === "build" ? "build" : basis === "build" ? "primary" : basis)}
+              >
+                <ToggleGroupItem value="official" className="h-7 px-2 text-xs">官方</ToggleGroupItem>
+                <ToggleGroupItem value="build" className="h-7 px-2 text-xs">出裝</ToggleGroupItem>
+              </ToggleGroup>
+              <SeeAll page="champions" />
+            </span>
+          }
         >
           {roles.loading || totals.loading ? (
             <Skeleton className="h-[300px] w-full" />
           ) : !games ? (
             <EmptyState>還沒有資料。</EmptyState>
           ) : (
-            <RadarChart data={roleData} mode="games" baseline={winrate} total={games} height={300} />
+            <RadarChart key={basis} data={roleData} mode="games" baseline={winrate} total={games} height={300} />
           )}
         </Panel>
 
