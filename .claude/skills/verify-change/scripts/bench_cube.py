@@ -2,11 +2,15 @@
 
 用法（服務要先在 127.0.0.1:5057 跑著）：
   python bench_cube.py shapes [輸出.json]    重播 cube.log 裡出現過的每一種查詢：SQLite 本身、冷（快取落空）、熱
-  python bench_cube.py burst                 重播最近一次「一頁同時送出」的那批查詢：依序 vs 同時，看第一個結果何時回來
+  python bench_cube.py burst                 重播紀錄裡每一頁「同時送出」的那批查詢：依序 vs 同時，看第一個結果何時回來
   python bench_cube.py scale N [目錄]        把對局複製成 N 倍存到目錄（預設系統暫存），量重查詢的 SQL 耗時怎麼成長
 
-冷的做法：把 LIMIT 改成沒用過的值，Cube 的結果快取就會落空（SQL 字串不同）。
-代價是查詢要重新編譯（30～50ms），所以冷的數字比「入庫後第一次」略高。
+兩種「冷」：
+- shapes：把 LIMIT 改成沒用過的值，Cube 的結果快取就會落空（SQL 字串不同）。
+  代價是查詢要重新編譯（30～50ms，卡在 Cube 唯一的 JS 執行緒上），比「入庫後第一次」高。
+- burst：跟真的入庫一樣讓快取失效——重建衍生表讓 mat_state.version 變動（refresh key 的一部分），
+  等 Cube 發現之後用原本的查詢重播。編譯好的 SQL 還在，量到的就是打完一場後打開頁面的情況。
+  不能量完馬上重播：refresh key 變了之後約 15 秒內的第一個請求會先回舊結果。
 不用 renewQuery：它會先回舊結果、在背景重算，量到的是快取。
 
 查詢是從 cube.log 讀出來的，裡面有 puuid——只印出 measures / dimensions，不要把輸出貼進 repo。
@@ -120,8 +124,9 @@ def cmd_shapes(out: str = "bench_shapes.json"):
         print(f"  冷 {r['cold_ms']:5.0f}  SQLite {r['sqlite_ms']:5.0f}  請求數 {r['n']:4d}  {r['label']}")
 
 
-def latest_burst():
-    """最近一次「一頁同時送出」的那批查詢：相鄰請求間隔 < 0.8 秒視為同一批。"""
+def page_bursts():
+    """紀錄裡「一頁同時送出」的每一批查詢（相鄰請求間隔 < 0.8 秒視為同一批），
+    同樣組合只留最近一次。先跑一次 ui-conventions 的 perf_nav.mjs，紀錄裡就有每一頁的那批。"""
     bursts, current = [], []
     for at, q in logged_queries():
         if current and at - current[-1][0] > 0.8:
@@ -129,32 +134,55 @@ def latest_burst():
             current = []
         current.append((at, q))
     bursts.append(current)
-    # 排除量測腳本自己一次送出的大批
-    burst = next(b for b in reversed(bursts) if 3 <= len(b) <= 30)
-    return list({canon(q): q for _, q in burst}.values())
+    distinct = {}
+    for burst in bursts:
+        if not 2 <= len(burst) <= 30:  # 排除量測腳本自己一次送出的大批
+            continue
+        queries = list({canon(q): q for _, q in burst}.values())
+        distinct[tuple(sorted(canon(q) for q in queries))] = queries
+    return list(distinct.values())
+
+
+def invalidate(wait: float = 20):
+    """讓所有查詢結果失效，和入庫後一樣（見檔頭說明）。"""
+    features.rebuild()
+    time.sleep(wait)
+
+
+def replay(queries, concurrent: bool):
+    """重播一批，回傳 (第一個結果, 全部完成) 毫秒。"""
+    t0 = time.perf_counter()
+    ends = []
+
+    def one(q):
+        cube("load", q)
+        ends.append((time.perf_counter() - t0) * 1000)
+
+    if concurrent:
+        with cf.ThreadPoolExecutor(len(queries)) as pool:
+            list(pool.map(one, queries))
+    else:
+        for q in queries:
+            one(q)
+    return min(ends), max(ends)
 
 
 def cmd_burst():
-    queries = latest_burst()
-    print(f"最近一批 {len(queries)} 個查詢：")
-    for q in queries:
-        print("  ", label(q))
-    for mode in ("依序", "同時"):
-        salt = random.randint(100, 9000)
-        t0 = time.perf_counter()
-        ends = []
-
-        def one(q):
-            cube("load", uncached(q, salt))
-            ends.append((time.perf_counter() - t0) * 1000)
-
-        if mode == "依序":
-            for q in queries:
-                one(q)
-        else:
-            with cf.ThreadPoolExecutor(len(queries)) as pool:
-                list(pool.map(one, queries))
-        print(f"{mode}：第一個結果 {min(ends):6.0f} ms，全部完成 {max(ends):6.0f} ms")
+    """每一頁的那批查詢在快取失效後重播：依序送出 vs 同時送出（瀏覽器實際上是同時送）。
+    兩種各自先讓快取失效一次；不同頁共用的查詢第二次會命中快取，兩種模式條件相同。"""
+    bursts = sorted(page_bursts(), key=len, reverse=True)
+    print(f"{len(bursts)} 批（每批 = 一頁同時送出的查詢）")
+    results = {}
+    for concurrent in (False, True):
+        invalidate()
+        results[concurrent] = [replay(queries, concurrent) for queries in bursts]
+    print("  查詢數   依序：第一個／全部     同時：第一個／全部")
+    for i, queries in enumerate(bursts):
+        seq, par = results[False][i], results[True][i]
+        print(f"  {len(queries):4d}     {seq[0]:6.0f} / {seq[1]:6.0f}     {par[0]:6.0f} / {par[1]:6.0f}")
+    for concurrent, rows in results.items():
+        print(f"{'同時' if concurrent else '依序'}合計：第一個結果 {sum(r[0] for r in rows):7.0f} ms，"
+              f"全部完成 {sum(r[1] for r in rows):7.0f} ms")
 
 
 def heavy_queries() -> dict:

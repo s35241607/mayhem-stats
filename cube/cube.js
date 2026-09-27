@@ -9,6 +9,8 @@
 // Cube 每個請求都會問一次版本，版本變了就重新編譯——改 yml 之後不必重啟。
 const fs = require("fs")
 const path = require("path")
+const sqlite3 = require("sqlite3")
+const SqliteDriver = require("@cubejs-backend/sqlite-driver")
 
 const MODEL_DIR = path.join(__dirname, "model")
 // 每個請求都掃一次目錄太浪費；兩秒內沿用上一次的結果，改完模型最多慢兩秒生效
@@ -34,7 +36,43 @@ function latestChange(dir) {
   return [latest, count]
 }
 
+// 內建的 SQLite driver 整個 Cube 只開一條連線，佇列並行度卻是 2：兩個查詢擠同一條連線、
+// 互相拖到兩個都跑完才一起回來，一頁同時送出的查詢因此「一起卡住」。
+// SQLite 是 WAL 模式，多條唯讀連線可以真的同時讀，查詢跑在 libuv 的執行緒池上（預設 4 條）。
+const POOL_SIZE = Number(process.env.MAYHEM_SQLITE_POOL || 4)
+
+class PooledSqliteDriver extends SqliteDriver {
+  constructor(config = {}) {
+    super(config)
+    this.pool = Array.from({ length: POOL_SIZE }, () =>
+      new sqlite3.Database(this.config.database, sqlite3.OPEN_READONLY))
+    this.busy = this.pool.map(() => 0)
+  }
+
+  // 交給手上查詢最少的那條連線
+  query(query, values) {
+    let i = 0
+    for (let k = 1; k < this.pool.length; k++) if (this.busy[k] < this.busy[i]) i = k
+    this.busy[i]++
+    return new Promise((resolve, reject) =>
+      this.pool[i].all(query, values || [], (err, rows) => {
+        this.busy[i]--
+        if (err) reject(err)
+        else resolve(rows)
+      }))
+  }
+
+  async release() {
+    await Promise.all(this.pool.map((db) => new Promise((done) => db.close(() => done()))))
+    await super.release()
+  }
+}
+
 module.exports = {
+  driverFactory: () => new PooledSqliteDriver(),
+  orchestratorOptions: {
+    queryCacheOptions: { queueOptions: { concurrency: POOL_SIZE } },
+  },
   schemaVersion: () => {
     const now = Date.now()
     if (now - checkedAt > CHECK_EVERY_MS) {
