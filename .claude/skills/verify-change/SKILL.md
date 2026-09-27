@@ -80,8 +80,16 @@ import sqlite3
 
 先量基準線再改。沒有基準線就不要宣稱變快了。
 
-- Cube 端的每個請求耗時：`cube/cube.log` 裡的 `Load Request Success: <id> (Xms)`，
-  可以統計中位數與 p90。
+- **Cube 查詢一律先跑 `scripts/bench_cube.py`**（改前改後各一次）：
+  - `shapes`：重播 cube.log 裡出現過的每一種查詢，各量 SQLite 本身、冷（快取落空）、熱。
+  - `burst`：重播最近一次「一頁同時送出」的那批查詢，比較依序與同時送出時，第一個結果多久回來。
+  - `scale 10 <目錄>`：把對局複製成 10 倍，量重查詢怎麼成長。**資料會一直變多，
+    只看現在的數字會漏掉「現在 400ms、十倍資料 12 秒」這種查詢**（2026-09 實測，衍生表的視窗函數）。
+- Cube 內部各段耗時（編譯 SQL／排隊／執行）：暫時把 `cube/.env` 的 `CUBEJS_LOG_LEVEL` 改成 `trace`
+  並重啟，看 `Load Request SQL`、`Performing query completed`、`Load Request Success` 的 `duration`。
+  量完改回 `info`（trace 一個請求就有二十幾行）。正式模式在 `info` 不印每個請求的耗時。
+- 觀察過一次 Cube 行程跑久了變慢：同一批查詢，重啟前 5.9 秒、重啟後 3.7 秒（2026-09-27，原因沒查到）。
+  比較改前改後時，兩邊都在剛重啟的狀態下量比較保險。
 - 整頁的體感時間：用下面的無頭瀏覽器量「點下去到內容出現」。
 - 後端 API：直接 `urllib` 計時，重複多次取中位數。
 

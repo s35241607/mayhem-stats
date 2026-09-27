@@ -5,83 +5,90 @@ cubes:
   # session 的規則是可調的分析假設：前一場結束後休息超過 60 分鐘就開新 session。
   - name: participant_context
     title: 玩家遊玩情境
-    sql: >
-      WITH ordered AS (
-        SELECT
-          mp.rowid AS participant_rowid,
-          mp.platform_id,
-          mp.game_id,
-          mp.participant_id,
-          mp.puuid,
-          mp.win,
-          m.queue_id,
-          m.game_creation,
-          m.game_duration,
-          m.local_date,
-          LAG(mp.win) OVER (
-            PARTITION BY mp.puuid, m.queue_id
-            ORDER BY m.game_creation, m.platform_id, m.game_id
-          ) AS prev_win,
-          LAG(m.game_creation) OVER (
-            PARTITION BY mp.puuid, m.queue_id
-            ORDER BY m.game_creation, m.platform_id, m.game_id
-          ) AS prev_creation,
-          LAG(m.game_duration) OVER (
-            PARTITION BY mp.puuid, m.queue_id
-            ORDER BY m.game_creation, m.platform_id, m.game_id
-          ) AS prev_duration
-        FROM match_participants mp
-        JOIN matches m
-          ON m.platform_id = mp.platform_id AND m.game_id = mp.game_id
-      ), marked AS (
-        SELECT *,
-          CASE
-            WHEN prev_creation IS NULL THEN 1
-            WHEN game_creation > prev_creation + COALESCE(prev_duration, 0) * 1000 + 3600000 THEN 1
-            ELSE 0
-          END AS starts_session
-        FROM ordered
-      ), sessioned AS (
-        SELECT *,
-          SUM(starts_session) OVER (
-            PARTITION BY puuid, queue_id
-            ORDER BY game_creation, platform_id, game_id
-            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-          ) AS session_id
-        FROM marked
-      ), ranked AS (
-        SELECT *,
-          ROW_NUMBER() OVER (
-            PARTITION BY puuid, queue_id, session_id
-            ORDER BY game_creation, platform_id, game_id
-          ) AS game_in_session,
-          COALESCE(SUM(game_duration) OVER (
-            PARTITION BY puuid, queue_id, session_id
-            ORDER BY game_creation, platform_id, game_id
-            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-          ), 0) / 60.0 AS minutes_before
-        FROM sessioned
-      )
-      SELECT
-        participant_rowid,
-        platform_id,
-        game_id,
-        participant_id,
-        puuid,
-        win,
-        queue_id,
-        game_creation,
-        game_duration,
-        local_date,
-        prev_win,
-        CASE
-          WHEN prev_creation IS NULL THEN NULL
-          ELSE (game_creation - prev_creation - COALESCE(prev_duration, 0) * 1000) / 60000.0
-        END AS break_minutes_before,
-        session_id,
-        game_in_session,
-        minutes_before
-      FROM ranked
+    # 規則本體在 meta.materialize.sql。每次入庫後由 features.py 照它重建 mat_participant_context，這裡直接讀表：
+    # 對全部參賽者跑視窗函數的成本每個查詢都要付一次，資料十倍時一個查詢要十幾秒（實測）。
+    # 改規則只改這裡；改完重啟服務或跑 `uv run features.py` 才會重建。
+    sql_table: mat_participant_context
+    meta:
+      materialize:
+        table: mat_participant_context
+        sql: >
+          WITH ordered AS (
+            SELECT
+              mp.rowid AS participant_rowid,
+              mp.platform_id,
+              mp.game_id,
+              mp.participant_id,
+              mp.puuid,
+              mp.win,
+              m.queue_id,
+              m.game_creation,
+              m.game_duration,
+              m.local_date,
+              LAG(mp.win) OVER (
+                PARTITION BY mp.puuid, m.queue_id
+                ORDER BY m.game_creation, m.platform_id, m.game_id
+              ) AS prev_win,
+              LAG(m.game_creation) OVER (
+                PARTITION BY mp.puuid, m.queue_id
+                ORDER BY m.game_creation, m.platform_id, m.game_id
+              ) AS prev_creation,
+              LAG(m.game_duration) OVER (
+                PARTITION BY mp.puuid, m.queue_id
+                ORDER BY m.game_creation, m.platform_id, m.game_id
+              ) AS prev_duration
+            FROM match_participants mp
+            JOIN matches m
+              ON m.platform_id = mp.platform_id AND m.game_id = mp.game_id
+          ), marked AS (
+            SELECT *,
+              CASE
+                WHEN prev_creation IS NULL THEN 1
+                WHEN game_creation > prev_creation + COALESCE(prev_duration, 0) * 1000 + 3600000 THEN 1
+                ELSE 0
+              END AS starts_session
+            FROM ordered
+          ), sessioned AS (
+            SELECT *,
+              SUM(starts_session) OVER (
+                PARTITION BY puuid, queue_id
+                ORDER BY game_creation, platform_id, game_id
+                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+              ) AS session_id
+            FROM marked
+          ), ranked AS (
+            SELECT *,
+              ROW_NUMBER() OVER (
+                PARTITION BY puuid, queue_id, session_id
+                ORDER BY game_creation, platform_id, game_id
+              ) AS game_in_session,
+              COALESCE(SUM(game_duration) OVER (
+                PARTITION BY puuid, queue_id, session_id
+                ORDER BY game_creation, platform_id, game_id
+                ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+              ), 0) / 60.0 AS minutes_before
+            FROM sessioned
+          )
+          SELECT
+            participant_rowid,
+            platform_id,
+            game_id,
+            participant_id,
+            puuid,
+            win,
+            queue_id,
+            game_creation,
+            game_duration,
+            local_date,
+            prev_win,
+            CASE
+              WHEN prev_creation IS NULL THEN NULL
+              ELSE (game_creation - prev_creation - COALESCE(prev_duration, 0) * 1000) / 60000.0
+            END AS break_minutes_before,
+            session_id,
+            game_in_session,
+            minutes_before
+          FROM ranked
 
     description: >
       玩家每場對局的序列情境。依玩家與模式排序；前一場結果與休息時間使用完整已收錄歷史計算，
@@ -89,7 +96,7 @@ cubes:
 
     refresh_key:
       sql: >
-        SELECT (SELECT COALESCE(MAX(ingested_at), 0) FROM matches) || ':' || (SELECT COUNT(*) FROM dim_augments) || ':' || (SELECT group_concat(puuid || is_me || tracked) FROM accounts)
+        SELECT (SELECT COALESCE(MAX(ingested_at), 0) FROM matches) || ':' || (SELECT COUNT(*) FROM dim_augments) || ':' || (SELECT group_concat(puuid || is_me || tracked) FROM accounts) || ':' || (SELECT COALESCE(MAX(version), 0) FROM mat_state)
 
     segments:
       - name: mine

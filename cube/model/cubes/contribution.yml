@@ -26,63 +26,70 @@ cubes:
   #   AP 坦同 AD 鬥士、AP 輸出同 AD 輸出、AP 刺客同 AD 刺客；未成形六項等權
   - name: contribution
     title: 貢獻分數
-    sql: >
-      WITH base AS (
-        SELECT mp.rowid AS participant_rowid, b.queue_id, b.build_role, mp.win,
-          mp.dmg_to_champions * 1.0 / NULLIF(mp.team_dmg, 0) AS m_dmg,
-          (COALESCE(mp.dmg_taken, 0) + COALESCE(mp.dmg_mitigated, 0)) * 1.0
-            / NULLIF(SUM(COALESCE(mp.dmg_taken, 0) + COALESCE(mp.dmg_mitigated, 0)) OVER (PARTITION BY mp.platform_id, mp.game_id, mp.team_id), 0) AS m_soak,
-          (mp.kills + mp.assists) * 1.0 / MAX(1, mp.deaths) AS m_kda,
-          (mp.kills + mp.assists) * 1.0 / NULLIF(mp.team_kills, 0) AS m_kp,
-          COALESCE(mp.time_ccing_others, 0) * 1.0
-            / NULLIF(SUM(COALESCE(mp.time_ccing_others, 0)) OVER (PARTITION BY mp.platform_id, mp.game_id, mp.team_id), 0) AS m_cc,
-          mp.dmg_to_champions * 1.0 / NULLIF(mp.gold_earned, 0) AS m_eff
-        FROM match_participants mp
-        JOIN {builds.sql()} AS b ON b.participant_rowid = mp.rowid
-      ),
-      ranked AS (
-        SELECT participant_rowid, build_role,
-        CASE WHEN m_dmg IS NULL THEN NULL
-             WHEN COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_dmg IS NULL) = 1 THEN 50.0
-             ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, build_role, win, m_dmg IS NULL ORDER BY m_dmg) * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_dmg IS NULL) - 1)
-                           + CUME_DIST() OVER (PARTITION BY queue_id, build_role, win, m_dmg IS NULL ORDER BY m_dmg) * COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_dmg IS NULL) - 1)
-                  / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_dmg IS NULL) - 1)) END AS p_dmg,
-        CASE WHEN m_soak IS NULL THEN NULL
-             WHEN COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_soak IS NULL) = 1 THEN 50.0
-             ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, build_role, win, m_soak IS NULL ORDER BY m_soak) * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_soak IS NULL) - 1)
-                           + CUME_DIST() OVER (PARTITION BY queue_id, build_role, win, m_soak IS NULL ORDER BY m_soak) * COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_soak IS NULL) - 1)
-                  / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_soak IS NULL) - 1)) END AS p_soak,
-        CASE WHEN m_kda IS NULL THEN NULL
-             WHEN COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_kda IS NULL) = 1 THEN 50.0
-             ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, build_role, win, m_kda IS NULL ORDER BY m_kda) * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_kda IS NULL) - 1)
-                           + CUME_DIST() OVER (PARTITION BY queue_id, build_role, win, m_kda IS NULL ORDER BY m_kda) * COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_kda IS NULL) - 1)
-                  / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_kda IS NULL) - 1)) END AS p_kda,
-        CASE WHEN m_kp IS NULL THEN NULL
-             WHEN COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_kp IS NULL) = 1 THEN 50.0
-             ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, build_role, win, m_kp IS NULL ORDER BY m_kp) * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_kp IS NULL) - 1)
-                           + CUME_DIST() OVER (PARTITION BY queue_id, build_role, win, m_kp IS NULL ORDER BY m_kp) * COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_kp IS NULL) - 1)
-                  / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_kp IS NULL) - 1)) END AS p_kp,
-        CASE WHEN m_cc IS NULL THEN NULL
-             WHEN COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_cc IS NULL) = 1 THEN 50.0
-             ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, build_role, win, m_cc IS NULL ORDER BY m_cc) * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_cc IS NULL) - 1)
-                           + CUME_DIST() OVER (PARTITION BY queue_id, build_role, win, m_cc IS NULL ORDER BY m_cc) * COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_cc IS NULL) - 1)
-                  / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_cc IS NULL) - 1)) END AS p_cc,
-        CASE WHEN m_eff IS NULL THEN NULL
-             WHEN COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_eff IS NULL) = 1 THEN 50.0
-             ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, build_role, win, m_eff IS NULL ORDER BY m_eff) * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_eff IS NULL) - 1)
-                           + CUME_DIST() OVER (PARTITION BY queue_id, build_role, win, m_eff IS NULL ORDER BY m_eff) * COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_eff IS NULL) - 1)
-                  / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_eff IS NULL) - 1)) END AS p_eff
-        FROM base
-      )
-      SELECT *,
-        (COALESCE(p_dmg, 0) * (CASE build_role WHEN '坦克' THEN 10 WHEN 'AD 鬥士' THEN 25 WHEN 'AP 坦' THEN 25 WHEN 'AD 輸出' THEN 35 WHEN 'AP 輸出' THEN 35 WHEN 'AD 刺客' THEN 30 WHEN 'AP 刺客' THEN 30 WHEN '輔助' THEN 10 ELSE 1 END) + COALESCE(p_soak, 0) * (CASE build_role WHEN '坦克' THEN 35 WHEN 'AD 鬥士' THEN 25 WHEN 'AP 坦' THEN 25 WHEN 'AD 輸出' THEN 0 WHEN 'AP 輸出' THEN 0 WHEN 'AD 刺客' THEN 0 WHEN 'AP 刺客' THEN 0 WHEN '輔助' THEN 10 ELSE 1 END) + COALESCE(p_kda, 0) * (CASE build_role WHEN '坦克' THEN 10 WHEN 'AD 鬥士' THEN 15 WHEN 'AP 坦' THEN 15 WHEN 'AD 輸出' THEN 20 WHEN 'AP 輸出' THEN 20 WHEN 'AD 刺客' THEN 25 WHEN 'AP 刺客' THEN 25 WHEN '輔助' THEN 20 ELSE 1 END) + COALESCE(p_kp, 0) * (CASE build_role WHEN '坦克' THEN 20 WHEN 'AD 鬥士' THEN 15 WHEN 'AP 坦' THEN 15 WHEN 'AD 輸出' THEN 15 WHEN 'AP 輸出' THEN 15 WHEN 'AD 刺客' THEN 15 WHEN 'AP 刺客' THEN 15 WHEN '輔助' THEN 30 ELSE 1 END) + COALESCE(p_cc, 0) * (CASE build_role WHEN '坦克' THEN 25 WHEN 'AD 鬥士' THEN 10 WHEN 'AP 坦' THEN 10 WHEN 'AD 輸出' THEN 10 WHEN 'AP 輸出' THEN 10 WHEN 'AD 刺客' THEN 10 WHEN 'AP 刺客' THEN 10 WHEN '輔助' THEN 30 ELSE 1 END) + COALESCE(p_eff, 0) * (CASE build_role WHEN '坦克' THEN 0 WHEN 'AD 鬥士' THEN 10 WHEN 'AP 坦' THEN 10 WHEN 'AD 輸出' THEN 20 WHEN 'AP 輸出' THEN 20 WHEN 'AD 刺客' THEN 20 WHEN 'AP 刺客' THEN 20 WHEN '輔助' THEN 0 ELSE 1 END))
-          / NULLIF((CASE WHEN p_dmg IS NULL THEN 0 ELSE 1 END) * (CASE build_role WHEN '坦克' THEN 10 WHEN 'AD 鬥士' THEN 25 WHEN 'AP 坦' THEN 25 WHEN 'AD 輸出' THEN 35 WHEN 'AP 輸出' THEN 35 WHEN 'AD 刺客' THEN 30 WHEN 'AP 刺客' THEN 30 WHEN '輔助' THEN 10 ELSE 1 END) + (CASE WHEN p_soak IS NULL THEN 0 ELSE 1 END) * (CASE build_role WHEN '坦克' THEN 35 WHEN 'AD 鬥士' THEN 25 WHEN 'AP 坦' THEN 25 WHEN 'AD 輸出' THEN 0 WHEN 'AP 輸出' THEN 0 WHEN 'AD 刺客' THEN 0 WHEN 'AP 刺客' THEN 0 WHEN '輔助' THEN 10 ELSE 1 END) + (CASE WHEN p_kda IS NULL THEN 0 ELSE 1 END) * (CASE build_role WHEN '坦克' THEN 10 WHEN 'AD 鬥士' THEN 15 WHEN 'AP 坦' THEN 15 WHEN 'AD 輸出' THEN 20 WHEN 'AP 輸出' THEN 20 WHEN 'AD 刺客' THEN 25 WHEN 'AP 刺客' THEN 25 WHEN '輔助' THEN 20 ELSE 1 END) + (CASE WHEN p_kp IS NULL THEN 0 ELSE 1 END) * (CASE build_role WHEN '坦克' THEN 20 WHEN 'AD 鬥士' THEN 15 WHEN 'AP 坦' THEN 15 WHEN 'AD 輸出' THEN 15 WHEN 'AP 輸出' THEN 15 WHEN 'AD 刺客' THEN 15 WHEN 'AP 刺客' THEN 15 WHEN '輔助' THEN 30 ELSE 1 END) + (CASE WHEN p_cc IS NULL THEN 0 ELSE 1 END) * (CASE build_role WHEN '坦克' THEN 25 WHEN 'AD 鬥士' THEN 10 WHEN 'AP 坦' THEN 10 WHEN 'AD 輸出' THEN 10 WHEN 'AP 輸出' THEN 10 WHEN 'AD 刺客' THEN 10 WHEN 'AP 刺客' THEN 10 WHEN '輔助' THEN 30 ELSE 1 END) + (CASE WHEN p_eff IS NULL THEN 0 ELSE 1 END) * (CASE build_role WHEN '坦克' THEN 0 WHEN 'AD 鬥士' THEN 10 WHEN 'AP 坦' THEN 10 WHEN 'AD 輸出' THEN 20 WHEN 'AP 輸出' THEN 20 WHEN 'AD 刺客' THEN 20 WHEN 'AP 刺客' THEN 20 WHEN '輔助' THEN 0 ELSE 1 END), 0) AS score
-      FROM ranked
+    # 規則本體在 meta.materialize.sql。每次入庫後由 features.py 照它重建 mat_contribution，這裡直接讀表：
+    # 對全部參賽者跑視窗函數的成本每個查詢都要付一次，資料十倍時一個查詢要十幾秒（實測）。
+    # 改規則只改這裡；改完重啟服務或跑 `uv run features.py` 才會重建。
+    sql_table: mat_contribution
+    meta:
+      materialize:
+        table: mat_contribution
+        sql: >
+          WITH base AS (
+            SELECT mp.rowid AS participant_rowid, b.queue_id, b.build_role, mp.win,
+              mp.dmg_to_champions * 1.0 / NULLIF(mp.team_dmg, 0) AS m_dmg,
+              (COALESCE(mp.dmg_taken, 0) + COALESCE(mp.dmg_mitigated, 0)) * 1.0
+                / NULLIF(SUM(COALESCE(mp.dmg_taken, 0) + COALESCE(mp.dmg_mitigated, 0)) OVER (PARTITION BY mp.platform_id, mp.game_id, mp.team_id), 0) AS m_soak,
+              (mp.kills + mp.assists) * 1.0 / MAX(1, mp.deaths) AS m_kda,
+              (mp.kills + mp.assists) * 1.0 / NULLIF(mp.team_kills, 0) AS m_kp,
+              COALESCE(mp.time_ccing_others, 0) * 1.0
+                / NULLIF(SUM(COALESCE(mp.time_ccing_others, 0)) OVER (PARTITION BY mp.platform_id, mp.game_id, mp.team_id), 0) AS m_cc,
+              mp.dmg_to_champions * 1.0 / NULLIF(mp.gold_earned, 0) AS m_eff
+            FROM match_participants mp
+            JOIN mat_builds AS b ON b.participant_rowid = mp.rowid
+          ),
+          ranked AS (
+            SELECT participant_rowid, build_role,
+            CASE WHEN m_dmg IS NULL THEN NULL
+                 WHEN COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_dmg IS NULL) = 1 THEN 50.0
+                 ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, build_role, win, m_dmg IS NULL ORDER BY m_dmg) * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_dmg IS NULL) - 1)
+                               + CUME_DIST() OVER (PARTITION BY queue_id, build_role, win, m_dmg IS NULL ORDER BY m_dmg) * COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_dmg IS NULL) - 1)
+                      / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_dmg IS NULL) - 1)) END AS p_dmg,
+            CASE WHEN m_soak IS NULL THEN NULL
+                 WHEN COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_soak IS NULL) = 1 THEN 50.0
+                 ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, build_role, win, m_soak IS NULL ORDER BY m_soak) * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_soak IS NULL) - 1)
+                               + CUME_DIST() OVER (PARTITION BY queue_id, build_role, win, m_soak IS NULL ORDER BY m_soak) * COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_soak IS NULL) - 1)
+                      / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_soak IS NULL) - 1)) END AS p_soak,
+            CASE WHEN m_kda IS NULL THEN NULL
+                 WHEN COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_kda IS NULL) = 1 THEN 50.0
+                 ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, build_role, win, m_kda IS NULL ORDER BY m_kda) * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_kda IS NULL) - 1)
+                               + CUME_DIST() OVER (PARTITION BY queue_id, build_role, win, m_kda IS NULL ORDER BY m_kda) * COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_kda IS NULL) - 1)
+                      / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_kda IS NULL) - 1)) END AS p_kda,
+            CASE WHEN m_kp IS NULL THEN NULL
+                 WHEN COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_kp IS NULL) = 1 THEN 50.0
+                 ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, build_role, win, m_kp IS NULL ORDER BY m_kp) * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_kp IS NULL) - 1)
+                               + CUME_DIST() OVER (PARTITION BY queue_id, build_role, win, m_kp IS NULL ORDER BY m_kp) * COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_kp IS NULL) - 1)
+                      / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_kp IS NULL) - 1)) END AS p_kp,
+            CASE WHEN m_cc IS NULL THEN NULL
+                 WHEN COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_cc IS NULL) = 1 THEN 50.0
+                 ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, build_role, win, m_cc IS NULL ORDER BY m_cc) * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_cc IS NULL) - 1)
+                               + CUME_DIST() OVER (PARTITION BY queue_id, build_role, win, m_cc IS NULL ORDER BY m_cc) * COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_cc IS NULL) - 1)
+                      / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_cc IS NULL) - 1)) END AS p_cc,
+            CASE WHEN m_eff IS NULL THEN NULL
+                 WHEN COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_eff IS NULL) = 1 THEN 50.0
+                 ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, build_role, win, m_eff IS NULL ORDER BY m_eff) * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_eff IS NULL) - 1)
+                               + CUME_DIST() OVER (PARTITION BY queue_id, build_role, win, m_eff IS NULL ORDER BY m_eff) * COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_eff IS NULL) - 1)
+                      / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, build_role, win, m_eff IS NULL) - 1)) END AS p_eff
+            FROM base
+          )
+          SELECT *,
+            (COALESCE(p_dmg, 0) * (CASE build_role WHEN '坦克' THEN 10 WHEN 'AD 鬥士' THEN 25 WHEN 'AP 坦' THEN 25 WHEN 'AD 輸出' THEN 35 WHEN 'AP 輸出' THEN 35 WHEN 'AD 刺客' THEN 30 WHEN 'AP 刺客' THEN 30 WHEN '輔助' THEN 10 ELSE 1 END) + COALESCE(p_soak, 0) * (CASE build_role WHEN '坦克' THEN 35 WHEN 'AD 鬥士' THEN 25 WHEN 'AP 坦' THEN 25 WHEN 'AD 輸出' THEN 0 WHEN 'AP 輸出' THEN 0 WHEN 'AD 刺客' THEN 0 WHEN 'AP 刺客' THEN 0 WHEN '輔助' THEN 10 ELSE 1 END) + COALESCE(p_kda, 0) * (CASE build_role WHEN '坦克' THEN 10 WHEN 'AD 鬥士' THEN 15 WHEN 'AP 坦' THEN 15 WHEN 'AD 輸出' THEN 20 WHEN 'AP 輸出' THEN 20 WHEN 'AD 刺客' THEN 25 WHEN 'AP 刺客' THEN 25 WHEN '輔助' THEN 20 ELSE 1 END) + COALESCE(p_kp, 0) * (CASE build_role WHEN '坦克' THEN 20 WHEN 'AD 鬥士' THEN 15 WHEN 'AP 坦' THEN 15 WHEN 'AD 輸出' THEN 15 WHEN 'AP 輸出' THEN 15 WHEN 'AD 刺客' THEN 15 WHEN 'AP 刺客' THEN 15 WHEN '輔助' THEN 30 ELSE 1 END) + COALESCE(p_cc, 0) * (CASE build_role WHEN '坦克' THEN 25 WHEN 'AD 鬥士' THEN 10 WHEN 'AP 坦' THEN 10 WHEN 'AD 輸出' THEN 10 WHEN 'AP 輸出' THEN 10 WHEN 'AD 刺客' THEN 10 WHEN 'AP 刺客' THEN 10 WHEN '輔助' THEN 30 ELSE 1 END) + COALESCE(p_eff, 0) * (CASE build_role WHEN '坦克' THEN 0 WHEN 'AD 鬥士' THEN 10 WHEN 'AP 坦' THEN 10 WHEN 'AD 輸出' THEN 20 WHEN 'AP 輸出' THEN 20 WHEN 'AD 刺客' THEN 20 WHEN 'AP 刺客' THEN 20 WHEN '輔助' THEN 0 ELSE 1 END))
+              / NULLIF((CASE WHEN p_dmg IS NULL THEN 0 ELSE 1 END) * (CASE build_role WHEN '坦克' THEN 10 WHEN 'AD 鬥士' THEN 25 WHEN 'AP 坦' THEN 25 WHEN 'AD 輸出' THEN 35 WHEN 'AP 輸出' THEN 35 WHEN 'AD 刺客' THEN 30 WHEN 'AP 刺客' THEN 30 WHEN '輔助' THEN 10 ELSE 1 END) + (CASE WHEN p_soak IS NULL THEN 0 ELSE 1 END) * (CASE build_role WHEN '坦克' THEN 35 WHEN 'AD 鬥士' THEN 25 WHEN 'AP 坦' THEN 25 WHEN 'AD 輸出' THEN 0 WHEN 'AP 輸出' THEN 0 WHEN 'AD 刺客' THEN 0 WHEN 'AP 刺客' THEN 0 WHEN '輔助' THEN 10 ELSE 1 END) + (CASE WHEN p_kda IS NULL THEN 0 ELSE 1 END) * (CASE build_role WHEN '坦克' THEN 10 WHEN 'AD 鬥士' THEN 15 WHEN 'AP 坦' THEN 15 WHEN 'AD 輸出' THEN 20 WHEN 'AP 輸出' THEN 20 WHEN 'AD 刺客' THEN 25 WHEN 'AP 刺客' THEN 25 WHEN '輔助' THEN 20 ELSE 1 END) + (CASE WHEN p_kp IS NULL THEN 0 ELSE 1 END) * (CASE build_role WHEN '坦克' THEN 20 WHEN 'AD 鬥士' THEN 15 WHEN 'AP 坦' THEN 15 WHEN 'AD 輸出' THEN 15 WHEN 'AP 輸出' THEN 15 WHEN 'AD 刺客' THEN 15 WHEN 'AP 刺客' THEN 15 WHEN '輔助' THEN 30 ELSE 1 END) + (CASE WHEN p_cc IS NULL THEN 0 ELSE 1 END) * (CASE build_role WHEN '坦克' THEN 25 WHEN 'AD 鬥士' THEN 10 WHEN 'AP 坦' THEN 10 WHEN 'AD 輸出' THEN 10 WHEN 'AP 輸出' THEN 10 WHEN 'AD 刺客' THEN 10 WHEN 'AP 刺客' THEN 10 WHEN '輔助' THEN 30 ELSE 1 END) + (CASE WHEN p_eff IS NULL THEN 0 ELSE 1 END) * (CASE build_role WHEN '坦克' THEN 0 WHEN 'AD 鬥士' THEN 10 WHEN 'AP 坦' THEN 10 WHEN 'AD 輸出' THEN 20 WHEN 'AP 輸出' THEN 20 WHEN 'AD 刺客' THEN 20 WHEN 'AP 刺客' THEN 20 WHEN '輔助' THEN 0 ELSE 1 END), 0) AS score
+          FROM ranked
 
     # 與 participants.yml 相同的 refresh key，理由寫在那裡。SQL 必須一字不差才會被合併。
     refresh_key:
       sql: >
-        SELECT (SELECT COALESCE(MAX(ingested_at), 0) FROM matches) || ':' || (SELECT COUNT(*) FROM dim_augments) || ':' || (SELECT group_concat(puuid || is_me || tracked) FROM accounts)
+        SELECT (SELECT COALESCE(MAX(ingested_at), 0) FROM matches) || ':' || (SELECT COUNT(*) FROM dim_augments) || ':' || (SELECT group_concat(puuid || is_me || tracked) FROM accounts) || ':' || (SELECT COALESCE(MAX(version), 0) FROM mat_state)
 
     # 反方向也留一條，讓以這裡為起點的查詢找得到 matches
     joins:

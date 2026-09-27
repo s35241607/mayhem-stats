@@ -12,6 +12,7 @@ import asyncio
 import time
 
 import db
+import features
 import lcu
 
 POLL_INTERVAL = 30          # 秒
@@ -42,6 +43,7 @@ class Collector:
         """同步採集一次。回傳 (掃到幾場, 新增幾場)。"""
         client = lcu.LCUClient.connect()
         conn = db.connect()
+        dimensions_changed = False
         try:
             if not self._dimensions_loaded:
                 try:
@@ -49,6 +51,7 @@ class Collector:
                         db.replace_dimension(conn, table, rows)
                     self._dimensions_loaded = True
                     self.status["dimensionsLoaded"] = True
+                    dimensions_changed = True  # 出裝定位看裝備類別與英雄定位，要跟著重算
                 except Exception as exc:
                     # 維度表抓不到不該擋住對局採集,下輪再試——但要留下痕跡,
                     # 不然英雄/增幅名稱一片空白時完全查不到原因。
@@ -83,10 +86,24 @@ class Collector:
                 raise
             finally:
                 db.finish_run(conn, run_id, seen, new, error)
+                # 不看 new：採集中途失敗時 new 還是 0，但前面幾場已經 commit 了。
+                # 改問衍生表是不是落後於對局資料，漏掉的下一輪也會自己補上。
+                if dimensions_changed or features.stale(conn):
+                    self._rebuild_features(conn)
 
             return seen, new
         finally:
             conn.close()
+
+    def _rebuild_features(self, conn):
+        """衍生表（出裝定位、貢獻分數…）整批重算，見 features.py。
+        失敗不擋採集：對局已經存好了，下一輪會再試。"""
+        try:
+            ms = features.rebuild(conn)
+            print(f"衍生表重建 {ms:.0f} ms")
+        except Exception as exc:
+            self.status["lastError"] = f"衍生表重建失敗: {type(exc).__name__}: {exc}"
+            print(self.status["lastError"])
 
     def _ingest_games(self, conn, client, games):
         """把一批對局收進資料庫,回傳 (掃到幾場, 新增幾場)。

@@ -13,36 +13,43 @@ cubes:
   #   隊伍魔法傷害比例的四分位數 39%／50%／59%，所以用 40%、60% 切：約 1/4、1/2、1/4
   - name: comp_context
     title: 陣容情境
-    sql: >
-      WITH p AS (
-        SELECT mp.rowid AS participant_rowid, mp.platform_id, mp.game_id, mp.team_id,
-          CASE WHEN b.build_role IN ('坦克', 'AD 鬥士', 'AP 坦') THEN 1 ELSE 0 END AS front,
-          COALESCE(mp.dmg_magic, 0) AS magic,
-          COALESCE(mp.dmg_physical, 0) + COALESCE(mp.dmg_magic, 0) + COALESCE(mp.dmg_true, 0) AS total
-        FROM match_participants mp
-        JOIN {builds.sql()} AS b ON b.participant_rowid = mp.rowid
-      ),
-      sums AS (
-        SELECT *,
-          SUM(front) OVER (PARTITION BY platform_id, game_id, team_id) AS team_front,
-          SUM(front) OVER (PARTITION BY platform_id, game_id) AS game_front,
-          SUM(magic) OVER (PARTITION BY platform_id, game_id, team_id) AS team_magic,
-          SUM(total) OVER (PARTITION BY platform_id, game_id, team_id) AS team_total,
-          SUM(magic) OVER (PARTITION BY platform_id, game_id) AS game_magic,
-          SUM(total) OVER (PARTITION BY platform_id, game_id) AS game_total
-        FROM p
-      )
-      SELECT participant_rowid,
-        team_front - front AS ally_front,
-        game_front - team_front AS enemy_front,
-        (team_magic - magic) * 1.0 / NULLIF(team_total - total, 0) AS ally_magic_ratio,
-        (game_magic - team_magic) * 1.0 / NULLIF(game_total - team_total, 0) AS enemy_magic_ratio
-      FROM sums
+    # 規則本體在 meta.materialize.sql。每次入庫後由 features.py 照它重建 mat_comp_context，這裡直接讀表：
+    # 對全部參賽者跑視窗函數的成本每個查詢都要付一次，資料十倍時一個查詢要十幾秒（實測）。
+    # 改規則只改這裡；改完重啟服務或跑 `uv run features.py` 才會重建。
+    sql_table: mat_comp_context
+    meta:
+      materialize:
+        table: mat_comp_context
+        sql: >
+          WITH p AS (
+            SELECT mp.rowid AS participant_rowid, mp.platform_id, mp.game_id, mp.team_id,
+              CASE WHEN b.build_role IN ('坦克', 'AD 鬥士', 'AP 坦') THEN 1 ELSE 0 END AS front,
+              COALESCE(mp.dmg_magic, 0) AS magic,
+              COALESCE(mp.dmg_physical, 0) + COALESCE(mp.dmg_magic, 0) + COALESCE(mp.dmg_true, 0) AS total
+            FROM match_participants mp
+            JOIN mat_builds AS b ON b.participant_rowid = mp.rowid
+          ),
+          sums AS (
+            SELECT *,
+              SUM(front) OVER (PARTITION BY platform_id, game_id, team_id) AS team_front,
+              SUM(front) OVER (PARTITION BY platform_id, game_id) AS game_front,
+              SUM(magic) OVER (PARTITION BY platform_id, game_id, team_id) AS team_magic,
+              SUM(total) OVER (PARTITION BY platform_id, game_id, team_id) AS team_total,
+              SUM(magic) OVER (PARTITION BY platform_id, game_id) AS game_magic,
+              SUM(total) OVER (PARTITION BY platform_id, game_id) AS game_total
+            FROM p
+          )
+          SELECT participant_rowid,
+            team_front - front AS ally_front,
+            game_front - team_front AS enemy_front,
+            (team_magic - magic) * 1.0 / NULLIF(team_total - total, 0) AS ally_magic_ratio,
+            (game_magic - team_magic) * 1.0 / NULLIF(game_total - team_total, 0) AS enemy_magic_ratio
+          FROM sums
 
     # 與 participants.yml 相同的 refresh key，理由寫在那裡。SQL 必須一字不差才會被合併。
     refresh_key:
       sql: >
-        SELECT (SELECT COALESCE(MAX(ingested_at), 0) FROM matches) || ':' || (SELECT COUNT(*) FROM dim_augments) || ':' || (SELECT group_concat(puuid || is_me || tracked) FROM accounts)
+        SELECT (SELECT COALESCE(MAX(ingested_at), 0) FROM matches) || ':' || (SELECT COUNT(*) FROM dim_augments) || ':' || (SELECT group_concat(puuid || is_me || tracked) FROM accounts) || ':' || (SELECT COALESCE(MAX(version), 0) FROM mat_state)
 
     # 查詢裡只有這個 cube 的維度加 participants 的指標時，路徑從 participants 走；
     # 反方向也留一條，讓以這裡為起點的查詢找得到 matches。

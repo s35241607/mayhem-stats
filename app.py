@@ -35,6 +35,7 @@ from pydantic import BaseModel
 import collector as collector_module
 import cube_process
 import db
+import features
 import icons
 
 BASE_DIR = Path(__file__).parent
@@ -466,6 +467,12 @@ async def lifespan(app: FastAPI):
         return
 
     db.init()
+    # 衍生表（出裝定位、貢獻分數…）要在 Cube 起來之前就緒，cube 直接讀這些表。
+    # 啟動時一律重建：yml 的規則改了、或上次重建失敗，重啟就會生效。見 features.py。
+    try:
+        print(f"衍生表重建 {await asyncio.to_thread(features.rebuild):.0f} ms")
+    except Exception as exc:
+        print(f"衍生表重建失敗（出裝定位、貢獻分數等頁面會查不到）: {type(exc).__name__}: {exc}")
     # Cube 由這裡一併拉起來：開機自動啟動只有一個排程工作，
     # 若要另外顧 Cube，重開機後分析頁面會壞掉而使用者不會馬上發現。
     print(await asyncio.to_thread(cube_process.start))

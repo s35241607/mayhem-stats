@@ -17,9 +17,13 @@ cubes:
     #
     # 已知漏網:改版只改了名稱、增幅數量不變、又剛好沒有新對局時,舊名稱會
     # 多顯示到下一場入庫為止。只影響顯示,不影響數字。
+    #
+    # 最後一段是預先算好的衍生表（mat_*，見 features.py）的版本。對局是一場一場 commit 的，
+    # 衍生表在整輪採集之後才重建；少了這段，「新對局已寫入、衍生表還沒重建」那一兩秒內
+    # 查到的結果（新對局沒有出裝定位）會被當成最新的，一直沿用到下一場入庫。
     refresh_key:
       sql: >
-        SELECT (SELECT COALESCE(MAX(ingested_at), 0) FROM matches) || ':' || (SELECT COUNT(*) FROM dim_augments) || ':' || (SELECT group_concat(puuid || is_me || tracked) FROM accounts)
+        SELECT (SELECT COALESCE(MAX(ingested_at), 0) FROM matches) || ':' || (SELECT COUNT(*) FROM dim_augments) || ':' || (SELECT group_concat(puuid || is_me || tracked) FROM accounts) || ':' || (SELECT COALESCE(MAX(version), 0) FROM mat_state)
 
     joins:
       - name: matches
