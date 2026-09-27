@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Search, User, Check, Radar, UserCheck, Unlink } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -14,11 +14,20 @@ import { Badge } from "@/components/ui/badge"
 import { useFilters, type Player } from "@/lib/filters"
 import { cn } from "@/lib/utils"
 
+/** 「同場過的玩家」一次最多畫幾個。 */
+const OTHERS_SHOWN = 50
+
 /** 帳號快速切換。用可搜尋的命令面板而不是下拉選單——
- *  資料庫裡的玩家有上百個，下拉選單捲起來根本找不到人。 */
+ *  資料庫裡的玩家有上千個，下拉選單捲起來根本找不到人。
+ *
+ *  不把所有人都畫出來：兩千多個項目時，按 Ctrl+K 要 1 秒才出現、每打一個字 0.3 秒
+ *  （cmdk 每次都要對全部項目打分、排序、重畫）。我的帳號與追蹤中的永遠全列；
+ *  同場過的玩家只畫場次最多的前幾十個，打字時換成符合的前幾十個，並寫明還有幾個沒列出。
+ *  篩選自己做（名稱或 puuid 的子字串），cmdk 只負責鍵盤上下選與 Enter。 */
 export function AccountSwitcher() {
   const { account, players, setAccount, viewer } = useFilters()
   const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState("")
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -31,14 +40,32 @@ export function AccountSwitcher() {
     return () => document.removeEventListener("keydown", onKey)
   }, [])
 
-  const pick = (player: Player) => {
-    setAccount(player)
-    setOpen(false)
+  const changeOpen = (next: boolean) => {
+    setOpen(next)
+    if (!next) setSearch("") // 下次打開從頭開始，不留上次的搜尋字
   }
 
-  const me = players.filter((p) => p.is_me)
-  const tracked = players.filter((p) => !p.is_me && p.tracked)
-  const others = players.filter((p) => !p.is_me && !p.tracked)
+  const pick = (player: Player) => {
+    setAccount(player)
+    changeOpen(false)
+  }
+
+  // API 已經依「我、追蹤中、場次多到少」排好，這裡只分組、篩選，不重排
+  const groups = useMemo(() => {
+    const needle = search.trim().toLowerCase()
+    const hit = (p: Player) =>
+      !needle || (p.riot_id ?? "").toLowerCase().includes(needle) || p.puuid.toLowerCase().includes(needle)
+    const matched = players.filter(hit)
+    const others = matched.filter((p) => !p.is_me && !p.tracked)
+    return {
+      me: matched.filter((p) => p.is_me),
+      tracked: matched.filter((p) => !p.is_me && p.tracked),
+      others: others.slice(0, OTHERS_SHOWN),
+      hidden: Math.max(0, others.length - OTHERS_SHOWN),
+      searching: needle !== "",
+    }
+  }, [players, search])
+  const { me, tracked, others } = groups
 
   const row = (player: Player) => (
     <CommandItem
@@ -82,14 +109,15 @@ export function AccountSwitcher() {
 
       <CommandDialog
         open={open}
-        onOpenChange={setOpen}
+        onOpenChange={changeOpen}
         title="切換帳號"
         description="所有頁面都會改成這個帳號的數據"
       >
         {/* 這版 shadcn 的 CommandDialog 沒有內建 <Command> 包裹層，
-            少了它 cmdk 的子元件找不到 store，開啟時會直接拋錯。 */}
-        <Command>
-          <CommandInput placeholder="搜尋玩家名稱…" />
+            少了它 cmdk 的子元件找不到 store，開啟時會直接拋錯。
+            shouldFilter={false}：篩選在上面的 groups 自己做（理由見元件說明）。 */}
+        <Command shouldFilter={false}>
+          <CommandInput placeholder="搜尋玩家名稱…" value={search} onValueChange={setSearch} />
           <CommandList>
             <CommandEmpty>找不到這個玩家。只有出現在你對局裡的人才查得到。</CommandEmpty>
             {me.length > 0 && <CommandGroup heading="我的帳號">{me.map(row)}</CommandGroup>}
@@ -98,6 +126,13 @@ export function AccountSwitcher() {
             )}
             {others.length > 0 && (
               <CommandGroup heading="同場過的玩家">{others.map(row)}</CommandGroup>
+            )}
+            {groups.hidden > 0 && (
+              <p className="px-3 pt-1 pb-2 text-xs text-muted-foreground">
+                {groups.searching
+                  ? `還有 ${groups.hidden} 位符合，繼續輸入縮小範圍`
+                  : `只列出場次最多的 ${OTHERS_SHOWN} 位，其餘 ${groups.hidden} 位請輸入名稱搜尋`}
+              </p>
             )}
           </CommandList>
         </Command>
