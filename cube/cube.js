@@ -84,3 +84,18 @@ module.exports = {
     return version
   },
 }
+
+// 主執行緒卡頓偵測：每 100ms 檢查一次，延遲超過 250ms 就寫一行進 cube.log。
+// Cube 的查詢編譯、結果處理全都在這一條執行緒上，它一卡，所有請求一起卡，
+// 瀏覽器那邊看起來就是「一頁的請求全部同時轉 2～3 秒」。2026-09 就是靠這個抓到
+// 服務被排程工作跑成「低於正常」優先權、被瀏覽器搶走 CPU（見 app.py 的 _normal_priority）。
+// 查法：grep "EVENT LOOP BLOCKED" cube/cube.log
+{
+  let last = Date.now()
+  setInterval(() => {
+    const now = Date.now()
+    const lag = now - last - 100
+    if (lag > 250) console.log(JSON.stringify({ message: "EVENT LOOP BLOCKED", lag, at: new Date(now).toISOString() }))
+    last = now
+  }, 100).unref()
+}

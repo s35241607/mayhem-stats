@@ -20,6 +20,7 @@ import os
 import urllib.parse
 import secrets
 import sqlite3
+import sys
 import time
 from contextlib import asynccontextmanager, closing
 from pathlib import Path
@@ -457,8 +458,33 @@ def readonly_error():
     )
 
 
+def _normal_priority():
+    """把自己的優先權拉回「正常」。要在啟動 Cube 之前做，Cube 才會跟著繼承。
+
+    排程工作預設的優先權是 7，行程會以「低於正常」執行，由它帶起來的 Cube 也一樣。
+    只要有正常優先權的程式在吃 CPU——瀏覽器正在畫圖表、英雄聯盟客戶端——
+    Python 和 Cube 就會被晾著：實測開頁面時 Cube 的主執行緒被卡住 40 次、合計 32 秒，
+    最長 5.4 秒，同一頁的請求（連不經過 Cube 的 /api/status）全部跟著排隊。
+    拉回正常之後同樣的測試是 0 次。改在這裡而不是改排程工作的設定：設定不在版控裡，
+    重建排程工作就會回到預設值。"""
+    if sys.platform != "win32":
+        return
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.windll.kernel32
+    # 要宣告成 HANDLE：預設的 int 會把 GetCurrentProcess() 的 -1 截成 32 位元，
+    # 傳回去就變成無效的 handle（錯誤碼 6），而且是靜靜地失敗
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    kernel32.SetPriorityClass.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    NORMAL_PRIORITY_CLASS = 0x20
+    if not kernel32.SetPriorityClass(kernel32.GetCurrentProcess(), NORMAL_PRIORITY_CLASS):
+        print(f"調整行程優先權失敗（錯誤碼 {kernel32.GetLastError()}），分析頁面在電腦忙碌時可能會卡住")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _normal_priority()
     if MIRROR:
         # 只讀的鏡像:不建表、不採集、不碰 Cube 的生命週期,查詢直接用 4000 埠上那份。
         print(f"鏡像模式(唯讀):埠 {PORT},共用本機的資料庫與 Cube")

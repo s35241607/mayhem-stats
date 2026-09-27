@@ -89,6 +89,13 @@ import sqlite3
 - Cube 內部各段耗時（編譯 SQL／排隊／執行）：暫時把 `cube/.env` 的 `CUBEJS_LOG_LEVEL` 改成 `trace`
   並重啟，看 `Load Request SQL`、`Performing query completed`、`Load Request Success` 的 `duration`。
   量完改回 `info`（trace 一個請求就有二十幾行）。正式模式在 `info` 不印每個請求的耗時。
+- **瀏覽器端等連線**：`scripts/stall.mjs` 量每頁的 API 請求在瀏覽器裡排隊多久（HTTP/1.1 每個網域 6 條連線），
+  以及伺服器處理多久。「一頁的請求全部一起轉好幾秒」先跑這個，分清楚是瀏覽器在排隊還是伺服器慢。
+- **伺服器慢但 SQL 很快時，先查 Cube 主執行緒有沒有被卡住**：`grep "EVENT LOOP BLOCKED" cube/cube.log`
+  （`cube/cube.js` 內建的偵測）。2026-09 查到的原因是行程優先權：排程工作預設以「低於正常」執行，
+  瀏覽器一畫圖表就把 CPU 搶走，Cube 主執行緒一卡好幾秒。`app.py` 的 `_normal_priority()` 啟動時會拉回正常，
+  用 `Get-Process` 看 `PriorityClass` 可以確認（venv 的 pythonw 啟動器本身仍是 BelowNormal，正常）。
+  **自己手動啟動的服務是正常優先權，量不到這個問題**——要重現得走排程工作。
 - 觀察過一次 Cube 行程跑久了變慢：同一批查詢，重啟前 5.9 秒、重啟後 3.7 秒（2026-09-27，原因沒查到）。
   比較改前改後時，兩邊都在剛重啟的狀態下量比較保險。
 - 整頁的體感時間：用下面的無頭瀏覽器量「點下去到內容出現」。**看一下 perf_nav 輸出的 worst frame**：
