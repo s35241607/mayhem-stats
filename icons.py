@@ -12,6 +12,7 @@
 
 import hashlib
 import threading
+import time
 from pathlib import Path
 
 import requests
@@ -96,11 +97,24 @@ def fetch(asset_path: str) -> tuple[Path | None, str]:
     return None, "unavailable"
 
 
+_stats_cache: tuple[float, dict] | None = None
+STATS_TTL = 60  # 秒
+
+
 def stats() -> dict:
+    """快取目錄的檔案數與大小。/api/status 每 30 秒輪詢一次（每個開著的分頁各一次），
+    逐檔 stat 七百多個檔案要 20ms，數字又只是顯示用，一分鐘算一次就夠。"""
+    global _stats_cache
+    now = time.monotonic()
+    if _stats_cache and now - _stats_cache[0] < STATS_TTL:
+        return _stats_cache[1]
     if not CACHE_DIR.is_dir():
-        return {"files": 0, "bytes": 0}
-    files = [f for f in CACHE_DIR.iterdir() if f.is_file() and not f.name.endswith(".part")]
-    return {"files": len(files), "bytes": sum(f.stat().st_size for f in files)}
+        result = {"files": 0, "bytes": 0}
+    else:
+        files = [f for f in CACHE_DIR.iterdir() if f.is_file() and not f.name.endswith(".part")]
+        result = {"files": len(files), "bytes": sum(f.stat().st_size for f in files)}
+    _stats_cache = (now, result)
+    return result
 
 
 def warm(conn, limit_per_kind: int = 400) -> int:

@@ -29,6 +29,7 @@ import requests
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -535,6 +536,14 @@ async def require_login(request: Request, call_next):
     if request.url.path.startswith("/api/"):
         return JSONResponse(status_code=401, content={"error": "請先登入"})
     return HTMLResponse(login_page(), status_code=401)
+
+
+# 回應壓縮，只給對外的鏡像。加在登入檢查之後＝包在最外層。
+# 朋友是從外網經 Funnel 連進來的：圖表、表格套件各 1.1MB，玩家清單 267KB，原本全部原樣傳送，
+# 壓完是 372KB、302KB、88KB。本機走 127.0.0.1 沒有頻寬問題，壓縮只是多花 CPU（1MB 約 40ms），所以不開。
+# PNG 圖示在 Starlette 的預設排除清單裡，不會白壓一次。等級 6：和預設的 9 大小差不到 1%，稍快一些。
+if PUBLIC:
+    app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 
 
 def _start_session(request: Request, who: str, discord_id: str, name: str, username: str, via: str):
