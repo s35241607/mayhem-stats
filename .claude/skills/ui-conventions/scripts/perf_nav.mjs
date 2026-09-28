@@ -6,7 +6,7 @@ import { mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 const OUT = process.argv[2] || "perf.json"
-const PAGES = ["英雄", "增幅裝置", "隊友 / 對手", "好友比較", "時段", "節奏與連敗", "敗因分析", "對局紀錄", "自由探索", "儀表板"]
+const PAGES = ["英雄", "增幅裝置", "陣容", "隊友 / 對手", "好友比較", "時段", "節奏與連敗", "敗因分析", "對局紀錄", "自由探索", "儀表板"]
 const port = +(process.argv[3] || 9450)
 const PROFILE = mkdtempSync(join(tmpdir(), "edge-perf-"))
 const edge = spawn("C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",

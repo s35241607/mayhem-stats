@@ -8,6 +8,16 @@ cubes:
   # 隊友都「不含自己」：問的是「你進場時隊上已經有什麼」，把自己算進去會和你自己的出裝混在一起
   # （你出坦克，隊友前排數就自動 +1）。
   #
+  # 「我方」開頭的維度（team_*）則含自己：問的是「這一隊整體是什麼陣容」，和敵方五人對稱，
+  # 陣容頁的對陣矩陣用它們。一隊五人的陣容相同，所以每個人查到的都一樣。
+  #
+  # 輸出組成看出裝定位，不看實際傷害：AD 鬥士／AD 輸出／AD 刺客算物理，AP 坦／AP 輸出／AP 刺客算魔法，
+  # 坦克、輔助、未成形不算。物理比魔法多 2 人以上是「物理為主」，反過來「魔法為主」，其餘「混合」。
+  # 不用 enemy_damage_type 那種實際傷害比例，是因為那是打完的結果（贏的一方傷害本來就多），
+  # 陣容應該是「開打前就看得到」的東西；出裝定位雖然也是終場裝備，至少不受傷害量影響。
+  # （全資料庫 Mayhem 780 隊：物理為主 147、混合 491、魔法為主 142；
+  #   含自己的前排 0 個 120、1 個 290、2 個 256、3 個以上 114；有輔助 116、沒有 664）
+  #
   # 分組界線看過資料分布（全資料庫 Mayhem 640 隊）：
   #   每隊前排數 0 個 94、1 個 247、2 個 207、3 個 73、4 個 19
   #   隊伍魔法傷害比例的四分位數 39%／50%／59%，所以用 40%、60% 切：約 1/4、1/2、1/4
@@ -24,6 +34,9 @@ cubes:
           WITH p AS (
             SELECT mp.rowid AS participant_rowid, mp.platform_id, mp.game_id, mp.team_id,
               CASE WHEN b.build_role IN ('坦克', 'AD 鬥士', 'AP 坦') THEN 1 ELSE 0 END AS front,
+              CASE WHEN b.build_role IN ('AD 鬥士', 'AD 輸出', 'AD 刺客') THEN 1 ELSE 0 END AS ad,
+              CASE WHEN b.build_role IN ('AP 坦', 'AP 輸出', 'AP 刺客') THEN 1 ELSE 0 END AS ap,
+              CASE WHEN b.build_role = '輔助' THEN 1 ELSE 0 END AS sup,
               COALESCE(mp.dmg_magic, 0) AS magic,
               COALESCE(mp.dmg_physical, 0) + COALESCE(mp.dmg_magic, 0) + COALESCE(mp.dmg_true, 0) AS total
             FROM match_participants mp
@@ -33,6 +46,12 @@ cubes:
             SELECT *,
               SUM(front) OVER (PARTITION BY platform_id, game_id, team_id) AS team_front,
               SUM(front) OVER (PARTITION BY platform_id, game_id) AS game_front,
+              SUM(ad) OVER (PARTITION BY platform_id, game_id, team_id) AS team_ad,
+              SUM(ad) OVER (PARTITION BY platform_id, game_id) AS game_ad,
+              SUM(ap) OVER (PARTITION BY platform_id, game_id, team_id) AS team_ap,
+              SUM(ap) OVER (PARTITION BY platform_id, game_id) AS game_ap,
+              SUM(sup) OVER (PARTITION BY platform_id, game_id, team_id) AS team_sup,
+              SUM(sup) OVER (PARTITION BY platform_id, game_id) AS game_sup,
               SUM(magic) OVER (PARTITION BY platform_id, game_id, team_id) AS team_magic,
               SUM(total) OVER (PARTITION BY platform_id, game_id, team_id) AS team_total,
               SUM(magic) OVER (PARTITION BY platform_id, game_id) AS game_magic,
@@ -43,7 +62,11 @@ cubes:
             team_front - front AS ally_front,
             game_front - team_front AS enemy_front,
             (team_magic - magic) * 1.0 / NULLIF(team_total - total, 0) AS ally_magic_ratio,
-            (game_magic - team_magic) * 1.0 / NULLIF(game_total - team_total, 0) AS enemy_magic_ratio
+            (game_magic - team_magic) * 1.0 / NULLIF(game_total - team_total, 0) AS enemy_magic_ratio,
+            team_front,
+            team_ad, game_ad - team_ad AS enemy_ad,
+            team_ap, game_ap - team_ap AS enemy_ap,
+            team_sup, game_sup - team_sup AS enemy_sup
           FROM sums
 
     # 與 participants.yml 相同的 refresh key，理由寫在那裡。SQL 必須一字不差才會被合併。
@@ -102,6 +125,67 @@ cubes:
                WHEN ally_magic_ratio >= 0.6 THEN '魔法偏多'
                WHEN ally_magic_ratio <= 0.4 THEN '物理偏多'
                ELSE '均衡' END
+        type: string
+        meta:
+          group: 陣容
+
+      # ── 雙方完整陣容（我方含自己）。陣容頁的對陣矩陣：列是我方、欄是敵方，兩邊用同一組分組 ──
+      - name: team_frontline
+        title: 我方前排數
+        description: "我方五人（含自己）裡，出裝是坦克、AD 鬥士或 AP 坦的人數：0 個、1 個、2 個、3 個以上。分組和敵方前排數相同，可以直接對照。"
+        sql: "CASE WHEN team_front = 0 THEN '0 個' WHEN team_front = 1 THEN '1 個' WHEN team_front = 2 THEN '2 個' ELSE '3 個以上' END"
+        type: string
+        meta:
+          group: 陣容
+
+      - name: team_damage_mix
+        title: 我方輸出組成
+        description: "我方五人（含自己）的出裝定位裡物理（AD 鬥士、AD 輸出、AD 刺客）與魔法（AP 坦、AP 輸出、AP 刺客）的人數差：物理多 2 人以上為「物理為主」，魔法多 2 人以上為「魔法為主」，其餘「混合」。"
+        sql: "CASE WHEN team_ad - team_ap >= 2 THEN '物理為主' WHEN team_ap - team_ad >= 2 THEN '魔法為主' ELSE '混合' END"
+        type: string
+        meta:
+          group: 陣容
+
+      - name: enemy_damage_mix
+        title: 敵方輸出組成
+        description: "敵方五人的出裝定位裡物理與魔法的人數差，分組同我方輸出組成。和「敵方傷害類型」不同：這裡看出裝，不看實際打出的傷害。"
+        sql: "CASE WHEN enemy_ad - enemy_ap >= 2 THEN '物理為主' WHEN enemy_ap - enemy_ad >= 2 THEN '魔法為主' ELSE '混合' END"
+        type: string
+        meta:
+          group: 陣容
+
+      - name: team_support
+        title: 我方輔助
+        description: "我方五人（含自己）裡有沒有出輔助裝的人。"
+        sql: "CASE WHEN team_sup > 0 THEN '有輔助' ELSE '沒有輔助' END"
+        type: string
+        meta:
+          group: 陣容
+
+      - name: enemy_support
+        title: 敵方輔助
+        description: "敵方五人裡有沒有出輔助裝的人。"
+        sql: "CASE WHEN enemy_sup > 0 THEN '有輔助' ELSE '沒有輔助' END"
+        type: string
+        meta:
+          group: 陣容
+
+      - name: team_comp
+        title: 我方陣容類型
+        description: "我方前排數 × 我方輸出組成，例如「2 前排・物理為主」。前排 3 個以上寫成「3+ 前排」。"
+        sql: >
+          (CASE WHEN team_front >= 3 THEN '3+' ELSE CAST(team_front AS TEXT) END) || ' 前排・' ||
+          (CASE WHEN team_ad - team_ap >= 2 THEN '物理為主' WHEN team_ap - team_ad >= 2 THEN '魔法為主' ELSE '混合' END)
+        type: string
+        meta:
+          group: 陣容
+
+      - name: enemy_comp
+        title: 敵方陣容類型
+        description: "敵方前排數 × 敵方輸出組成，分組同我方陣容類型。"
+        sql: >
+          (CASE WHEN enemy_front >= 3 THEN '3+' ELSE CAST(enemy_front AS TEXT) END) || ' 前排・' ||
+          (CASE WHEN enemy_ad - enemy_ap >= 2 THEN '物理為主' WHEN enemy_ap - enemy_ad >= 2 THEN '魔法為主' ELSE '混合' END)
         type: string
         meta:
           group: 陣容

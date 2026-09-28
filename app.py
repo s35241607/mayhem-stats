@@ -901,6 +901,7 @@ def recent_matches(
     champion: Optional[str] = None,
     augment: Optional[str] = None,
     game_ids: Optional[str] = None,
+    participants: Optional[str] = None,
 ):
     """指定帳號的對局清單，預設是本機帳號。
 
@@ -921,6 +922,10 @@ def recent_matches(
     對局長度的界線、節奏頁的「前一場」「當日第幾場」原本在這裡各有一份副本
     (後者還抄了一次視窗函數),語意層改規則時副本不會跟著動,
     會變成「圖上 12 場、點進去 9 場」而且沒有人發現。
+
+    participants 是 game_ids 的參賽者版本(`game_id:participant_id`,逗號分隔):一樣由 Cube 決定
+    是哪幾位,給「一場裡要挑特定一人」的下鑽用——陣容是整隊的屬性,所有人模式下
+    一格要列的是「那一隊」,只給 game_ids 會把兩隊十個人全列出來。通常配上 puuid=*。
 
     puuid 決定每一列是「誰的那一列」:不給是本機帳號;逗號分隔是其中任何一人
     (英雄頁「追蹤對象」);`*` 是所有參賽者(英雄頁「所有人」)。後兩種一場可能有好幾列,
@@ -996,6 +1001,17 @@ def recent_matches(
                 return JSONResponse(status_code=400, content={"error": f"game_ids 最多 {MAX_GAME_IDS} 個"})
             slice_sql += f" AND m.game_id IN ({','.join('?' for _ in ids) or 'NULL'})"
             slice_params.extend(ids)
+        if participants is not None:
+            try:
+                pairs = [tuple(int(v) for v in x.split(":")) for x in participants.split(",") if x.strip()]
+                if any(len(pair) != 2 for pair in pairs):
+                    raise ValueError
+            except ValueError:
+                return JSONResponse(status_code=400, content={"error": "participants 必須是逗號分隔的 game_id:participant_id"})
+            if len(pairs) > MAX_GAME_IDS:
+                return JSONResponse(status_code=400, content={"error": f"participants 最多 {MAX_GAME_IDS} 個"})
+            slice_sql += f" AND (mp.game_id, mp.participant_id) IN ({','.join('(?,?)' for _ in pairs) or '(NULL,NULL)'})"
+            slice_params.extend(v for pair in pairs for v in pair)
         if augment is not None:
             slice_sql += """
                 AND EXISTS (SELECT 1 FROM participant_augments pa JOIN dim_augments da ON da.id = pa.augment_id

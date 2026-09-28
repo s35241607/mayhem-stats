@@ -17,6 +17,7 @@ import {
   ChevronRight,
   Filter,
   GitCompareArrows,
+  Shield,
 } from "lucide-react"
 import {
   Sidebar,
@@ -55,6 +56,7 @@ export type PageId =
   | "matches"
   | "champions"
   | "augments"
+  | "lineups"
   | "players"
   | "crew"
   | "time"
@@ -76,6 +78,7 @@ const NAV: { group: string; items: { id: PageId; label: string; icon: typeof Zap
     items: [
       { id: "champions", label: "英雄", icon: Swords },
       { id: "augments", label: "增幅裝置", icon: Sparkles },
+      { id: "lineups", label: "陣容", icon: Shield },
       { id: "players", label: "隊友 / 對手", icon: Users },
       { id: "crew", label: "好友比較", icon: GitCompareArrows },
       { id: "time", label: "時段", icon: CalendarClock },
@@ -99,6 +102,7 @@ const PAGE_TITLES: Record<PageId, { title: string; caption: string }> = {
   losses: { title: "敗因分析", caption: "輸的時候，哪些數字和贏的時候不一樣" },
   champions: { title: "英雄", caption: "每個英雄的場次、勝率與輸出表現" },
   augments: { title: "增幅裝置", caption: "各增幅的勝率，以及在特定英雄上的契合度" },
+  lineups: { title: "陣容", caption: "我方與敵方的陣容（前排、物理／魔法、輔助）對上時的勝率" },
   players: { title: "隊友 / 對手", caption: "和朋友一起打會不會贏、和誰同隊會贏、遇到誰會輸" },
   crew: { title: "好友比較", caption: "你和追蹤中的好友並排比較：整體戰績、各類型勝率與擅長的英雄" },
   time: { title: "時段", caption: "每天、星期與時段的表現分佈" },

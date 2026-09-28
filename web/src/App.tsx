@@ -19,6 +19,7 @@ const LOADERS = {
   losses: () => import("@/pages/Losses").then((m) => m.Losses),
   champions: () => import("@/pages/Champions").then((m) => m.Champions),
   augments: () => import("@/pages/Augments").then((m) => m.Augments),
+  lineups: () => import("@/pages/Lineups").then((m) => m.Lineups),
   players: () => import("@/pages/Players").then((m) => m.Players),
   crew: () => import("@/pages/Crew").then((m) => m.Crew),
   time: () => import("@/pages/TimeAnalysis").then((m) => m.TimeAnalysis),

@@ -7,7 +7,7 @@ import { prefersReducedMotion } from "@/lib/motion"
 import { useCrumb } from "@/lib/breadcrumb"
 import { useCube } from "@/hooks/useCube"
 import { useFilters } from "@/lib/filters"
-import { MAX_GAME_IDS, type CubeQuery } from "@/lib/cube"
+import { MAX_GAME_IDS, type CubeQuery, type CubeRow } from "@/lib/cube"
 import { MatchCards, MatchDetail, matchCrumbLabel, type MatchPick, type MatchRow } from "@/pages/Matches"
 
 export { MAX_GAME_IDS }
@@ -29,6 +29,7 @@ export function CubeMatchList({
   listKey,
   params,
   showPlayer,
+  rowsToParams,
 }: {
   query: CubeQuery | null
   gameIdKey: string
@@ -37,23 +38,30 @@ export function CubeMatchList({
   /** 蓋過全域條件的 /api/matches 參數。英雄頁「所有人」用 puuid=* 加 champion，每一列就是玩這隻英雄的那個人 */
   params?: Record<string, string>
   showPlayer?: boolean
+  /** 不用 game_ids、改由 Cube 的列自己組出 /api/matches 參數（例如 participants=遊戲:參賽者）。
+   *  回傳 null 表示沒有東西可列 */
+  rowsToParams?: (rows: CubeRow[]) => { params: Record<string, string>; count: number } | null
 }) {
   const { matchParams, account } = useFilters()
   const ids = useCube(query)
   if (ids.loading) return <Skeleton className="h-40 w-full" />
   if (ids.error) return <div className="text-sm text-destructive">{ids.error}</div>
-  const gameIds = ids.rows.map((r) => String(r[gameIdKey]))
-  if (!gameIds.length) return <EmptyState>這個條件下沒有對局。</EmptyState>
+  const built = rowsToParams
+    ? rowsToParams(ids.rows)
+    : ids.rows.length
+      ? { params: { game_ids: ids.rows.map((r) => String(r[gameIdKey])).join(",") }, count: ids.rows.length }
+      : null
+  if (!built || !built.count) return <EmptyState>這個條件下沒有對局。</EmptyState>
   return (
     <div className="space-y-2">
-      {gameIds.length >= MAX_GAME_IDS && (
+      {built.count >= MAX_GAME_IDS && (
         <p className="text-[11px] text-muted-foreground">
           符合的條件超過 {MAX_GAME_IDS} 場，這裡只列出其中 {MAX_GAME_IDS} 場。縮小期間或再加一個條件就能看全。
         </p>
       )}
       <MatchList
         key={listKey}
-        params={{ ...matchParams(), ...params, game_ids: gameIds.join(",") }}
+        params={{ ...matchParams(), ...params, ...built.params }}
         puuid={account?.puuid}
         showPlayer={showPlayer}
       />
@@ -73,6 +81,7 @@ export function DrillPanel({
   puuid,
   matchParams,
   showPlayer,
+  rowsToParams,
   onClose,
 }: {
   title: string
@@ -83,6 +92,7 @@ export function DrillPanel({
   /** 搭配 query：蓋過全域條件的 /api/matches 參數（見 CubeMatchList 的 params） */
   matchParams?: Record<string, string>
   showPlayer?: boolean
+  rowsToParams?: (rows: CubeRow[]) => { params: Record<string, string>; count: number } | null
   onClose: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
@@ -108,6 +118,7 @@ export function DrillPanel({
             listKey={`${title}|${matchParams?.puuid ?? ""}`}
             params={matchParams}
             showPlayer={showPlayer}
+            rowsToParams={rowsToParams}
           />
         ) : (
           <MatchList params={params!} puuid={puuid} />

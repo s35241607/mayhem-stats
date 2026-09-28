@@ -14,6 +14,8 @@ views:
       問「我」的數字請加 segment mine（只看本機帳號），只看 Mayhem 請加 segment mayhem。
       不加 mine 也不指定 riot_id 的話，會得到所有已收錄玩家的玩家對局數；不可把它當成單一玩家勝率。
       games/wins/losses 是玩家對局粒度；match_count 才是不重複的遊戲對局數。
+      問陣容（comp_context 的 team_*／enemy_*）的勝率用 lineup_games／lineup_wins／lineup_winrate：以（對局, 隊伍）去重，
+      多人視角下同一隊不會被算五次。
       以 augment 或 item 分組時一場會出現在多列底下，玩家對局數與勝率仍以 distinct 玩家對局列計算。
       participant_context 提供前一場結果、休息與 session 階段；team_context 提供我方／敵方隊伍差距與首塔等終場資訊。
       按天分組用 local_date；用 played_at 篩日期區間時查詢要帶 "timezone": "Asia/Taipei"。
@@ -43,6 +45,13 @@ views:
           - losses
           - match_count
           - winrate
+          # team_context 的 games／wins／winrate 在這個 view 已經叫 team_*，這三個改名避開
+          - name: team_games
+            alias: lineup_games
+          - name: team_wins
+            alias: lineup_wins
+          - name: team_winrate
+            alias: lineup_winrate
           - deaths_per_10min
           - taken_per_min
           - mitigated_per_min
@@ -214,6 +223,13 @@ views:
           - name: enemy_frontline
           - name: enemy_damage_type
           - name: ally_damage_type
+          - name: team_frontline
+          - name: team_damage_mix
+          - name: enemy_damage_mix
+          - name: team_support
+          - name: enemy_support
+          - name: team_comp
+          - name: enemy_comp
 
       - join_path: participants.contribution
         includes:

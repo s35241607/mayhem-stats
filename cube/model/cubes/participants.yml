@@ -348,6 +348,37 @@ cubes:
           group: 基本
           decimals: 0
 
+      # 陣容頁用：以「隊伍」為單位計數。所有人模式下一隊五人各是一列，用 games 會把同一隊算五次；
+      # 陣容是整隊的屬性，所以場次要去重到（對局, 隊伍）。只看一個帳號時和 games 相同。
+      - name: team_games
+        title: 隊伍場次
+        description: "不重複的（對局, 隊伍）數。多人視角下同一隊只算一次；單一玩家視角等同 games。"
+        sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id || ':' || {CUBE}.team_id"
+        type: count_distinct
+        meta:
+          group: 基本
+          decimals: 0
+
+      - name: team_wins
+        title: 隊伍勝場
+        description: "team_games 裡贏的隊伍數。"
+        sql: "CASE WHEN {CUBE}.win = 1 THEN {CUBE}.platform_id || ':' || {CUBE}.game_id || ':' || {CUBE}.team_id END"
+        type: count_distinct
+        meta:
+          group: 基本
+          decimals: 0
+
+      - name: team_winrate
+        title: 隊伍勝率
+        description: "team_wins / team_games。"
+        sql: "100.0 * {team_wins} / NULLIF({team_games}, 0)"
+        type: number
+        format: percent
+        meta:
+          group: 基本
+          unit: "%"
+          decimals: 1
+
       - name: match_count
         title: 對局數
         description: "不重複的遊戲對局數。跨玩家查詢時用來看實際打了幾場；和玩家對局數不同。"
