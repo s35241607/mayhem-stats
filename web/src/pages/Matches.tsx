@@ -514,12 +514,24 @@ function MatchCardChunk({
               "slide-in",
               // 勝敗靠底色與文字傳達就夠了。先前用高彩度的左側粗邊，
               // 二十列疊起來像斑馬紋，反而蓋過內容。
-              "flex w-full flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border px-3 py-2.5 text-left transition",
+              "flex w-full flex-wrap items-center rounded-lg border px-3 text-left transition",
+              // 有標頭時數據列要擠進抽屜寬度（約 900px）一行放完，間距收一點
+              showPlayer ? "gap-x-3 gap-y-1.5 py-2" : "gap-x-4 gap-y-2 py-2.5",
               m.win
                 ? "border-win/20 bg-win/[0.06] hover:bg-win/[0.11]"
                 : "border-loss/20 bg-loss/[0.06] hover:bg-loss/[0.11]",
             )}
           >
+            {/* 每列可能是不同玩家時：誰、出裝定位、英雄、日期收成左上一行標頭（w-full 自成一行），
+                下面的數據列就不必再擠右側那一欄——原本那欄在抽屜寬度下會把卡片撐成兩倍高 */}
+            {showPlayer && (
+              <div className="flex w-full min-w-0 items-center gap-2 text-xs">
+                <span className="truncate font-semibold" title={m.riot_id ?? undefined}>{m.riot_id ?? "—"}</span>
+                {role && <RoleChip role={role} />}
+                <span className="shrink-0 text-muted-foreground">{m.champion_name}</span>
+                <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">{fmtDate(m.game_creation)}</span>
+              </div>
+            )}
             <div className="relative shrink-0">
               <img src={iconUrl(m.champion_icon)} alt="" className="size-11 rounded-md bg-icon-tile" />
               <span className="absolute -bottom-1 -right-1 rounded bg-background px-1 text-[10px] font-bold tabular-nums">
@@ -541,30 +553,27 @@ function MatchCardChunk({
               <div className="text-sm font-semibold tabular-nums">
                 {m.kills} / <span className="text-loss">{m.deaths}</span> / {m.assists}
               </div>
-              <div className="text-[11px] text-muted-foreground">
+              <div className="whitespace-nowrap text-[11px] text-muted-foreground">
                 KDA {kda} · 參團 {kp}%
               </div>
             </div>
 
-            <div className="w-[92px] text-right text-[11px] text-muted-foreground tabular-nums">
+            <div className={cn("text-right text-[11px] text-muted-foreground tabular-nums", showPlayer ? "w-[64px]" : "w-[92px]")}>
               <div>{m.cs} 補兵</div>
               <div>{k(m.gold_earned)} 金錢</div>
             </div>
 
             <RosterRow roster={m.roster ?? []} teamId={m.team_id} self={m.participant_id} />
 
-            <div className="ml-auto text-right">
-              <div className="flex items-center justify-end gap-1.5 text-xs text-muted-foreground">
-                {role && <RoleChip role={role} />}
-                {m.champion_name}
-              </div>
-              {showPlayer && (
-                <div className="whitespace-nowrap text-xs font-medium">
-                  {m.riot_id ?? "—"}
+            {!showPlayer && (
+              <div className="ml-auto text-right">
+                <div className="flex items-center justify-end gap-1.5 text-xs text-muted-foreground">
+                  {role && <RoleChip role={role} />}
+                  {m.champion_name}
                 </div>
-              )}
-              <div className="text-[11px] text-muted-foreground">{fmtDate(m.game_creation)}</div>
-            </div>
+                <div className="text-[11px] text-muted-foreground">{fmtDate(m.game_creation)}</div>
+              </div>
+            )}
 
             {m.penta_kills > 0 && <Badge className="bg-gold/20 text-gold">五殺</Badge>}
             {m.penta_kills === 0 && m.quadra_kills > 0 && <Badge variant="secondary">四殺</Badge>}
