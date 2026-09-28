@@ -1,0 +1,49 @@
+import { useMemo } from "react"
+import type { CubeFilter, CubeQuery } from "@/lib/cube"
+import { useFilters } from "@/lib/filters"
+
+/** 看誰的數據：目前帳號（其他頁一樣的預設）、追蹤對象裡的人、或資料庫裡出現過的所有參賽者 */
+export type Who = "account" | "tracked" | "all"
+
+export const WHO_LABEL: Record<Who, string> = {
+  account: "目前帳號",
+  tracked: "追蹤對象",
+  all: "所有人",
+}
+
+export type WhoScope = {
+  who: Who
+  /** 追蹤對象的人數；0 時「追蹤對象」模式沒有東西可看 */
+  trackedCount: number
+  /** 把全域條件（模式、期間、下鑽）和「看誰」一起套進查詢 */
+  q: (query: CubeQuery) => CubeQuery
+  /** 戰績刻度與說明文字裡的「誰的整體勝率」 */
+  baselineLabel: string
+  /** 逐場列表要蓋過的 /api/matches 參數（再加上鎖定「那一列是誰」的 champion 或 augment）；
+   *  目前帳號時不蓋，沿用全域的帳號 */
+  matchParams: (extra: Record<string, string>) => Record<string, string> | undefined
+}
+
+/** 「追蹤對象」是 accounts.tracked 的那群人（不含本機帳號），和追蹤對象頁是同一份。
+ *  「所有人」不鎖玩家：一場十個人都算，所以整體勝率會接近 50%。
+ *  兩者都照樣套模式、期間與全域下鑽，只是拿掉「目前帳號」這個條件。 */
+export function useWhoScope(who: Who): WhoScope {
+  const { apply, players } = useFilters()
+  const tracked = useMemo(() => players.filter((p) => p.tracked).map((p) => p.puuid), [players])
+  return useMemo(() => {
+    const byPlayers: CubeFilter = { member: "participants.puuid", operator: "equals", values: tracked }
+    return {
+      who,
+      trackedCount: tracked.length,
+      q:
+        who === "account"
+          ? (query) => apply(query)
+          : who === "tracked"
+            ? (query) => apply({ ...query, filters: [byPlayers, ...(query.filters ?? [])] }, "all")
+            : (query) => apply(query, "all"),
+      baselineLabel: who === "account" ? "你的整體勝率" : `${WHO_LABEL[who]}的整體勝率`,
+      matchParams: (extra) =>
+        who === "account" ? undefined : { puuid: who === "all" ? "*" : tracked.join(","), ...extra },
+    }
+  }, [apply, who, tracked])
+}
