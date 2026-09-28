@@ -39,6 +39,9 @@ export type MatchRow = {
   team_kills: number
   penta_kills: number
   quadra_kills: number
+  /** 這一列是誰。英雄頁切到「所有人」「追蹤對象」時，每一列可能是不同玩家 */
+  puuid?: string
+  riot_id?: string | null
   items: Item[]
   augments: Augment[]
   roster: Mate[]
@@ -456,20 +459,26 @@ const ROLE_CHUNK = 50
 const keyOf = (m: { platform_id: string; game_id: number; participant_id: number }) =>
   participantKey(m.platform_id, m.game_id, m.participant_id)
 
-/** 一場一張卡片。對局紀錄頁和各頁的下鑽列表（英雄、時段、隊友）共用同一種呈現。 */
+/** 點了哪一張卡片。一場可能有好幾張（「所有人」模式下同一場兩位追蹤的人），所以帶上參賽者與玩家 */
+export type MatchPick = { platformId: string; gameId: number; participantId: number; puuid?: string }
+
+/** 一場一張卡片。對局紀錄頁和各頁的下鑽列表（英雄、時段、隊友）共用同一種呈現。
+ *  showPlayer：每一列不一定是同一個人時，在英雄名稱旁標出是誰玩的。 */
 export function MatchCards({
   rows,
   onPick,
+  showPlayer = false,
 }: {
   rows: MatchRow[]
-  onPick: (match: { platformId: string; gameId: number }) => void
+  onPick: (match: MatchPick) => void
+  showPlayer?: boolean
 }) {
   const chunks: MatchRow[][] = []
   for (let i = 0; i < rows.length; i += ROLE_CHUNK) chunks.push(rows.slice(i, i + ROLE_CHUNK))
   return (
     <div className="space-y-1.5">
       {chunks.map((chunk, ci) => (
-        <MatchCardChunk key={ci} rows={chunk} offset={ci * ROLE_CHUNK} onPick={onPick} />
+        <MatchCardChunk key={ci} rows={chunk} offset={ci * ROLE_CHUNK} onPick={onPick} showPlayer={showPlayer} />
       ))}
     </div>
   )
@@ -479,10 +488,12 @@ function MatchCardChunk({
   rows,
   offset,
   onPick,
+  showPlayer,
 }: {
   rows: MatchRow[]
   offset: number
-  onPick: (match: { platformId: string; gameId: number }) => void
+  onPick: (match: MatchPick) => void
+  showPlayer: boolean
 }) {
   // 這場的出裝定位：向 Cube 查（見 useBuildRoles）
   const roleOf = useBuildRoles(rows.map(keyOf))
@@ -495,8 +506,8 @@ function MatchCardChunk({
         const kp = m.team_kills ? Math.round(((m.kills + m.assists) / m.team_kills) * 100) : 0
         return (
           <button
-            key={`${m.platform_id}:${m.game_id}`}
-            onClick={() => onPick({ platformId: m.platform_id, gameId: m.game_id })}
+            key={keyOf(m)}
+            onClick={() => onPick({ platformId: m.platform_id, gameId: m.game_id, participantId: m.participant_id, puuid: m.puuid })}
             // 一列一列滑進來；「再顯示 20 場」時新增的那批從 0 開始錯開，不會等上一批的延遲
             style={{ "--stagger": `${(i % 20) * 30}ms` } as CSSProperties}
             className={cn(
@@ -547,6 +558,11 @@ function MatchCardChunk({
                 {role && <RoleChip role={role} />}
                 {m.champion_name}
               </div>
+              {showPlayer && (
+                <div className="whitespace-nowrap text-xs font-medium">
+                  {m.riot_id ?? "—"}
+                </div>
+              )}
               <div className="text-[11px] text-muted-foreground">{fmtDate(m.game_creation)}</div>
             </div>
 

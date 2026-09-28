@@ -8,7 +8,7 @@ import { useCrumb } from "@/lib/breadcrumb"
 import { useCube } from "@/hooks/useCube"
 import { useFilters } from "@/lib/filters"
 import { MAX_GAME_IDS, type CubeQuery } from "@/lib/cube"
-import { MatchCards, MatchDetail, matchCrumbLabel, type MatchRow } from "@/pages/Matches"
+import { MatchCards, MatchDetail, matchCrumbLabel, type MatchPick, type MatchRow } from "@/pages/Matches"
 
 export { MAX_GAME_IDS }
 
@@ -27,11 +27,16 @@ export function CubeMatchList({
   query,
   gameIdKey,
   listKey,
+  params,
+  showPlayer,
 }: {
   query: CubeQuery | null
   gameIdKey: string
   /** 換條件時強制重新掛載列表（清掉開著的戰報與捲動位置） */
   listKey?: string
+  /** 蓋過全域條件的 /api/matches 參數。英雄頁「所有人」用 puuid=* 加 champion，每一列就是玩這隻英雄的那個人 */
+  params?: Record<string, string>
+  showPlayer?: boolean
 }) {
   const { matchParams, account } = useFilters()
   const ids = useCube(query)
@@ -46,7 +51,12 @@ export function CubeMatchList({
           符合的條件超過 {MAX_GAME_IDS} 場，這裡只列出其中 {MAX_GAME_IDS} 場。縮小期間或再加一個條件就能看全。
         </p>
       )}
-      <MatchList key={listKey} params={{ ...matchParams(), game_ids: gameIds.join(",") }} puuid={account?.puuid} />
+      <MatchList
+        key={listKey}
+        params={{ ...matchParams(), ...params, game_ids: gameIds.join(",") }}
+        puuid={account?.puuid}
+        showPlayer={showPlayer}
+      />
     </div>
   )
 }
@@ -104,17 +114,22 @@ type Loaded = { matches: MatchRow[]; total: number; wins: number }
 export function MatchList({
   params,
   puuid,
+  showPlayer = false,
 }: {
   /** 直接送給 /api/matches 的查詢參數 */
   params: Record<string, string>
-  /** 戰報要以誰為主角標示 */
+  /** 戰報要以誰為主角標示（列上有玩家時以列上的為準） */
   puuid?: string
+  /** 每一列不一定是同一個人時，卡片上標出是誰玩的 */
+  showPlayer?: boolean
 }) {
   const [data, setData] = useState<Loaded | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
-  const [picked, setPicked] = useState<{ platformId: string; gameId: number } | null>(null)
-  const pickedRow = picked ? data?.matches.find((m) => m.platform_id === picked.platformId && m.game_id === picked.gameId) : undefined
+  const [picked, setPicked] = useState<MatchPick | null>(null)
+  const pickedRow = picked
+    ? data?.matches.find((m) => m.platform_id === picked.platformId && m.game_id === picked.gameId && m.participant_id === picked.participantId)
+    : undefined
   useCrumb(90, pickedRow ? matchCrumbLabel(pickedRow) : picked ? "單場戰報" : null, () => setPicked(null))
   const key = new URLSearchParams(params).toString()
 
@@ -164,8 +179,10 @@ export function MatchList({
         // 用函式更新：以目前的列表為準接上去，並略過重複的（兩批之間剛好採集到新對局時，位移會錯開一場）
         setData((cur) => {
           if (!cur) return cur
-          const seen = new Set(cur.matches.map((m) => `${m.platform_id}:${m.game_id}`))
-          const fresh = d.matches.filter((m) => !seen.has(`${m.platform_id}:${m.game_id}`))
+          // 以參賽者為鍵：「所有人」模式下同一場可能有兩列（兩個人都玩這隻）
+          const rowKey = (m: MatchRow) => `${m.platform_id}:${m.game_id}:${m.participant_id}`
+          const seen = new Set(cur.matches.map(rowKey))
+          const fresh = d.matches.filter((m) => !seen.has(rowKey(m)))
           return { matches: [...cur.matches, ...fresh], total: d.total ?? cur.total, wins: d.wins ?? cur.wins }
         })
       })
@@ -189,7 +206,7 @@ export function MatchList({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, hasMore, picked, loadingMore])
 
-  const pick = (m: { platformId: string; gameId: number }) => {
+  const pick = (m: MatchPick) => {
     savedScroll.current = window.scrollY
     setPicked(m)
     // 戰報從列表頂端開始畫；若列表已經捲很深，要捲回戰報的位置才看得到
@@ -208,7 +225,7 @@ export function MatchList({
       <MatchDetail
         platformId={picked.platformId}
         gameId={picked.gameId}
-        puuid={puuid}
+        puuid={picked.puuid ?? puuid}
         onBack={() => setPicked(null)}
       />
     )
@@ -231,7 +248,7 @@ export function MatchList({
         <div className="text-xs text-muted-foreground">
           共 {total} 場・{wins} 勝 {total - wins} 敗・勝率 {((wins / total) * 100).toFixed(1)}%・點任一場看完整戰報
         </div>
-        <MatchCards rows={matches} onPick={pick} />
+        <MatchCards rows={matches} onPick={pick} showPlayer={showPlayer} />
         <div ref={sentinelRef} />
         {error ? (
           <Button size="sm" variant="outline" className="w-full" onClick={() => { setError(null); loadMore() }}>

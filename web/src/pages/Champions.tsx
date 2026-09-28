@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from "react"
+import { createContext, useContext, useMemo, useState, type CSSProperties } from "react"
 import { BarCell, RecordCell, StatCell } from "@/components/cells"
 import { Filter, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -9,7 +9,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { CubeMatchList } from "@/components/MatchList"
 import { RadarChart, type RadarDatum } from "@/components/charts"
 import { useCube } from "@/hooks/useCube"
-import { MAX_GAME_IDS, iconUrl, num, type CubeFilter, type CubeRow } from "@/lib/cube"
+import { MAX_GAME_IDS, iconUrl, num, type CubeFilter, type CubeQuery, type CubeRow } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 import { useCrumb } from "@/lib/breadcrumb"
 import { DetailDrawer, useDrawerSettled } from "@/components/DetailDrawer"
@@ -17,6 +17,56 @@ import { cn } from "@/lib/utils"
 import { MIN_GAMES, NO_LIMIT, round0, round1, round2 } from "./shared"
 import { ROLE_SPEC, type RoleSpec } from "@/lib/roleBasis"
 import { RoleChip } from "@/components/RoleChip"
+
+/** 看誰的數據：目前帳號（其他頁一樣的預設）、追蹤對象裡的人、或資料庫裡出現過的所有參賽者 */
+type Who = "account" | "tracked" | "all"
+
+const WHO_OPTIONS: { value: Who; label: string }[] = [
+  { value: "account", label: "目前帳號" },
+  { value: "tracked", label: "追蹤對象" },
+  { value: "all", label: "所有人" },
+]
+
+type WhoScope = {
+  who: Who
+  /** 把全域條件（模式、期間、下鑽）和「看誰」一起套進查詢 */
+  q: (query: CubeQuery) => CubeQuery
+  /** 戰績刻度與說明文字裡的「誰的整體勝率」 */
+  baselineLabel: string
+  /** 逐場列表要蓋過的 /api/matches 參數；目前帳號時不蓋（沿用全域的帳號） */
+  matchParams: (champion: string) => Record<string, string> | undefined
+}
+
+const WhoContext = createContext<WhoScope | null>(null)
+const useWho = () => {
+  const ctx = useContext(WhoContext)
+  if (!ctx) throw new Error("useWho 必須在英雄頁內使用")
+  return ctx
+}
+
+/** 「追蹤對象」是 accounts.tracked 的那群人（不含本機帳號），和追蹤對象頁是同一份。
+ *  「所有人」不鎖玩家：一場十個人都算，所以整體勝率會接近 50%。
+ *  兩者都照樣套模式、期間與全域下鑽，只是拿掉「目前帳號」這個條件。 */
+function useWhoScope(who: Who): WhoScope & { trackedCount: number } {
+  const { apply, players } = useFilters()
+  const tracked = useMemo(() => players.filter((p) => p.tracked).map((p) => p.puuid), [players])
+  return useMemo(() => {
+    const byPlayers: CubeFilter = { member: "participants.puuid", operator: "equals", values: tracked }
+    return {
+      who,
+      trackedCount: tracked.length,
+      q:
+        who === "account"
+          ? (query) => apply(query)
+          : who === "tracked"
+            ? (query) => apply({ ...query, filters: [byPlayers, ...(query.filters ?? [])] }, "all")
+            : (query) => apply(query, "all"),
+      baselineLabel: who === "account" ? "你的整體勝率" : who === "tracked" ? "追蹤對象的整體勝率" : "所有人的整體勝率",
+      matchParams: (champion) =>
+        who === "account" ? undefined : { puuid: who === "all" ? "*" : tracked.join(","), champion },
+    }
+  }, [apply, who, tracked])
+}
 
 /** 每隻英雄出過哪些出裝定位、各幾場（多到少） */
 type RoleMix = Map<string, { role: string; games: number }[]>
@@ -41,7 +91,7 @@ const opt = (r: Record<string, unknown>, k: string) => num(r[k] as string | numb
 
 /** 10 欄一格一個數字 → 5 欄複合格子。被合併的原始欄位留成隱藏欄，匯出 CSV 仍帶得出來。
  *  資料條的最大值與平均線依目前資料算，所以欄位定義要跟著資料重建。 */
-function buildColumns(rows: CubeRow[], overallWr: number | null, roleMix: RoleMix): GridColumn[] {
+function buildColumns(rows: CubeRow[], overallWr: number | null, roleMix: RoleMix, baselineLabel: string): GridColumn[] {
   // 最大值只看樣本夠的英雄，免得一場打出 5000 的把整欄的條壓扁
   const solid = rows.filter((r) => n0(r, "participants.games") >= MIN_GAMES)
   const pool = solid.length ? solid : rows
@@ -50,7 +100,7 @@ function buildColumns(rows: CubeRow[], overallWr: number | null, roleMix: RoleMi
   const avgDpm = totalGames
     ? rows.reduce((a, r) => a + n0(r, "participants.dpm") * n0(r, "participants.games"), 0) / totalGames
     : null
-  // 戰績刻度一律是「你的整體勝率」，不從表格各列回推：六邊形篩成某一類之後，
+  // 戰績刻度一律是「整體勝率」（你的、追蹤對象的或所有人的），不從表格各列回推：六邊形篩成某一類之後，
   // 回推出來的會變成那一類的平均，刻度跟著移動，就看不出這一類整體是高是低
   const avgWr = overallWr
 
@@ -101,7 +151,7 @@ function buildColumns(rows: CubeRow[], overallWr: number | null, roleMix: RoleMi
           wins={n0(r, "participants.wins")}
           losses={n0(r, "participants.losses")}
           baseline={avgWr}
-          baselineLabel="你的整體勝率"
+          baselineLabel={baselineLabel}
         />
       ),
     },
@@ -226,6 +276,7 @@ function BuildList({
  *  表格留在原位、那一列保持選取，關掉就回到剛才的位置，也不會打亂六邊形的篩選。 */
 function ChampionDrawer({ row, onClose }: { row: CubeRow | undefined; onClose: () => void }) {
   const { addDrill, drills } = useFilters()
+  const { who } = useWho()
   const name = row ? String(row["champions.name"]) : ""
   const drilled = drills.some((d) => d.member === "champions.name" && d.values[0] === name)
   const games = row ? num(row["participants.games"]) : null
@@ -234,7 +285,7 @@ function ChampionDrawer({ row, onClose }: { row: CubeRow | undefined; onClose: (
       open={!!row}
       onClose={onClose}
       title={name}
-      subtitle={`${games === null ? "—" : round0(games)} 場 · 出裝、增幅與每一場`}
+      subtitle={`${who === "account" ? "" : `${WHO_OPTIONS.find((o) => o.value === who)!.label} · `}${games === null ? "—" : round0(games)} 場 · 出裝、增幅與每一場`}
       icon={row ? iconUrl(row["champions.icon_path"] as string) : undefined}
       actions={
         <Button
@@ -254,7 +305,7 @@ function ChampionDrawer({ row, onClose }: { row: CubeRow | undefined; onClose: (
 }
 
 function ChampionDetail({ row }: { row: CubeRow }) {
-  const { apply } = useFilters()
+  const { q: apply, who, matchParams } = useWho()
   const name = String(row["champions.name"])
   const onlyThis = useMemo(
     () => [{ member: "champions.name", operator: "equals" as const, values: [name] }],
@@ -331,7 +382,10 @@ function ChampionDetail({ row }: { row: CubeRow }) {
         {slid ? (
           <CubeMatchList
             gameIdKey="matches.game_id"
-            listKey={name}
+            listKey={`${who}|${name}`}
+            // 目前帳號以外：每一列是「那場玩這隻英雄的人」，卡片上標出是誰
+            params={matchParams(name)}
+            showPlayer={who !== "account"}
             query={apply({
               measures: ["participants.games"],
               dimensions: ["matches.game_id"],
@@ -368,7 +422,7 @@ function RoleRadar({
   totalGames: number
   onRole: (role: string | null) => void
 }) {
-  const { apply } = useFilters()
+  const { q: apply, baselineLabel } = useWho()
   const [mode, setMode] = useState<RadarMode>("games")
   const byRole = useCube(
     apply({
@@ -419,8 +473,8 @@ function RoleRadar({
       )}
       <p className="text-center text-[11px] text-muted-foreground">
         {mode === "games"
-          ? "形狀是場次；頂點下是勝率與場次，比你的整體勝率明顯高／低才上色（場次少的先往平均收斂）"
-          : `形狀是勝率（外框 100%）；虛線圈是你的整體勝率 ${baseline?.toFixed(1) ?? "—"}%，頂點在圈外就是這類比平常會贏`}
+          ? `形狀是場次；頂點下是勝率與場次，比${baselineLabel}明顯高／低才上色（場次少的先往平均收斂）`
+          : `形狀是勝率（外框 100%）；虛線圈是${baselineLabel} ${baseline?.toFixed(1) ?? "—"}%，頂點在圈外就是這類比平常會贏`}
         。點某一類的方向就篩選，再點一次取消
       </p>
     </div>
@@ -428,13 +482,31 @@ function RoleRadar({
 }
 
 export function Champions() {
-  const { apply } = useFilters()
+  const [who, setWhoState] = useState<Who>("account")
+  const scope = useWhoScope(who)
+  return (
+    <WhoContext.Provider value={scope}>
+      <ChampionsBody
+        onWho={setWhoState}
+        trackedCount={scope.trackedCount}
+      />
+    </WhoContext.Provider>
+  )
+}
+
+function ChampionsBody({ onWho, trackedCount }: { onWho: (who: Who) => void; trackedCount: number }) {
+  const { q: apply, who, baselineLabel } = useWho()
   const [picked, setPicked] = useState<string | null>(null)
   const [role, setRoleState] = useState<string | null>(null)
   const spec = ROLE_SPEC
   // 定位是比英雄高一層的聚焦：換定位時，原本點開的那隻英雄可能已經不在這一類裡
   const setRole = (next: string | null) => {
     setRoleState(next)
+    setPicked(null)
+  }
+  // 換「看誰」時開著的那隻英雄的數字整個不同了，關掉抽屜；定位篩選留著
+  const setWho = (next: Who) => {
+    onWho(next)
     setPicked(null)
   }
   const activeRole = role && spec.labels.includes(role) ? role : null
@@ -473,7 +545,8 @@ export function Champions() {
     for (const list of m.values()) list.sort((a, b) => b.games - a.games || a.role.localeCompare(b.role, "zh-Hant"))
     return m
   }, [mixQuery.rows])
-  const columns = useMemo(() => buildColumns(rows, baseline, roleMix), [rows, baseline, roleMix])
+  const columns = useMemo(() => buildColumns(rows, baseline, roleMix, baselineLabel), [rows, baseline, roleMix, baselineLabel])
+  const noTracked = who === "tracked" && !trackedCount
 
   return (
     <div className="space-y-4">
@@ -483,9 +556,26 @@ export function Champions() {
           同樣的場次與戰績，只是少了 KDA、輸出、排序與匯出。拿掉它，雷達直接篩這張表 */}
       <Panel
         title="英雄"
-        caption={`左邊雷達圖的分類：${spec.caption}。點某一類的方向，右邊的表就只剩那一類。點表格的一列看那隻英雄的出裝、增幅與每一場`}
+        caption={`左邊雷達圖的分類：${spec.caption}。點某一類的方向，右邊的表就只剩那一類。點表格的一列看那隻英雄的出裝、增幅與每一場。${
+          who === "all"
+            ? "「所有人」是資料庫裡每一場的十位參賽者，對手與隊友都算"
+            : who === "tracked"
+              ? "「追蹤對象」是追蹤對象頁裡的玩家（不含本機帳號）"
+              : ""
+        }`}
+        action={
+          <ToggleGroup type="single" size="sm" variant="outline" value={who} onValueChange={(v) => v && setWho(v as Who)}>
+            {WHO_OPTIONS.map((o) => (
+              <ToggleGroupItem key={o.value} value={o.value}>
+                {o.label}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+        }
       >
-        {overall.error ? (
+        {noTracked ? (
+          <EmptyState>還沒有追蹤任何玩家。到「追蹤對象」頁加人之後，這裡就能看他們的英雄數據。</EmptyState>
+        ) : overall.error ? (
           <div className="text-sm text-destructive">{overall.error}</div>
         ) : !overall.loading && !totalGames ? (
           <EmptyState>這個條件下還沒有對局。</EmptyState>
@@ -529,7 +619,7 @@ export function Champions() {
                 />
               )}
               <p className="text-[11px] text-muted-foreground">
-                預設依場次由多到少。戰績條的刻度是你的整體勝率，輸出條的刻度是表中英雄的平均
+                預設依場次由多到少。戰績條的刻度是{baselineLabel}，輸出條的刻度是表中英雄的平均
               </p>
             </div>
           </div>

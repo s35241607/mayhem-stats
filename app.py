@@ -50,8 +50,8 @@ collector = collector_module.Collector()
 #     set MAYHEM_PUBLIC=1  &&  uv run app.py        (PowerShell: $env:MAYHEM_PUBLIC=1)
 #
 # 它做兩件事:
-#   1. 全站唯讀——採集與追蹤名單這兩個寫入端點一律回 403。採集照常在本機自動跑,
-#      要改追蹤名單就在這台電腦上開 127.0.0.1:5057。
+#   1. 全站唯讀——採集與追蹤對象這兩個寫入端點一律回 403。採集照常在本機自動跑,
+#      要改追蹤對象就在這台電腦上開 127.0.0.1:5057。
 #   2. 其他玩家的 Riot ID 換成穩定代號(預設開,見 MAYHEM_MASK_NAMES)。
 #
 #   3. 設了 MAYHEM_PASSWORD 的話,外面要先輸入密碼才看得到任何東西。
@@ -855,6 +855,8 @@ def _resolve_puuid(conn, puuid: Optional[str]) -> Optional[str]:
 # 下鑽路徑走到最後一層時一次送出的場次上限。對局 id 放在網址裡,
 # 對局 id 目前是 9 位數,1000 個約 10KB——uvicorn(h11)整個請求標頭的上限是 16KB。
 MAX_GAME_IDS = 1000
+# /api/matches 一次可以指定幾位玩家(英雄頁的「追蹤對象」)
+MAX_SUBJECTS = 50
 
 
 @app.get("/api/matches")
@@ -894,10 +896,22 @@ def recent_matches(
     對局長度的界線、節奏頁的「前一場」「當日第幾場」原本在這裡各有一份副本
     (後者還抄了一次視窗函數),語意層改規則時副本不會跟著動,
     會變成「圖上 12 場、點進去 9 場」而且沒有人發現。
+
+    puuid 決定每一列是「誰的那一列」:不給是本機帳號;逗號分隔是其中任何一人
+    (英雄頁「追蹤對象」);`*` 是所有參賽者(英雄頁「所有人」)。後兩種一場可能有好幾列,
+    通常再配上 champion 鎖定成「玩這隻英雄的那個人」。
     """
     conn = db.connect()
     try:
-        subject = _resolve_puuid(conn, puuid)
+        if puuid == "*":
+            subject_sql, subject_params = "1 = 1", []
+        elif puuid and "," in puuid:
+            wanted = [x for x in puuid.split(",") if x.strip()]
+            if len(wanted) > MAX_SUBJECTS:
+                return JSONResponse(status_code=400, content={"error": f"puuid 最多 {MAX_SUBJECTS} 個"})
+            subject_sql, subject_params = f"mp.puuid IN ({','.join('?' for _ in wanted)})", wanted
+        else:
+            subject_sql, subject_params = "mp.puuid = ?", [_resolve_puuid(conn, puuid)]
         sql = """
             SELECT m.game_id, m.platform_id, m.game_creation, m.game_duration, m.queue_id,
                    m.game_mode, m.ended_surrender,
@@ -905,14 +919,14 @@ def recent_matches(
                    mp.dmg_to_champions, mp.gold_earned, mp.cs, mp.team_kills, mp.champ_level,
                    mp.spell1_id, mp.spell2_id,
                    mp.penta_kills, mp.quadra_kills, mp.largest_multi_kill,
+                   mp.puuid, mp.riot_id,
                    COALESCE(dc.name, '英雄 ' || mp.champion_id) AS champion_name,
                    dc.icon_path AS champion_icon
             FROM match_participants mp
             JOIN matches m ON m.platform_id = mp.platform_id AND m.game_id = mp.game_id
             LEFT JOIN dim_champions dc ON dc.id = mp.champion_id
-            WHERE mp.puuid = ?
-        """
-        params: list = [subject]
+            WHERE """ + subject_sql
+        params: list = [*subject_params]
         slice_sql = ""
         slice_params: list = []
         if queue is not None:
@@ -968,7 +982,7 @@ def recent_matches(
         sql += " ORDER BY m.game_creation DESC LIMIT ? OFFSET ?"
         params.extend([min(limit, 200), max(offset, 0)])
 
-        matches = [dict(row) for row in conn.execute(sql, params).fetchall()]
+        matches = [{**dict(row), "riot_id": mask_name(row["riot_id"])} for row in conn.execute(sql, params).fetchall()]
         # 清單每列要顯示裝備與增幅，各自一次撈完再併回去，避免 N+1 查詢
         keys = [(m["platform_id"], m["game_id"], m["participant_id"]) for m in matches]
         if keys:
@@ -1028,10 +1042,9 @@ def recent_matches(
         count_sql = """
             SELECT COUNT(*) AS n, COALESCE(SUM(mp.win), 0) AS wins FROM match_participants mp
             JOIN matches m ON m.platform_id = mp.platform_id AND m.game_id = mp.game_id
-            WHERE mp.puuid = ?
-        """
+            WHERE """ + subject_sql
         count_sql += slice_sql
-        counts = conn.execute(count_sql, [subject, *slice_params]).fetchone()
+        counts = conn.execute(count_sql, [*subject_params, *slice_params]).fetchone()
 
         # wins 是整個條件的勝場，不只這一頁：列表是捲動分批載入的，勝敗摘要不能只算已載入的部分
         return {"matches": matches, "total": counts["n"], "wins": counts["wins"]}
@@ -1102,7 +1115,7 @@ def match_detail(platform_id: str, game_id: int, puuid: Optional[str] = None):
 
 @app.get("/api/accounts")
 def list_accounts():
-    """追蹤名單，以及可以加入追蹤的候選人（曾與你同場的玩家）。"""
+    """追蹤對象，以及可以加入追蹤的候選人（曾與你同場的玩家）。"""
     conn = db.connect()
     try:
         tracked = [
