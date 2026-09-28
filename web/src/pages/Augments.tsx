@@ -13,14 +13,21 @@ import { AgTable, type GridColumn } from "@/components/AgTable"
 import { DrillPanel } from "@/components/MatchList"
 import { BarChart, type BarDatum } from "@/components/charts"
 import { useCube } from "@/hooks/useCube"
-import { MAX_GAME_IDS, num, type CubeRow } from "@/lib/cube"
+import { MAX_GAME_IDS, num, type CubeFilter, type CubeRow } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 import { useCrumb } from "@/lib/breadcrumb"
+import { WhoSwitch } from "@/components/WhoSwitch"
+import { useWhoScope, type Who } from "@/lib/who"
 import { MIN_GAMES, NO_LIMIT, round0, round1 } from "./shared"
 
 const ALL = "__all__"
 
 const G = "participants.games"
+
+/** 以增幅分組時排除「沒有增幅」的參賽者：participants 對 augments 是 left join，
+ *  沒選到增幅的人（掛網、非 Mayhem 模式）會變成一列名稱空白的增幅。
+ *  自己的場次幾乎不會有，切到「所有人」就會冒出來（Mayhem 裡有 3 位）。 */
+const HAS_AUGMENT: CubeFilter = { member: "augments.name", operator: "set", values: [] }
 
 /** 複合格子的欄位（規則見 ui-conventions skill）。選了英雄時多一欄「契合度」子彈圖。 */
 function buildColumns(
@@ -28,6 +35,7 @@ function buildColumns(
   withSynergy: boolean,
   baselineWr: number | null,
   baselineDpm: number | null,
+  baselineLabel: string,
 ): GridColumn[] {
   const maxDpm = solidMax(rows, "participants.dpm", G, MIN_GAMES)
 
@@ -46,7 +54,7 @@ function buildColumns(
           wins={num0(r, "participants.wins")}
           losses={num0(r, G) - num0(r, "participants.wins")}
           baseline={baselineWr}
-          baselineLabel={withSynergy ? "這隻英雄的整體勝率" : "你的整體勝率"}
+          baselineLabel={withSynergy ? "這隻英雄的整體勝率" : baselineLabel}
         />
       ),
     },
@@ -109,7 +117,11 @@ function buildColumns(
 }
 
 export function Augments() {
-  const { apply, addDrill, drills } = useFilters()
+  const { addDrill, drills } = useFilters()
+  // 看誰的數據（和英雄頁同一個切換列）。之後所有查詢都走 scope.q，不直接用 apply
+  const [who, setWhoState] = useState<Who>("account")
+  const scope = useWhoScope(who)
+  const apply = scope.q
   const [picked, setPicked] = useState<string>(ALL)
   // 交叉篩選：點長條 → 表格選取並捲到那一列；點表格一列 → 長條亮起那一根。再點一次取消
   const [focus, setFocus] = useState<string | null>(null)
@@ -121,6 +133,13 @@ export function Augments() {
   // 已經從別頁下鑽到某隻英雄的話，就以那隻為準，選單鎖住，免得兩個條件打架
   const drilled = drills.find((d) => d.member === "champions.name")?.values[0] ?? null
   const champion = drilled ?? (picked === ALL ? null : picked)
+  // 換人看時，選單裡的英雄與聚焦的增幅可能已經不在了
+  const setWho = (next: Who) => {
+    setWhoState(next)
+    setPicked(ALL)
+    setFocus(null)
+  }
+  const noTracked = who === "tracked" && !scope.trackedCount
 
   const champions = useCube(
     apply({
@@ -144,10 +163,10 @@ export function Augments() {
         "participants.dpm",
       ],
       dimensions: ["augments.name", "augments.rarity", "augments.icon_path"],
-      filters:
-        champion && !drilled
-          ? [{ member: "champions.name", operator: "equals", values: [champion] }]
-          : [],
+      filters: [
+        HAS_AUGMENT,
+        ...(champion && !drilled ? [{ member: "champions.name", operator: "equals" as const, values: [champion] }] : []),
+      ],
       order: { "participants.games": "desc" },
       limit: NO_LIMIT,
     }),
@@ -157,6 +176,7 @@ export function Augments() {
   const baselineQuery = apply({
     measures: ["participants.games", "participants.winrate"],
     dimensions: ["augments.name"],
+    filters: [HAS_AUGMENT],
     limit: NO_LIMIT,
   })
   const baseline = useCube(
@@ -210,8 +230,8 @@ export function Augments() {
       : rows
   }, [rows, baseline.rows, champion])
   const columns = useMemo(
-    () => buildColumns(tableRows, !!champion, overallWr, overallDpm),
-    [tableRows, champion, overallWr, overallDpm],
+    () => buildColumns(tableRows, !!champion, overallWr, overallDpm, scope.baselineLabel),
+    [tableRows, champion, overallWr, overallDpm, scope.baselineLabel],
   )
 
   // 全部英雄時圖表只放樣本夠的，否則整張圖都是 1 場 100% 的雜訊。
@@ -229,6 +249,11 @@ export function Augments() {
 
   return (
     <div className="space-y-4">
+      <WhoSwitch who={who} onChange={setWho} trackedCount={scope.trackedCount} />
+      {noTracked ? (
+        <EmptyState>還沒有追蹤任何玩家。到「追蹤對象」頁加人之後，這裡就能看他們的增幅數據。</EmptyState>
+      ) : (
+      <>
       <Panel
         title="看某隻英雄上的表現"
         caption="選一隻英雄，表格會多出「契合度」：條是這個增幅在這隻英雄上的勝率，刻度線是它在所有英雄上的勝率，差距就是加成"
@@ -286,6 +311,9 @@ export function Augments() {
         <DrillPanel
           title={champion ? `${champion} 選了「${focus}」` : `選了「${focus}」`}
           gameIdKey="matches.game_id"
+          // 目前帳號以外：每一列是「那場選了這個增幅的人」（有選英雄時再鎖那隻），卡片標出是誰
+          matchParams={scope.matchParams({ augment: focus, ...(champion ? { champion } : {}) })}
+          showPlayer={who !== "account"}
           query={apply({
             measures: ["participants.games"],
             dimensions: ["matches.game_id"],
@@ -304,7 +332,7 @@ export function Augments() {
         caption={
           champion
             ? `這隻英雄選過的全部增幅，依場次排序（點「加成」標題可改依加成排）。加成 = 在這隻英雄上的勝率 − 在所有英雄上的勝率：有些增幅本來就強、在誰身上都好，加成才看得出「特別適合這隻英雄」。場次少的列看場次欄判斷，那是線索不是結論。`
-            : `這份資料只有你自己拿得到——Riot 對 Mayhem 封鎖了公開 API，任何第三方網站都算不出增幅勝率。`
+            : `這份資料只有這個資料庫拿得到——Riot 對 Mayhem 封鎖了公開 API，任何第三方網站都算不出增幅勝率。`
         }
       >
         {loading || overall.loading || (champion && baseline.loading) ? (
@@ -332,6 +360,8 @@ export function Augments() {
           />
         )}
       </Panel>
+      </>
+      )}
     </div>
   )
 }

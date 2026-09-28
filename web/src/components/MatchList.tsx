@@ -71,6 +71,8 @@ export function DrillPanel({
   query,
   gameIdKey,
   puuid,
+  matchParams,
+  showPlayer,
   onClose,
 }: {
   title: string
@@ -78,6 +80,9 @@ export function DrillPanel({
   query?: CubeQuery | null
   gameIdKey?: string
   puuid?: string
+  /** 搭配 query：蓋過全域條件的 /api/matches 參數（見 CubeMatchList 的 params） */
+  matchParams?: Record<string, string>
+  showPlayer?: boolean
   onClose: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
@@ -97,7 +102,13 @@ export function DrillPanel({
         }
       >
         {query !== undefined ? (
-          <CubeMatchList query={query} gameIdKey={gameIdKey!} listKey={title} />
+          <CubeMatchList
+            query={query}
+            gameIdKey={gameIdKey!}
+            listKey={`${title}|${matchParams?.puuid ?? ""}`}
+            params={matchParams}
+            showPlayer={showPlayer}
+          />
         ) : (
           <MatchList params={params!} puuid={puuid} />
         )}
