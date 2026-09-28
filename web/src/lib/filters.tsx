@@ -98,20 +98,24 @@ export function FilterProvider({ children }: { children: ReactNode }) {
   const [viewer, setViewer] = useState<Viewer | null>(null)
 
   useEffect(() => {
-    fetch("/api/players")
+    const loadPlayers = () => fetch("/api/players")
       .then((r) => r.json())
       .then((d: { players: Player[] }) => {
         setPlayers(d.players)
-        // 預設看自己
-        setAccount((current) => current ?? d.players.find((p) => p.is_me) ?? d.players[0] ?? null)
+        // 資料更新後保留正在看的帳號，並取回最新場次與追蹤標記。
+        setAccount((current) => d.players.find((p) => p.puuid === current?.puuid)
+          ?? d.players.find((p) => p.is_me) ?? d.players[0] ?? null)
       })
       .catch(() => undefined)
       // 載不到也要放行，否則後端一掛整個畫面就永遠停在骨架
       .finally(() => setReady(true))
+    void loadPlayers()
+    window.addEventListener("mayhem:data-changed", loadPlayers)
     fetch("/api/me")
       .then((r) => r.json())
       .then(setViewer)
       .catch(() => undefined)
+    return () => window.removeEventListener("mayhem:data-changed", loadPlayers)
   }, [])
 
   const setLinked = async (puuid: string, linked: boolean) => {

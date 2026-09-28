@@ -59,7 +59,7 @@ export type CollectorStatus = {
   public?: boolean
 }
 
-/** 採集器狀態，定期輪詢。 */
+/** 採集器狀態，定期輪詢並在資料變更時立即更新。 */
 export function useCollectorStatus(intervalMs = 30000) {
   const [status, setStatus] = useState<CollectorStatus | null>(null)
 
@@ -78,9 +78,11 @@ export function useCollectorStatus(intervalMs = 30000) {
     }
     load()
     const timer = setInterval(load, intervalMs)
+    window.addEventListener("mayhem:data-changed", load)
     return () => {
       cancelled = true
       clearInterval(timer)
+      window.removeEventListener("mayhem:data-changed", load)
     }
   }, [intervalMs])
 

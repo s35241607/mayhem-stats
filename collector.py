@@ -36,6 +36,7 @@ class Collector:
         self._skipped = set()   # 抓明細失敗的對局,只記錄不重試到天荒地老
         self._dimensions_loaded = False
         self._was_connected = False
+        self.on_change = None
 
     # ---------------------------------------------------------------- ingest
 
@@ -44,6 +45,8 @@ class Collector:
         client = lcu.LCUClient.connect()
         conn = db.connect()
         dimensions_changed = False
+        features_changed = False
+        matches_before = conn.execute("SELECT MAX(rowid) FROM matches").fetchone()[0]
         try:
             if not self._dimensions_loaded:
                 try:
@@ -89,11 +92,19 @@ class Collector:
                 # 不看 new：採集中途失敗時 new 還是 0，但前面幾場已經 commit 了。
                 # 改問衍生表是不是落後於對局資料，漏掉的下一輪也會自己補上。
                 if dimensions_changed or features.stale(conn):
-                    self._rebuild_features(conn)
+                    features_changed = self._rebuild_features(conn)
 
             return seen, new
         finally:
+            # 採集紀錄每輪都會寫入；只有分析資料真的變了才通知畫面。
+            # 用場次前後數量也能涵蓋「採到一半失敗，但前幾場已提交」的情況。
+            try:
+                matches_changed = conn.execute("SELECT MAX(rowid) FROM matches").fetchone()[0] != matches_before
+            except Exception:
+                matches_changed = False
             conn.close()
+            if (matches_changed or dimensions_changed or features_changed) and self.on_change:
+                self.on_change()
 
     def _rebuild_features(self, conn):
         """衍生表（出裝定位、貢獻分數…）整批重算，見 features.py。
@@ -101,9 +112,11 @@ class Collector:
         try:
             ms = features.rebuild(conn)
             print(f"衍生表重建 {ms:.0f} ms")
+            return True
         except Exception as exc:
             self.status["lastError"] = f"衍生表重建失敗: {type(exc).__name__}: {exc}"
             print(self.status["lastError"])
+            return False
 
     def _ingest_games(self, conn, client, games):
         """把一批對局收進資料庫,回傳 (掃到幾場, 新增幾場)。

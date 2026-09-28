@@ -12,7 +12,7 @@ import { Dashboard } from "@/pages/Dashboard"
 // 每頁各自成為一個 chunk。表格頁才會載入 AG Grid、圖表頁才會載入 ECharts，
 // 全部打包在一起的話首屏要先扛下兩套函式庫（壓縮後將近 900KB）。
 const LOADERS = {
-  // 儀表板是每次開啟的第一頁，直接打包進主程式，不走延遲載入。
+  // 儀表板是預設首頁，直接打包進主程式，不走延遲載入。
   dashboard: () => Promise.resolve(Dashboard),
   matches: () => import("@/pages/Matches").then((m) => m.Matches),
   tilt: () => import("@/pages/Tilt").then((m) => m.Tilt),
@@ -36,7 +36,14 @@ for (const [id, load] of Object.entries(LOADERS) as [PageId, () => Promise<Compo
   PAGES[id] = lazy(() => load().then((c) => ({ default: (RESOLVED[id] = c) })))
 }
 
-/** 首頁顯示完、瀏覽器閒下來之後，把其他頁的 chunk 先抓好。
+const PAGE_IDS = new Set<PageId>(Object.keys(LOADERS) as PageId[])
+
+function pageFromPath(): PageId {
+  const segment = window.location.pathname.replace(/^\/+|\/+$/g, "")
+  return PAGE_IDS.has(segment as PageId) ? segment as PageId : "dashboard"
+}
+
+/** 當前頁顯示完、瀏覽器閒下來之後，把其他頁的 chunk 先抓好。
  *  否則第一次點進表格頁，要先等 1.1MB 的 AG Grid 下載並解析完才開始查詢。 */
 function usePrefetchPages() {
   useEffect(() => {
@@ -54,11 +61,39 @@ function usePrefetchPages() {
 }
 
 export default function App() {
-  const [page, setPageState] = useState<PageId>("dashboard")
+  const [page, setPageState] = useState<PageId>(pageFromPath)
+  const [dataRevision, setDataRevision] = useState(0)
   const setPage = (next: PageId) => {
+    if (next === page) return
     markNavigation()
+    window.history.pushState(null, "", `/${next}`)
     setPageState(next)
   }
+  useEffect(() => {
+    const onPopState = () => {
+      markNavigation()
+      setPageState(pageFromPath())
+    }
+    window.addEventListener("popstate", onPopState)
+    return () => window.removeEventListener("popstate", onPopState)
+  }, [])
+  useEffect(() => {
+    const stream = new EventSource("/api/events")
+    let opened = false
+    stream.onopen = () => {
+      // 斷線期間可能已經寫入資料；重連後也要重查。
+      if (opened) {
+        setDataRevision((n) => n + 1)
+        window.dispatchEvent(new Event("mayhem:data-changed"))
+      }
+      opened = true
+    }
+    stream.addEventListener("data-changed", () => {
+      setDataRevision((n) => n + 1)
+      window.dispatchEvent(new Event("mayhem:data-changed"))
+    })
+    return () => stream.close()
+  }, [])
   const Page = RESOLVED[page] ?? PAGES[page]
   usePrefetchPages()
 
@@ -77,7 +112,7 @@ export default function App() {
           <div key={page} className="page-enter">
             <Suspense fallback={<Skeleton className="h-[420px] w-full" />}>
               <AfterAccountReady>
-                <Page />
+                <Page key={dataRevision} />
               </AfterAccountReady>
             </Suspense>
           </div>

@@ -29,12 +29,13 @@ from typing import Optional
 import requests
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import collector as collector_module
+from change_events import ChangeEvents
 import cube_process
 import db
 import features
@@ -42,6 +43,7 @@ import icons
 
 BASE_DIR = Path(__file__).parent
 collector = collector_module.Collector()
+change_events = ChangeEvents()
 
 # ── 對外開放模式 ────────────────────────────────────────────────────
 # 服務本身只綁 127.0.0.1,外面要連進來一定是透過通道(Tailscale / ngrok /
@@ -485,12 +487,16 @@ def _normal_priority():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _normal_priority()
+    await change_events.start(mirror=MIRROR)
     if MIRROR:
         # 只讀的鏡像:不建表、不採集、不碰 Cube 的生命週期,查詢直接用 4000 埠上那份。
         print(f"鏡像模式(唯讀):埠 {PORT},共用本機的資料庫與 Cube")
         if not cube_process.port_open(cube_process.CUBE_PORT):
             print("  注意:Cube 沒在跑,分析頁面會查不到東西——請先啟動本機那份服務。")
-        yield
+        try:
+            yield
+        finally:
+            change_events.stop()
         return
 
     db.init()
@@ -536,14 +542,17 @@ async def lifespan(app: FastAPI):
 
     warm_task = asyncio.create_task(warm_icons())
     cube_warm_task = asyncio.create_task(warm_cube())
+    collector.on_change = change_events.publish
     task = asyncio.create_task(collector.run_forever())
     try:
         yield
     finally:
+        collector.on_change = None
         task.cancel()
         warm_task.cancel()
         cube_warm_task.cancel()
         cube_process.stop()
+        change_events.stop()
 
 
 app = FastAPI(title="ARAM: Mayhem 戰績 BI", lifespan=lifespan)
@@ -747,9 +756,25 @@ def index():
     return FileResponse(BASE_DIR / "index.html")
 
 
+@app.get("/{page}")
+def page_index(page: str):
+    if page not in {"dashboard", "matches", "champions", "augments", "players", "crew",
+                    "time", "tilt", "losses", "explore", "tracked"}:
+        return Response(status_code=404)
+    return index()
+
+
 @app.get("/api/status")
 def status():
     return {**collector.snapshot(), "iconCache": icons.stats(), "public": PUBLIC}
+
+
+@app.get("/api/events")
+async def data_events():
+    """資料寫入後直接推送；閒置時不查詢 SQLite。"""
+    return StreamingResponse(change_events.stream(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache", "X-Accel-Buffering": "no",
+    })
 
 
 @app.post("/api/ingest")
@@ -1193,7 +1218,10 @@ def track_account(body: TrackRequest):
             ).fetchone()
             riot_id = row["riot_id"] if row else None
 
+        previous = conn.execute("SELECT tracked, riot_id FROM accounts WHERE puuid = ?", (puuid,)).fetchone()
         db.set_tracked(conn, puuid, riot_id, body.tracked)
+        if not previous or previous["tracked"] != int(body.tracked) or (riot_id and previous["riot_id"] != riot_id):
+            change_events.publish()
         return {"puuid": puuid, "riotId": riot_id, "tracked": body.tracked}
     finally:
         conn.close()
