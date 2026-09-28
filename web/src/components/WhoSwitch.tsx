@@ -31,7 +31,7 @@ export function WhoSwitch({
     who === "account"
       ? `只算 ${account?.riot_id ?? "目前帳號"} 自己的場次，和其他頁一樣`
       : who === "tracked"
-        ? `追蹤對象頁裡的 ${trackedCount} 位玩家（不含本機帳號），各自的每一場`
+        ? `你自己加上追蹤對象，共 ${trackedCount} 位玩家，各自的每一場`
         : "資料庫裡每一場的十位參賽者，隊友和對手都算——整體勝率因此接近 50%"
 
   return (

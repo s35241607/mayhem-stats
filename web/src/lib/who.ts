@@ -2,7 +2,7 @@ import { useMemo } from "react"
 import type { CubeFilter, CubeQuery } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 
-/** 看誰的數據：目前帳號（其他頁一樣的預設）、追蹤對象裡的人、或資料庫裡出現過的所有參賽者 */
+/** 看誰的數據：目前帳號（其他頁一樣的預設）、自己加上追蹤對象、或資料庫裡出現過的所有參賽者 */
 export type Who = "account" | "tracked" | "all"
 
 export const WHO_LABEL: Record<Who, string> = {
@@ -13,7 +13,7 @@ export const WHO_LABEL: Record<Who, string> = {
 
 export type WhoScope = {
   who: Who
-  /** 追蹤對象的人數；0 時「追蹤對象」模式沒有東西可看 */
+  /** 「追蹤對象」模式包含的人數（含自己） */
   trackedCount: number
   /** 把全域條件（模式、期間、下鑽）和「看誰」一起套進查詢 */
   q: (query: CubeQuery) => CubeQuery
@@ -24,12 +24,13 @@ export type WhoScope = {
   matchParams: (extra: Record<string, string>) => Record<string, string> | undefined
 }
 
-/** 「追蹤對象」是 accounts.tracked 的那群人（不含本機帳號），和追蹤對象頁是同一份。
+/** 「追蹤對象」是自己加上追蹤對象頁裡的人，也就是 /api/players 的 crew，和好友比較頁同一群：
+ *  本機帳號、追蹤中的玩家，以及公開鏡像上登入者自己綁定的帳號。
  *  「所有人」不鎖玩家：一場十個人都算，所以整體勝率會接近 50%。
  *  兩者都照樣套模式、期間與全域下鑽，只是拿掉「目前帳號」這個條件。 */
 export function useWhoScope(who: Who): WhoScope {
   const { apply, players } = useFilters()
-  const tracked = useMemo(() => players.filter((p) => p.tracked).map((p) => p.puuid), [players])
+  const tracked = useMemo(() => players.filter((p) => p.crew).map((p) => p.puuid), [players])
   return useMemo(() => {
     const byPlayers: CubeFilter = { member: "participants.puuid", operator: "equals", values: tracked }
     return {
