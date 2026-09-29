@@ -1,0 +1,12 @@
+{
+  "_說明": "時間軸單一來源：畫面（src/Promo.tsx、src/features.ts）與音軌（scripts/make-audio.mjs）都讀這份。120 BPM，一拍 15 幀、一小節 60 幀、2 秒。停靠點與換圖表的幀都落在拍點（15 的倍數）上。",
+  "fps": 30,
+  "bpm": 120,
+  "introBars": 3,
+  "featureBars": [4, 3, 3, 3, 3, 3, 3],
+  "wallBars": 2,
+  "outroBars": 4,
+  "stopAt": [[45, 105, 165], [45, 105], [45, 105], [45, 105], [45, 105], [45, 105], [45, 105]],
+  "swapAt": 135,
+  "questionAt": [15, 45, 75]
+}

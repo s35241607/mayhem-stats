@@ -1,0 +1,29 @@
+{
+  "name": "mayhem-promo",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Mayhem 戰績的宣傳影片（Remotion）。獨立於 web/，不影響前端建置。",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts Promo out/mayhem-promo.mp4",
+    "shots": "node scripts/capture.mjs",
+    "audio": "node scripts/make-audio.mjs",
+    "stills": "node scripts/stills.mjs",
+    "noise": "node scripts/make-noise.mjs"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.529",
+    "@remotion/google-fonts": "4.0.529",
+    "@remotion/motion-blur": "4.0.529",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "remotion": "4.0.529",
+    "@remotion/bundler": "4.0.529",
+    "@remotion/renderer": "4.0.529"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "typescript": "~6.0.2"
+  }
+}

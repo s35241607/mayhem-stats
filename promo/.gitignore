@@ -1,0 +1,5 @@
+node_modules/
+out/
+.remotion/
+# 音軌由 scripts/make-audio.mjs 合成，幾秒就能重做，不放進版控（每次重合成都是一份新的 3MB 二進位）
+public/audio/
