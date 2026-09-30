@@ -515,6 +515,10 @@ function MatchCardChunk({
               // 勝敗靠底色與文字傳達就夠了。先前用高彩度的左側粗邊，
               // 二十列疊起來像斑馬紋，反而蓋過內容。
               "flex w-full flex-wrap items-center rounded-lg border px-3 text-left transition",
+              // 內容（第一行六個區塊約 690px、第二行陣容加英雄日期約 340px）本來就是固定寬度。
+              // 卡片若跟著容器拉寬，第二行右側的英雄與日期會被 ml-auto 推到最遠：整頁 1557px 時離陣容 1200px，
+              // 好友比較的半版 729px 時只有 400px，同一張卡在各處長得不一樣。封頂在剛好放得下的寬度
+              !showPlayer && "max-w-[730px]",
               // 有標頭時數據列要擠進抽屜寬度（約 900px）一行放完，間距收一點
               showPlayer ? "gap-x-3 gap-y-1.5 py-2" : "gap-x-4 gap-y-2 py-2.5",
               m.win
