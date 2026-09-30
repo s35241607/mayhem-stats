@@ -1,6 +1,5 @@
 import { Fragment, useEffect, useState, type CSSProperties } from "react"
 import { ChevronLeft, Coins, Swords } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -145,21 +144,19 @@ function RosterRow({ roster, teamId, self }: { roster: Mate[]; teamId: number; s
   const ally = roster.filter((p) => p.team_id === teamId && p.participant_id !== self)
   const foe = roster.filter((p) => p.team_id !== teamId)
   if (!ally.length && !foe.length) return null
-  const icons = (list: Mate[]) =>
-    list.map((p) => (
-      <img
-        key={p.participant_id}
-        src={iconUrl(p.champion_icon)}
-        alt=""
-        title={p.champion_name}
-        className="size-5 rounded bg-icon-tile"
-      />
-    ))
+  const line = (list: Mate[], label: string, title: string, dim = false) => (
+    <div className={cn("flex items-center gap-0.5", dim && "opacity-80")} title={title}>
+      <span className="w-3 shrink-0 text-[10px] leading-none text-muted-foreground">{label}</span>
+      {list.map((p) => (
+        <img key={p.participant_id} src={iconUrl(p.champion_icon)} alt="" title={p.champion_name} className="size-5 rounded bg-icon-tile" />
+      ))}
+    </div>
+  )
+  // 我方在上、對手在下，各一排：比左右並排窄一半，卡片才放得進好友比較的半版面板
   return (
-    <div className="flex items-center gap-1.5">
-      <div className="flex gap-0.5" title="我方">{icons(ally)}</div>
-      <span className="text-[10px] text-muted-foreground">vs</span>
-      <div className="flex gap-0.5 opacity-80" title="對手">{icons(foe)}</div>
+    <div className="flex shrink-0 flex-col gap-0.5">
+      {line(ally, "我", "我方")}
+      {line(foe, "敵", "對手", true)}
     </div>
   )
 }
@@ -514,20 +511,14 @@ function MatchCardChunk({
               "slide-in",
               // 勝敗靠底色與文字傳達就夠了。先前用高彩度的左側粗邊，
               // 二十列疊起來像斑馬紋，反而蓋過內容。
-              "flex w-full flex-wrap items-center rounded-lg border px-3 text-left transition",
-              // 內容（第一行六個區塊約 690px、第二行陣容加英雄日期約 340px）本來就是固定寬度。
-              // 卡片若跟著容器拉寬，第二行右側的英雄與日期會被 ml-auto 推到最遠：整頁 1557px 時離陣容 1200px，
-              // 好友比較的半版 729px 時只有 400px，同一張卡在各處長得不一樣。封頂在剛好放得下的寬度
-              !showPlayer && "max-w-[730px]",
-              // 有標頭時數據列要擠進抽屜寬度（約 900px）一行放完，間距收一點
-              showPlayer ? "gap-x-3 gap-y-1.5 py-2" : "gap-x-4 gap-y-2 py-2.5",
+              "flex w-full flex-wrap items-center gap-y-1.5 rounded-lg border px-3 py-2 text-left transition",
               m.win
                 ? "border-win/20 bg-win/[0.06] hover:bg-win/[0.11]"
                 : "border-loss/20 bg-loss/[0.06] hover:bg-loss/[0.11]",
             )}
           >
             {/* 每列可能是不同玩家時：誰、出裝定位、英雄、日期收成左上一行標頭（w-full 自成一行），
-                下面的數據列就不必再擠右側那一欄——原本那欄在抽屜寬度下會把卡片撐成兩倍高 */}
+                下面的數據列就不必再擠右側那一欄 */}
             {showPlayer && (
               <div className="flex w-full min-w-0 items-center gap-2 text-xs">
                 <span className="truncate font-semibold" title={m.riot_id ?? undefined}>{m.riot_id ?? "—"}</span>
@@ -536,54 +527,62 @@ function MatchCardChunk({
                 <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">{fmtDate(m.game_creation)}</span>
               </div>
             )}
-            <div className="relative shrink-0">
-              <img src={iconUrl(m.champion_icon)} alt="" className="size-11 rounded-md bg-icon-tile" />
-              <span className="absolute -bottom-1 -right-1 rounded bg-background px-1 text-[10px] font-bold tabular-nums">
-                {m.champ_level}
-              </span>
-            </div>
 
-            <div className="w-[62px] shrink-0">
-              <div className={cn("text-sm font-bold", m.win ? "text-win" : "text-loss")}>
-                {m.win ? "勝利" : "戰敗"}
+            {/* 固定單行、兩層堆疊：各區塊寬度固定（合計約 700px），中間兩段彈性空隙平分多出來的寬度。
+                容器變寬只會讓空隙變大，結構與順序在整頁、抽屜、好友比較的半版面板都一樣 */}
+            <div className="flex w-full min-w-0 items-center gap-x-2">
+              <div className="relative shrink-0">
+                <img src={iconUrl(m.champion_icon)} alt="" title={m.champion_name} className="size-10 rounded-md bg-icon-tile" />
+                <span className="absolute -bottom-1 -right-1 rounded bg-background px-1 text-[10px] font-bold tabular-nums">
+                  {m.champ_level}
+                </span>
               </div>
-              <div className="text-[11px] text-muted-foreground">{fmtDuration(m.game_duration)}</div>
-            </div>
 
-            <AugmentRow augments={m.augments ?? []} />
-            <ItemRow items={m.items ?? []} size="size-6" />
-
-            <div className="w-[104px] text-center">
-              <div className="text-sm font-semibold tabular-nums">
-                {m.kills} / <span className="text-loss">{m.deaths}</span> / {m.assists}
-              </div>
-              <div className="whitespace-nowrap text-[11px] text-muted-foreground">
-                KDA {kda} · 參團 {kp}%
-              </div>
-            </div>
-
-            <div className={cn("text-right text-[11px] text-muted-foreground tabular-nums", showPlayer ? "w-[64px]" : "w-[92px]")}>
-              <div>{m.cs} 補兵</div>
-              <div>{k(m.gold_earned)} 金錢</div>
-            </div>
-
-            {/* 一般列表固定兩行：第一行是這場的表現，第二行是雙方陣容與英雄、日期。
-                不強制換行的話，寬的時候陣容擠在第一行、窄的時候才掉到第二行，同一張卡片有兩種長相 */}
-            {!showPlayer && <div className="h-0 basis-full" />}
-            <RosterRow roster={m.roster ?? []} teamId={m.team_id} self={m.participant_id} />
-
-            {!showPlayer && (
-              <div className="ml-auto text-right">
-                <div className="flex items-center justify-end gap-1.5 text-xs text-muted-foreground">
-                  {role && <RoleChip role={role} />}
-                  {m.champion_name}
+              <div className="w-[50px] shrink-0">
+                <div className={cn("text-sm font-bold", m.win ? "text-win" : "text-loss")}>
+                  {m.win ? "勝利" : "戰敗"}
                 </div>
-                <div className="text-[11px] text-muted-foreground">{fmtDate(m.game_creation)}</div>
+                <div className="whitespace-nowrap text-[11px] text-muted-foreground">
+                  {fmtDuration(m.game_duration)}
+                  {m.penta_kills > 0 && <span className="ml-1 font-semibold text-gold">五殺</span>}
+                  {m.penta_kills === 0 && m.quadra_kills > 0 && <span className="ml-1 font-semibold">四殺</span>}
+                </div>
               </div>
-            )}
 
-            {m.penta_kills > 0 && <Badge className="bg-gold/20 text-gold">五殺</Badge>}
-            {m.penta_kills === 0 && m.quadra_kills > 0 && <Badge variant="secondary">四殺</Badge>}
+              <div className="flex shrink-0 flex-col gap-0.5">
+                <AugmentRow augments={m.augments ?? []} size="size-5" />
+                <ItemRow items={m.items ?? []} size="size-5" />
+              </div>
+
+              <div className="min-w-0 flex-1" />
+
+              <div className="w-[100px] shrink-0 text-center">
+                <div className="text-sm font-semibold tabular-nums">
+                  {m.kills} / <span className="text-loss">{m.deaths}</span> / {m.assists}
+                </div>
+                <div className="whitespace-nowrap text-[11px] text-muted-foreground">
+                  KDA {kda} · 參團 {kp}%
+                </div>
+              </div>
+
+              <div className="w-[54px] shrink-0 text-right text-[11px] text-muted-foreground tabular-nums">
+                <div>{m.cs} 補兵</div>
+                <div>{k(m.gold_earned)} 金錢</div>
+              </div>
+
+              <div className="min-w-0 flex-1" />
+
+              <RosterRow roster={m.roster ?? []} teamId={m.team_id} self={m.participant_id} />
+
+              {!showPlayer && (
+                <div className="shrink-0 text-right">
+                  <div className="flex items-center justify-end gap-1.5 text-xs text-muted-foreground">
+                    {role && <RoleChip role={role} />}
+                  </div>
+                  <div className="whitespace-nowrap text-[11px] text-muted-foreground">{fmtDate(m.game_creation)}</div>
+                </div>
+              )}
+            </div>
           </button>
         )
       })}

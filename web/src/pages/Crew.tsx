@@ -1224,8 +1224,8 @@ export function Crew() {
       </Panel>
 
       {/* ── 查英雄、查增幅裝置：選一個，看每個人用它的勝率與貢獻 ── */}
-      {/* 兩個面板一樣的結構，寬螢幕（1650px 以上，每個面板才放得下名字欄）左右並排，其餘上下疊 */}
-      <div className="grid items-start gap-4 min-[1650px]:grid-cols-2 [&>*]:min-w-0">
+      {/* 兩個面板一樣的結構，寬螢幕（1900px 以上，展開的對局卡片才放得進半版）左右並排，其餘上下疊 */}
+      <div className="grid items-start gap-4 min-[1900px]:grid-cols-2 [&>*]:min-w-0">
         <LookupPanel kind={CHAMPION_LOOKUP} rows={champs.rows} loading={loading} people={ordered} puuids={puuids} wrOf={wrOf} />
         <LookupPanel kind={AUGMENT_LOOKUP} rows={augments.rows} loading={loading} people={ordered} puuids={puuids} wrOf={wrOf} />
       </div>
