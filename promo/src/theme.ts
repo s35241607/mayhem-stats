@@ -23,3 +23,19 @@ export const BAR = BEAT * 4
 export const W = 1920
 export const H = 1080
 export const bars = (n: number) => n * BAR
+
+// 賽季回顧（web/src/recap）的配色。網頁那邊傳的是 var(--win) 這類主題變數，
+// 影片渲染讀不到網站的 CSS，所以在這裡給實際色碼：同樣取自霓虹主題。
+export const RECAP_PALETTE = {
+  bg: C.bg,
+  card: C.card,
+  fg: C.fg,
+  muted: C.muted,
+  primary: C.primary,
+  win: C.win,
+  loss: C.loss,
+  data: C.data,
+  gold: C.gold,
+  border: C.border,
+  tile: "#152036", // 霓虹主題的 --icon-tile（= --secondary）
+} as const

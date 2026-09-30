@@ -18,6 +18,7 @@ import {
   Filter,
   GitCompareArrows,
   Shield,
+  Clapperboard,
 } from "lucide-react"
 import {
   Sidebar,
@@ -64,6 +65,7 @@ export type PageId =
   | "losses"
   | "explore"
   | "tracked"
+  | "recap"
 
 const NAV: { group: string; items: { id: PageId; label: string; icon: typeof Zap }[] }[] = [
   {
@@ -89,6 +91,7 @@ const NAV: { group: string; items: { id: PageId; label: string; icon: typeof Zap
   {
     group: "工具",
     items: [
+      { id: "recap", label: "賽季回顧", icon: Clapperboard },
       { id: "explore", label: "自由探索", icon: Compass },
       { id: "tracked", label: "追蹤對象", icon: Radar },
     ],
@@ -107,6 +110,7 @@ const PAGE_TITLES: Record<PageId, { title: string; caption: string }> = {
   crew: { title: "好友比較", caption: "你和追蹤中的好友並排比較：整體戰績、各類型勝率與擅長的英雄" },
   time: { title: "時段", caption: "每天、星期與時段的表現分佈" },
   explore: { title: "自由探索", caption: "自選維度與指標，做任意組合的分析" },
+  recap: { title: "賽季回顧", caption: "把這段時間的戰績做成一支可以直接播放的短片" },
   tracked: { title: "追蹤對象", caption: "除了自己以外，還要一併採集誰的戰績" },
 }
 

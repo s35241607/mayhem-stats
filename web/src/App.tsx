@@ -24,6 +24,7 @@ const LOADERS = {
   crew: () => import("@/pages/Crew").then((m) => m.Crew),
   time: () => import("@/pages/TimeAnalysis").then((m) => m.TimeAnalysis),
   explore: () => import("@/pages/Explore").then((m) => m.Explore),
+  recap: () => import("@/pages/Recap").then((m) => m.Recap),
   tracked: () => import("@/pages/Tracked").then((m) => m.Tracked),
 } satisfies Record<PageId, () => Promise<ComponentType>>
 

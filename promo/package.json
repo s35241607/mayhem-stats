@@ -10,20 +10,22 @@
     "shots": "node scripts/capture.mjs",
     "audio": "node scripts/make-audio.mjs",
     "stills": "node scripts/stills.mjs",
-    "noise": "node scripts/make-noise.mjs"
+    "noise": "node scripts/make-noise.mjs",
+    "recap": "node scripts/recap.mjs"
   },
   "dependencies": {
+    "@remotion/bundler": "4.0.529",
     "@remotion/cli": "4.0.529",
     "@remotion/google-fonts": "4.0.529",
     "@remotion/motion-blur": "4.0.529",
+    "@remotion/renderer": "4.0.529",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "remotion": "4.0.529",
-    "@remotion/bundler": "4.0.529",
-    "@remotion/renderer": "4.0.529"
+    "remotion": "4.0.529"
   },
   "devDependencies": {
     "@types/react": "^19.2.18",
+    "esbuild": "0.28.1",
     "typescript": "~6.0.2"
   }
 }

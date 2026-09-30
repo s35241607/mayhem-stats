@@ -758,8 +758,8 @@ def index():
 
 @app.get("/{page}")
 def page_index(page: str):
-    if page not in {"dashboard", "matches", "champions", "augments", "players", "crew",
-                    "time", "tilt", "losses", "explore", "tracked"}:
+    if page not in {"dashboard", "matches", "champions", "augments", "lineups", "players", "crew",
+                    "time", "tilt", "losses", "explore", "recap", "tracked"}:
         return Response(status_code=404)
     return index()
 

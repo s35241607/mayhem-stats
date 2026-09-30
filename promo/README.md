@@ -48,6 +48,34 @@ npx remotion ffmpeg -i out/mayhem-promo.mp4 -c:v libx264 -preset slow -crf 24 -p
 音軌用純線性增益校正到約 −15 LUFS（真峰值不超過 −1.5 dBTP）。**不要改回 ffmpeg 的 `loudnorm` 兩段式**：
 它的「線性模式」在量測值超出範圍時會悄悄切成動態模式，把安靜的開場拉高，段落之間的音量對比就被抹掉了。
 
+## 賽季回顧（個人化影片）
+
+和上面那支宣傳片不同：這支是**每個人不一樣**的，資料來自本機的語意層。合成放在 `web/src/recap/`，
+兩個地方共用同一份：
+
+- 網頁的「賽季回顧」頁用 `@remotion/player` 直接播放，配色是目前主題的 CSS 變數（切主題就跟著換）；
+- 這裡渲染成 mp4 給人分享，配色是 `src/theme.ts` 的 `RECAP_PALETTE`（霓虹主題的實際色碼）。
+
+```bash
+npm run recap                                   # 本機帳號、全部期間 → out/recap.mp4（約 32 秒，渲染約 80 秒）
+npm run recap -- --from 2026-09-01 --to 2026-09-30
+npm run recap -- --puuid <puuid>                # 指定帳號（預設是標成「我」的那個）
+npm run recap -- --names                        # 保留隊友真名。預設換成「固定隊友」，因為影片是拿去分享的
+npm run recap -- --frames 30,200,450            # 不渲染影片，只把這幾幀存成 out/recap-stills/*.png 檢查版面
+npm run recap -- --json                         # 只印出撈到的資料
+```
+
+需要本機服務開著（預設 `http://127.0.0.1:5057`，`--server` 可改）。場景長度依資料決定：沒有隊友、沒有增幅資料的人，對應場景整段拿掉。
+
+- **查詢與亮點的挑法只有一份**：`web/src/recap/data.ts`。網頁和這支腳本都呼叫它，所以兩邊數字一定一樣；
+  改了要用手寫 SQL 對過（場次、勝場、擊殺、時數、英雄前三、增幅、星期與時段、連勝連敗、隊友）。
+- **`web/src/recap/` 裡不能碰 `@/` 別名、Tailwind 或瀏覽器全域**，只有相對路徑的 import——渲染這邊的 webpack 讀不到它們。
+- **兩份 React 會互相看不到 context**：那些檔案預設從 `web/node_modules` 找 `react`／`remotion`，而這個專案也有一份。
+  `webpack-override.mjs` 把它們一律指向這裡的那份（`remotion.config.ts` 與 `scripts/recap.mjs` 都套用）；
+  兩邊的 `remotion`、`@remotion/*` 版本也必須相同（目前 4.0.529）。
+- 字型：拉丁字母與數字用宣傳片載入的 Geist，中文用系統字型——英雄與增幅名稱每個人不同，事先切好的 Noto 切片不會涵蓋。
+- Studio 預覽（`npm run studio` → Recap）用的是 `src/recapSample.ts` 的虛構資料。
+
 ## 常用指令
 
 ```bash
