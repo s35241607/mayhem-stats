@@ -909,7 +909,7 @@ function LookupPanel({
       ) : !value ? (
         <EmptyState>這群人還沒有對局。</EmptyState>
       ) : (
-        <div className="max-w-[980px] space-y-1">
+        <div className="space-y-1">
           <div className="grid grid-cols-[minmax(0,1fr)_3.5rem_minmax(8rem,14rem)_4.5rem_4.5rem] gap-3 px-2 text-[11px] text-muted-foreground">
             <span>玩家</span>
             <span>場次</span>
@@ -1224,8 +1224,11 @@ export function Crew() {
       </Panel>
 
       {/* ── 查英雄、查增幅裝置：選一個，看每個人用它的勝率與貢獻 ── */}
-      <LookupPanel kind={CHAMPION_LOOKUP} rows={champs.rows} loading={loading} people={ordered} puuids={puuids} wrOf={wrOf} />
-      <LookupPanel kind={AUGMENT_LOOKUP} rows={augments.rows} loading={loading} people={ordered} puuids={puuids} wrOf={wrOf} />
+      {/* 兩個面板一樣的結構，寬螢幕（1650px 以上，每個面板才放得下名字欄）左右並排，其餘上下疊 */}
+      <div className="grid items-start gap-4 min-[1650px]:grid-cols-2 [&>*]:min-w-0">
+        <LookupPanel kind={CHAMPION_LOOKUP} rows={champs.rows} loading={loading} people={ordered} puuids={puuids} wrOf={wrOf} />
+        <LookupPanel kind={AUGMENT_LOOKUP} rows={augments.rows} loading={loading} people={ordered} puuids={puuids} wrOf={wrOf} />
+      </div>
 
       <DetailDrawer
         open={!!focusPlayer}
