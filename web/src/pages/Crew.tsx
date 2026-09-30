@@ -757,17 +757,19 @@ function CompContext({
   )
 }
 
-type ChampionOption = { name: string; icon: string; games: number; players: number }
+type LookupOption = { name: string; icon: string; games: number; players: number }
 
-/** 英雄選擇器：可搜尋，依「幾個人玩過、合計幾場」排序 */
-function ChampionPicker({
+/** 英雄／增幅選擇器：可搜尋，依「幾個人用過、合計幾場」排序 */
+function LookupPicker({
   options,
   value,
   onChange,
+  kind,
 }: {
-  options: ChampionOption[]
+  options: LookupOption[]
   value: string | null
   onChange: (name: string) => void
+  kind: LookupKind
 }) {
   const [open, setOpen] = useState(false)
   const current = options.find((o) => o.name === value)
@@ -785,16 +787,16 @@ function ChampionPicker({
             ) : (
               <Search className="size-4 text-muted-foreground" />
             )}
-            <span className="truncate">{current?.name ?? "選一隻英雄"}</span>
+            <span className="truncate">{current?.name ?? `選一${kind.counter}${kind.noun}`}</span>
           </span>
           <ChevronsUpDown className="size-3.5 shrink-0 opacity-60" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[320px] p-0" align="start">
         <Command>
-          <CommandInput placeholder="搜尋英雄名稱…" />
+          <CommandInput placeholder={`搜尋${kind.noun}名稱…`} />
           <CommandList>
-            <CommandEmpty>這群人都沒玩過這隻。</CommandEmpty>
+            <CommandEmpty>這群人都沒{kind.verb}過這{kind.counter}。</CommandEmpty>
             {options.map((o) => (
               <CommandItem
                 key={o.name}
@@ -818,6 +820,190 @@ function ChampionPicker({
   )
 }
 
+/** 「查英雄」「查增幅裝置」的差別：查哪個維度、用什麼量詞與動詞。其餘完全一樣。 */
+type LookupKind = {
+  title: string
+  caption: string
+  noun: string
+  counter: string
+  verb: string
+  nameKey: string
+  iconKey: string
+}
+
+/** 選一個東西（一隻英雄、一個增幅），看這群人各自用它的戰績；點一個人展開他用它的每一場。 */
+function LookupPanel({
+  kind,
+  rows,
+  loading,
+  people,
+  puuids,
+  wrOf,
+}: {
+  kind: LookupKind
+  rows: CubeRow[]
+  loading: boolean
+  people: Player[]
+  puuids: string[]
+  wrOf: (puuid: string) => number | null
+}) {
+  const [picked, setPicked] = useState<string | null>(null)
+  // 點某個人展開他的每一場；換選項時收起
+  const [openPlayer, setOpenPlayer] = useState<string | null>(null)
+  const pick = (next: string) => {
+    setPicked(next)
+    setOpenPlayer(null)
+  }
+
+  // 選項是這群人用過的東西，依「幾個人用過、合計幾場」排
+  const options = useMemo(() => {
+    const m = new Map<string, LookupOption>()
+    for (const r of rows) {
+      if (!puuids.includes(String(r["participants.puuid"]))) continue
+      const name = String(r[kind.nameKey])
+      const cur = m.get(name) ?? { name, icon: r[kind.iconKey] as string, games: 0, players: 0 }
+      cur.games += n0(r, "participants.games")
+      cur.players += 1
+      m.set(name, cur)
+    }
+    return [...m.values()].sort((a, b) => b.players - a.players || b.games - a.games)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, puuids.join(), kind])
+  const value = picked && options.some((o) => o.name === picked) ? picked : (options[0]?.name ?? null)
+
+  const byPlayer = people
+    .map((p) => {
+      const r = rows.find((x) => x["participants.puuid"] === p.puuid && x[kind.nameKey] === value)
+      const base = wrOf(p.puuid)
+      const games = n0(r, "participants.games")
+      const wins = n0(r, "participants.wins")
+      const wr = games ? (100 * wins) / games : null
+      return {
+        player: p,
+        games,
+        wins,
+        losses: n0(r, "participants.losses"),
+        winrate: wr,
+        base,
+        delta: games && base !== null ? shrunk(games, wr, base) - base : null,
+        perf: games ? dev(r) : null,
+      }
+    })
+    .sort((a, b) => b.games - a.games || (b.winrate ?? 0) - (a.winrate ?? 0))
+  const played = byPlayer.filter((r) => r.games)
+  const total = played.reduce((a, r) => a + r.games, 0)
+  const wins = played.reduce((a, r) => a + r.wins, 0)
+
+  return (
+    <Panel title={kind.title} caption={kind.caption}>
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <LookupPicker options={options} value={value} onChange={pick} kind={kind} />
+        {value && (
+          <span className="text-xs text-muted-foreground">
+            {played.length} 人{kind.verb}過・合計 {total} 場・{wins} 勝 {total - wins} 敗
+          </span>
+        )}
+      </div>
+      {loading ? (
+        <Skeleton className="h-[320px] w-full" />
+      ) : !value ? (
+        <EmptyState>這群人還沒有對局。</EmptyState>
+      ) : (
+        <div className="max-w-[980px] space-y-1">
+          <div className="grid grid-cols-[minmax(0,1fr)_3.5rem_minmax(8rem,14rem)_4.5rem_4.5rem] gap-3 px-2 text-[11px] text-muted-foreground">
+            <span>玩家</span>
+            <span>場次</span>
+            <span>戰績</span>
+            <span className="text-right">勝率</span>
+            <span className="text-right">貢獻</span>
+          </div>
+          {byPlayer.map((r, i) => {
+            const open = !!r.games && openPlayer === r.player.puuid
+            const cells = (
+              <>
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <ChevronDown
+                    className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", !open && "-rotate-90", !r.games && "invisible")}
+                  />
+                  <PlayerName player={r.player} className="text-[13px]" />
+                </span>
+                <span className="font-mono text-xs tabular-nums text-muted-foreground">{r.games ? `${r.games} 場` : ""}</span>
+                {r.games ? (
+                  <RecordCell winrate={r.winrate} wins={r.wins} losses={r.losses} baseline={r.base} baselineLabel="他自己的整體勝率" />
+                ) : (
+                  <span className="text-xs text-muted-foreground">沒{kind.verb}過</span>
+                )}
+                <span
+                  className={cn(
+                    "text-right font-mono text-[11px] tabular-nums",
+                    r.delta === null || Math.abs(r.delta) < 2 ? "text-muted-foreground" : r.delta > 0 ? "text-win" : "text-loss",
+                  )}
+                >
+                  {r.delta === null ? "" : `${signed(r.delta)}pp`}
+                </span>
+                <span className="text-right text-[12px]">{r.perf === null ? "" : <ContribScore dev={r.perf} />}</span>
+              </>
+            )
+            const rowClass = "slide-in grid grid-cols-[minmax(0,1fr)_3.5rem_minmax(8rem,14rem)_4.5rem_4.5rem] items-center gap-3 rounded-md px-2 py-1.5"
+            const style = { "--stagger": `${i * 35}ms` } as CSSProperties
+            // 沒用過的人沒有東西可展開，維持一般的列
+            if (!r.games) {
+              return (
+                <div key={r.player.puuid} style={style} className={cn(rowClass, "opacity-60")}>
+                  {cells}
+                </div>
+              )
+            }
+            return (
+              <Fragment key={r.player.puuid}>
+                <ExpandRow
+                  open={open}
+                  onToggle={() => setOpenPlayer(open ? null : r.player.puuid)}
+                  label={`${splitId(r.player.riot_id, r.player.puuid).name}${kind.verb}${value}`}
+                  style={style}
+                  className={rowClass}
+                >
+                  {cells}
+                </ExpandRow>
+                {open && (
+                  <div className="reveal mb-2 ml-3 border-l-2 border-primary/40 pl-3">
+                    <PlayerMatches
+                      puuid={r.player.puuid}
+                      filters={[{ member: kind.nameKey, operator: "equals", values: [value] }]}
+                    />
+                  </div>
+                )}
+              </Fragment>
+            )
+          })}
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+const CHAMPION_LOOKUP: LookupKind = {
+  title: "查英雄",
+  caption:
+    "選一隻英雄，看每個人玩它的戰績，點一個人展開他玩這隻英雄的每一場。「勝率」是和他自己整體勝率的差距（依場次收縮後），戰績條的刻度也是他自己的整體勝率；「貢獻」是這幾場的綜合貢獻（50＝同定位、同勝負的一般人，不受輸贏影響）",
+  noun: "英雄",
+  counter: "隻",
+  verb: "玩",
+  nameKey: "champions.name",
+  iconKey: "champions.icon_path",
+}
+
+const AUGMENT_LOOKUP: LookupKind = {
+  title: "查增幅裝置",
+  caption:
+    "選一個增幅裝置，看每個人拿它的戰績，點一個人展開他拿到它的每一場。欄位的意思和「查英雄」一樣。一場會拿好幾個增幅，同一場會同時出現在它拿到的每個增幅底下，所以各增幅的場次不能加總",
+  noun: "增幅",
+  counter: "個",
+  verb: "拿",
+  nameKey: "augments.name",
+  iconKey: "augments.icon_path",
+}
+
 export function Crew() {
   const { players, apply } = useFilters()
   const crew = useMemo(() => players.filter((p) => p.crew), [players])
@@ -826,13 +1012,6 @@ export function Crew() {
   const chosen = crew.filter((p) => !excluded.has(p.puuid))
   const puuids = chosen.map((p) => p.puuid)
   const [focus, setFocus] = useState<{ puuid: string; role: string | null } | null>(null)
-  const [champion, setChampionState] = useState<string | null>(null)
-  // 查英雄：點某個人展開他玩這隻英雄的每一場；換英雄時收起
-  const [openPlayer, setOpenPlayer] = useState<string | null>(null)
-  const setChampion = (next: string | null) => {
-    setChampionState(next)
-    setOpenPlayer(null)
-  }
 
   const byId = useMemo(() => new Map(crew.map((p) => [p.puuid, p])), [crew])
   const focusPlayer = focus ? byId.get(focus.puuid) : undefined
@@ -868,8 +1047,17 @@ export function Crew() {
       limit: NO_LIMIT,
     }),
   )
-  const error = summary.error ?? roles.error ?? champs.error
-  const loading = summary.loading || roles.loading || champs.loading
+  // 增幅是一場多列的維度：查 winrate 會讓 Cube 走「撈主鍵再 join 回來」的慢路徑（實測 2.0 秒，不查 0.5 秒），
+  // 所以只查 games 與 wins，勝率由 LookupPanel 自己除（定義就是 100 × wins / games）
+  const augments = useCube(
+    q({
+      measures: ["participants.games", "participants.wins", "participants.losses", "contribution.score"],
+      dimensions: ["participants.puuid", "augments.name", "augments.icon_path"],
+      limit: NO_LIMIT,
+    }),
+  )
+  const error = summary.error ?? roles.error ?? champs.error ?? augments.error
+  const loading = summary.loading || roles.loading || champs.loading || augments.loading
 
   const sumOf = (puuid: string) => summary.rows.find((r) => r["participants.puuid"] === puuid)
   const gamesOf = (puuid: string) => n0(sumOf(puuid), "participants.games")
@@ -912,43 +1100,6 @@ export function Crew() {
 
   // 依場次排：場次多的人判斷比較可信，放前面
   const ordered = [...chosen].sort((a, b) => gamesOf(b.puuid) - gamesOf(a.puuid))
-
-  // ── 查英雄：選項是這群人玩過的英雄，依「幾個人玩過、合計幾場」排 ──
-  const championOptions = useMemo(() => {
-    const m = new Map<string, ChampionOption>()
-    for (const r of champs.rows) {
-      if (!puuids.includes(String(r["participants.puuid"]))) continue
-      const name = String(r["champions.name"])
-      const cur = m.get(name) ?? { name, icon: r["champions.icon_path"] as string, games: 0, players: 0 }
-      cur.games += n0(r, "participants.games")
-      cur.players += 1
-      m.set(name, cur)
-    }
-    return [...m.values()].sort((a, b) => b.players - a.players || b.games - a.games)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [champs.rows, puuids.join()])
-  const pickedChampion = champion && championOptions.some((o) => o.name === champion) ? champion : (championOptions[0]?.name ?? null)
-  const championRows = ordered
-    .map((p) => {
-      const r = champs.rows.find((x) => x["participants.puuid"] === p.puuid && x["champions.name"] === pickedChampion)
-      const base = wrOf(p.puuid)
-      const games = n0(r, "participants.games")
-      const wr = opt(r, "participants.winrate")
-      return {
-        player: p,
-        games,
-        wins: n0(r, "participants.wins"),
-        losses: n0(r, "participants.losses"),
-        winrate: wr,
-        base,
-        delta: games && base !== null ? shrunk(games, wr, base) - base : null,
-        perf: games ? dev(r) : null,
-      }
-    })
-    .sort((a, b) => b.games - a.games || (b.winrate ?? 0) - (a.winrate ?? 0))
-  const played = championRows.filter((r) => r.games)
-  const champTotal = played.reduce((a, r) => a + r.games, 0)
-  const champWins = played.reduce((a, r) => a + r.wins, 0)
 
   if (!players.length) return <Skeleton className="h-[420px] w-full" />
   if (crew.length < 2) {
@@ -1072,94 +1223,9 @@ export function Crew() {
         {loading ? <Skeleton className="h-[420px] w-full" /> : <CompContext people={ordered} q={q} wrOf={wrOf} />}
       </Panel>
 
-      {/* ── 查英雄：選一隻，看每個人玩它的勝率與貢獻 ── */}
-      <Panel
-        title="查英雄"
-        caption="選一隻英雄，看每個人玩它的戰績，點一個人展開他玩這隻英雄的每一場。「勝率」是和他自己整體勝率的差距（依場次收縮後），戰績條的刻度也是他自己的整體勝率；「貢獻」是這幾場的綜合貢獻（50＝同定位、同勝負的一般人，不受輸贏影響）"
-      >
-        <div className="mb-3 flex flex-wrap items-center gap-3">
-          <ChampionPicker options={championOptions} value={pickedChampion} onChange={setChampion} />
-          {pickedChampion && (
-            <span className="text-xs text-muted-foreground">
-              {played.length} 人玩過・合計 {champTotal} 場・{champWins} 勝 {champTotal - champWins} 敗
-            </span>
-          )}
-        </div>
-        {loading ? (
-          <Skeleton className="h-[320px] w-full" />
-        ) : !pickedChampion ? (
-          <EmptyState>這群人還沒有對局。</EmptyState>
-        ) : (
-          <div className="max-w-[980px] space-y-1">
-            <div className="grid grid-cols-[minmax(0,1fr)_3.5rem_minmax(8rem,14rem)_4.5rem_4.5rem] gap-3 px-2 text-[11px] text-muted-foreground">
-              <span>玩家</span>
-              <span>場次</span>
-              <span>戰績</span>
-              <span className="text-right">勝率</span>
-              <span className="text-right">貢獻</span>
-            </div>
-            {championRows.map((r, i) => {
-              const open = !!r.games && openPlayer === r.player.puuid
-              const cells = (
-                <>
-                <span className="flex min-w-0 items-center gap-1.5">
-                  <ChevronDown
-                    className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", !open && "-rotate-90", !r.games && "invisible")}
-                  />
-                  <PlayerName player={r.player} className="text-[13px]" />
-                </span>
-                <span className="font-mono text-xs tabular-nums text-muted-foreground">{r.games ? `${r.games} 場` : ""}</span>
-                {r.games ? (
-                  <RecordCell winrate={r.winrate} wins={r.wins} losses={r.losses} baseline={r.base} baselineLabel="他自己的整體勝率" />
-                ) : (
-                  <span className="text-xs text-muted-foreground">沒玩過</span>
-                )}
-                <span
-                  className={cn(
-                    "text-right font-mono text-[11px] tabular-nums",
-                    r.delta === null || Math.abs(r.delta) < 2 ? "text-muted-foreground" : r.delta > 0 ? "text-win" : "text-loss",
-                  )}
-                >
-                  {r.delta === null ? "" : `${signed(r.delta)}pp`}
-                </span>
-                <span className="text-right text-[12px]">{r.perf === null ? "" : <ContribScore dev={r.perf} />}</span>
-                </>
-              )
-              const rowClass = "slide-in grid grid-cols-[minmax(0,1fr)_3.5rem_minmax(8rem,14rem)_4.5rem_4.5rem] items-center gap-3 rounded-md px-2 py-1.5"
-              const style = { "--stagger": `${i * 35}ms` } as CSSProperties
-              // 沒玩過的人沒有東西可展開，維持一般的列
-              if (!r.games) {
-                return (
-                  <div key={r.player.puuid} style={style} className={cn(rowClass, "opacity-60")}>
-                    {cells}
-                  </div>
-                )
-              }
-              return (
-                <Fragment key={r.player.puuid}>
-                  <ExpandRow
-                    open={open}
-                    onToggle={() => setOpenPlayer(open ? null : r.player.puuid)}
-                    label={`${splitId(r.player.riot_id, r.player.puuid).name}玩${pickedChampion}`}
-                    style={style}
-                    className={rowClass}
-                  >
-                    {cells}
-                  </ExpandRow>
-                  {open && (
-                    <div className="reveal mb-2 ml-3 border-l-2 border-primary/40 pl-3">
-                      <PlayerMatches
-                        puuid={r.player.puuid}
-                        filters={[{ member: "champions.name", operator: "equals", values: [pickedChampion!] }]}
-                      />
-                    </div>
-                  )}
-                </Fragment>
-              )
-            })}
-          </div>
-        )}
-      </Panel>
+      {/* ── 查英雄、查增幅裝置：選一個，看每個人用它的勝率與貢獻 ── */}
+      <LookupPanel kind={CHAMPION_LOOKUP} rows={champs.rows} loading={loading} people={ordered} puuids={puuids} wrOf={wrOf} />
+      <LookupPanel kind={AUGMENT_LOOKUP} rows={augments.rows} loading={loading} people={ordered} puuids={puuids} wrOf={wrOf} />
 
       <DetailDrawer
         open={!!focusPlayer}
