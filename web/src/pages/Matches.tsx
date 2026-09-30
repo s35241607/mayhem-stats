@@ -563,6 +563,9 @@ function MatchCardChunk({
               <div>{k(m.gold_earned)} 金錢</div>
             </div>
 
+            {/* 一般列表固定兩行：第一行是這場的表現，第二行是雙方陣容與英雄、日期。
+                不強制換行的話，寬的時候陣容擠在第一行、窄的時候才掉到第二行，同一張卡片有兩種長相 */}
+            {!showPlayer && <div className="h-0 basis-full" />}
             <RosterRow roster={m.roster ?? []} teamId={m.team_id} self={m.participant_id} />
 
             {!showPlayer && (
