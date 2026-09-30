@@ -79,7 +79,7 @@ export function Recap() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl">
+    <div>
       <Panel title="賽季回顧" caption="依上方選的帳號、模式與期間，把這段時間的戰績整理成一支短片">
         {body}
         {/* 渲染要在跑服務的那台電腦上做，公開鏡像的訪客用不到 */}
