@@ -21,7 +21,9 @@ cubes:
   #   控場：time_ccing_others 與 cc_duration 兩欄位每分鐘值，各自在定位內標準化後平均。
   #     Combo Breaker（被控 7 秒內有 5 秒就淨化並免控 3 秒）讓控場邊際遞減，隊伍控場時間差與勝負幾乎無關，權重中等。
   #   治療：total_heal 每分鐘值，只在 units_healed ≥ 2（偵測到有治療到隊友）的場次計，同類型內排名。
-  #     total_heal 含自補；護盾沒有資料（客戶端的欄位與端點都沒有），所以護盾型英雄只做到「不扣分」。
+  #     total_heal 含自補。對局明細端點沒有治療隊友與護盾的量，所以護盾型英雄先做到「不扣分」；
+  #     賽後統計（collector 存進 eog_snapshots）有 TOTAL_HEAL_ON_TEAMMATES、TOTAL_DAMAGE_SHIELDED_ON_TEAMMATES
+  #     與 totalTimeSpentDead，但只對開始擷取之後的場次有效，累積夠了再納入計分（見 docs/contribution-scoring.md）。
   #
   # 綜合貢獻＝各軸百分位依出裝定位加權平均（權重在下面 weights，缺值的軸不算、權重重新分配），
   # 再在同類型內取一次名次百分位。權重是判斷不是估出來的，各自隨機 ±30% 排名相關仍 ≥ 0.99。
