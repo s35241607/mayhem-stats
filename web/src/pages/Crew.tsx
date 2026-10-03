@@ -2,7 +2,7 @@ import { Fragment, useMemo, useState, type CSSProperties } from "react"
 import { ArrowRight, Check, ChevronDown, ChevronsUpDown, Search } from "lucide-react"
 import { RecordCell } from "@/components/cells"
 import { ContribBars, ContribScore } from "@/components/Contribution"
-import { CONTRIB_GAP, CONTRIB_MEASURES } from "@/hooks/useContribution"
+import { CONTRIB_GAP, CONTRIB_MEASURES, CONTRIB_PARTS } from "@/hooks/useContribution"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
@@ -10,7 +10,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Skeleton } from "@/components/ui/skeleton"
 import { EmptyState, Panel, QueryError } from "@/components/primitives"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { RadarChart, SHRINK_K, shrunk, type RadarDatum } from "@/components/charts"
+import { ContribRadarChart, RadarChart, SHRINK_K, shrunk, type RadarDatum } from "@/components/charts"
 import { DetailDrawer, useDrawerSettled } from "@/components/DetailDrawer"
 import { useCube } from "@/hooks/useCube"
 import { MAX_GAME_IDS, iconUrl, num, type CubeFilter, type CubeQuery, type CubeRow } from "@/lib/cube"
@@ -430,15 +430,20 @@ function PlayerDrawerBody({
         </div>
         <div className="mb-2 text-[11px] text-muted-foreground">
           每一項都和「同出裝定位、同勝負」的人比（贏的場和贏家比、輸的場和輸家比），換成百分位：50＝一般人，
-          中間的刻度就是 50。所以不受輸贏影響，看的是他自己做得比別人多還是少。綜合貢獻依定位加權：
+          雷達裡的虛線圈與橫條中間的刻度就是 50。所以不受輸贏影響，看的是他自己做得比別人多還是少。綜合貢獻依定位加權：
           坦克重承傷與控制、輸出重傷害與效率、刺客重傷害與 KDA、輔助重參團與控制
         </div>
         {!settled || contrib.loading ? (
-          <Skeleton className="h-[140px] w-full" />
+          <Skeleton className="h-[300px] w-full" />
         ) : contrib.error ? (
           <div className="text-sm text-destructive">{contrib.error}</div>
         ) : (
-          <div className="max-w-[560px]">
+          // 雷達看形狀（哪幾項突出、哪幾項是洞），橫條看每一項的確切數字與說明，兩個都留
+          <div className="grid items-center gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <ContribRadarChart
+              data={CONTRIB_PARTS.map((c) => ({ label: c.label, hint: c.hint, value: opt(contrib.rows[0], c.key) }))}
+              height={300}
+            />
             <ContribBars row={contrib.rows[0]} />
           </div>
         )}

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import ReactECharts from "echarts-for-react"
+import { CONTRIB_GAP } from "@/hooks/useContribution"
 import { useThemeName } from "@/lib/theme"
 import { CHART_GROW_MS, STAGGER_CAP_MS, STAGGER_MS, prefersReducedMotion, useAfterPageEnter } from "@/lib/motion"
 
@@ -957,6 +958,118 @@ export function RadarChart({
       ) : (
         <div style={{ height }} />
       )}
+    </div>
+  )
+}
+
+export type ContribRadarDatum = { label: string; hint: string; value: number | null }
+
+/** 貢獻六項的雷達：六個頂點各是一項百分位（0～100，外框 100），50 那一圈畫成虛線——
+ *  形狀在虛線圈外的那一項就是比同出裝定位、同勝負的一般人多，圈內是少。
+ *  頂點標籤是名稱與數字，數字偏離 50 達 CONTRIB_GAP 才上勝／敗色（和 ContribScore 同一套）。
+ *  形狀用資料色，不用勝敗色：雷達整體不是「好壞」，好壞由虛線圈和數字顏色表達。 */
+export function ContribRadarChart({ data, height = 280 }: { data: ContribRadarDatum[]; height?: number }) {
+  const theme = useTheme()
+  const boxRef = useRef<HTMLDivElement>(null)
+  const [width, setWidth] = useState(0)
+  useEffect(() => {
+    const box = boxRef.current
+    if (!box) return
+    const sync = () => setWidth(box.clientWidth)
+    sync()
+    const observer = new ResizeObserver(sync)
+    observer.observe(box)
+    return () => observer.disconnect()
+  }, [])
+
+  const labelW = useMemo(
+    () => Math.max(0, ...data.map((d) => Math.max(textWidth(d.label, "600 13px sans-serif"), textWidth("100", `600 11px ${MONO}`)))),
+    [data],
+  )
+  const geo = radarGeometry(width, height, data.length, labelW)
+
+  const option = useMemo(() => {
+    const rich: Record<string, object> = {}
+    data.forEach((d, i) => {
+      const dev = d.value === null ? 0 : d.value - 50
+      rich[`n${i}`] = { color: theme.text, fontSize: 13, fontWeight: 600, lineHeight: 18 }
+      rich[`v${i}`] = {
+        color: d.value === null || Math.abs(dev) < CONTRIB_GAP ? theme.muted : dev > 0 ? theme.win : theme.loss,
+        fontSize: 11,
+        fontFamily: MONO,
+        fontWeight: 600,
+      }
+    })
+    const byName = new Map(data.map((d, i) => [d.label, i]))
+    return {
+      tooltip: {
+        ...baseTooltip(theme),
+        trigger: "item",
+        formatter: () =>
+          data
+            .map((d) => `${d.label}　${d.value === null ? "—" : Math.round(d.value)}<span style="opacity:.6">　${d.hint}</span>`)
+            .join("<br/>") + `<br/><span style="opacity:.7">百分位，50＝同出裝定位、同勝負的一般人</span>`,
+      },
+      radar: {
+        indicator: data.map((d) => ({ name: d.label, max: 100, min: 0 })),
+        shape: "polygon",
+        splitNumber: 4, // 25、50、75、100
+        radius: geo.r,
+        center: [geo.cx, geo.cy],
+        axisName: {
+          formatter: (name: string) => {
+            const i = byName.get(name) ?? 0
+            const v = data[i].value
+            return `{n${i}|${name}}
+{v${i}|${v === null ? "—" : Math.round(v)}}`
+          },
+          rich,
+        },
+        axisNameGap: RADAR_NAME_GAP,
+        splitLine: { lineStyle: { color: alpha(theme.muted, 0.18) } },
+        splitArea: { areaStyle: { color: [alpha(theme.muted, theme.isDark ? 0.03 : 0.04), "transparent"] } },
+        axisLine: { lineStyle: { color: alpha(theme.muted, 0.22) } },
+      },
+      series: [
+        {
+          type: "radar",
+          symbol: "circle",
+          symbolSize: 7,
+          data: [
+            {
+              name: "貢獻",
+              value: data.map((d) => d.value ?? 0),
+              lineStyle: { color: theme.data, width: 2 },
+              itemStyle: { color: theme.data, borderColor: theme.card, borderWidth: 1.5 },
+              areaStyle: { color: alpha(theme.data, 0.28) },
+            },
+          ],
+          emphasis: { lineStyle: { width: 3 }, areaStyle: { color: alpha(theme.data, 0.4) } },
+          z: 3,
+        },
+        // 一般人（50）：等形狀長得差不多了才出現，和長條圖的平均線同一個節奏
+        {
+          type: "radar",
+          silent: true,
+          symbol: "none",
+          animationDelay: CHART_GROW_MS * 0.7,
+          animationDuration: 400,
+          data: [
+            {
+              name: "一般人",
+              value: data.map(() => 50),
+              lineStyle: { color: alpha(theme.primary, 0.8), type: "dashed", width: 1 },
+            },
+          ],
+          z: 2,
+        },
+      ],
+    }
+  }, [data, theme, geo.r, geo.cx, geo.cy])
+
+  return (
+    <div ref={boxRef}>
+      {width > 0 ? <ResponsiveChart option={option} height={height} /> : <div style={{ height }} />}
     </div>
   )
 }
