@@ -8,8 +8,8 @@ import { MAX_GAME_IDS, iconUrl, num, type CubeRow } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 import { CubeMatchList, MatchList } from "@/components/MatchList"
 import { RoleChip, RoleLegend } from "@/components/RoleChip"
-import { ContribBars, ContribInline, ContribMeter, type ContribTag } from "@/components/Contribution"
-import { CONTRIB_PARTS, contribScore, useContribution } from "@/hooks/useContribution"
+import { ContribBars, ContribInline, ContribMeter, ContribTagBadge } from "@/components/Contribution"
+import { CONTRIB_PARTS, contribScore, contribTagOf, useCardContribution, useContribution, type ContribTag } from "@/hooks/useContribution"
 import { participantKey, useBuildRoles } from "@/hooks/useBuildRoles"
 import { cn } from "@/lib/utils"
 
@@ -185,11 +185,8 @@ function Scoreboard({
   const scoreOf = (p: Player) => contribScore(contrib.get(keyOf(p)))
   const teams = [100, 200].map((teamId) => {
     const members = players.filter((p) => p.team_id === teamId)
-    const scores = members.map(scoreOf)
-    // 十個人的分數都到齊才標 MVP／ACE，免得資料還沒回來時誤標
-    const best = scores.every((v) => v !== null) && scores.length ? Math.max(...(scores as number[])) : null
     return {
-      best,
+      scores: members.map(scoreOf),
       teamId,
       members,
       won: members[0]?.win === 1,
@@ -226,7 +223,7 @@ function Scoreboard({
           <div className="divide-y">
             {team.members.map((p) => {
               const score = scoreOf(p)
-              const tag: ContribTag | undefined = score !== null && score === team.best ? (team.won ? "MVP" : "ACE") : undefined
+              const tag: ContribTag | undefined = contribTagOf(score, team.scores, team.won)
               return (
               <div
                 key={p.participant_id}
@@ -553,13 +550,13 @@ function MatchCardChunk({
 }) {
   // 這場的出裝定位：向 Cube 查（見 useBuildRoles）
   const roleOf = useBuildRoles(rows.map(keyOf))
-  const contrib = useContribution(rows.map(keyOf))
+  const contrib = useCardContribution(rows)
   return (
     <>
       {rows.map((m, j) => {
         const i = offset + j
         const role = roleOf.get(keyOf(m))
-        const score = contribScore(contrib.get(keyOf(m)))
+        const { score = null, tag } = contrib.get(keyOf(m)) ?? {}
         const kda = m.deaths === 0 ? "Perfect" : ((m.kills + m.assists) / m.deaths).toFixed(2)
         const kp = m.team_kills ? Math.round(((m.kills + m.assists) / m.team_kills) * 100) : 0
         return (
@@ -595,6 +592,7 @@ function MatchCardChunk({
             <div className="flex w-full min-w-0 items-center gap-x-2">
               <div className="relative shrink-0">
                 <img src={iconUrl(m.champion_icon)} alt="" title={m.champion_name} className="size-10 rounded-md bg-icon-tile" />
+                {tag && <ContribTagBadge tag={tag} className="absolute -left-1 -top-1 shadow-sm ring-1 ring-background" />}
                 <span className="absolute -bottom-1 -right-1 rounded bg-background px-1 text-[10px] font-bold tabular-nums">
                   {m.champ_level}
                 </span>

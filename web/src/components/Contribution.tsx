@@ -1,5 +1,5 @@
 import { ChevronDown } from "lucide-react"
-import { CONTRIB_GAP, CONTRIB_PARTS } from "@/hooks/useContribution"
+import { CONTRIB_GAP, CONTRIB_PARTS, type ContribTag } from "@/hooks/useContribution"
 import { num, type CubeRow } from "@/lib/cube"
 import { cn } from "@/lib/utils"
 
@@ -66,10 +66,24 @@ export function ContribInline({ score }: { score: number | null }) {
   )
 }
 
-export type ContribTag = "MVP" | "ACE"
+/** MVP／ACE 標籤：MVP＝贏的那隊貢獻最高、ACE＝輸的那隊貢獻最高（比較基準是「同勝負的人」，兩隊的最高分可以並列看） */
+export function ContribTagBadge({ tag, className }: { tag: ContribTag; className?: string }) {
+  return (
+    <span
+      title={tag === "MVP" ? "MVP：贏的一隊貢獻最高" : "ACE：輸的一隊貢獻最高"}
+      className={cn(
+        "rounded px-1 py-px text-[10px] font-bold leading-none",
+        tag === "MVP" ? "bg-gold/20 text-gold" : "bg-primary/15 text-primary",
+        className,
+      )}
+    >
+      {tag}
+    </span>
+  )
+}
 
 /** 計分板每列的貢獻：大數字 ＋ 以 50 為中線的橫條；點了展開六項。
- *  MVP＝贏的那隊貢獻最高、ACE＝輸的那隊貢獻最高（比較基準是「同勝負的人」，兩隊的最高分可以並列看） */
+ */
 export function ContribMeter({
   score,
   tag,
@@ -91,16 +105,7 @@ export function ContribMeter({
     >
       <span className="flex items-center gap-1.5">
         <ContribScore dev={score === null ? null : score - 50} className="text-base font-bold leading-none" />
-        {tag && (
-          <span
-            className={cn(
-              "rounded px-1 py-px text-[10px] font-bold leading-none",
-              tag === "MVP" ? "bg-gold/20 text-gold" : "bg-primary/15 text-primary",
-            )}
-          >
-            {tag}
-          </span>
-        )}
+        {tag && <ContribTagBadge tag={tag} />}
         <ChevronDown className={cn("ml-auto size-3.5 text-muted-foreground transition-transform", expanded && "rotate-180")} />
       </span>
       <DivergingBar v={score} className="h-1.5" />

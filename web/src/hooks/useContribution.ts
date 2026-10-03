@@ -36,3 +36,47 @@ export function useContribution(keys: string[], parts = false): Map<string, Cube
   )
   return new Map(res.rows.map((r) => [String(r["participants.participant_key"]), r]))
 }
+
+export type ContribTag = "MVP" | "ACE"
+
+/** 這一隊（五個人）裡的最高分才有標籤：贏的一隊是 MVP、輸的一隊是 ACE。
+ *  五個人的分數沒到齊就不標，免得資料還沒回來時誤標。 */
+export function contribTagOf(score: number | null, teamScores: (number | null)[], won: boolean): ContribTag | undefined {
+  if (score === null || teamScores.length === 0 || teamScores.some((v) => v === null)) return undefined
+  return score === Math.max(...(teamScores as number[])) ? (won ? "MVP" : "ACE") : undefined
+}
+
+type CardRow = {
+  platform_id: string
+  game_id: number
+  participant_id: number
+  team_id: number
+  win: number
+  roster?: { participant_id: number; team_id: number }[]
+}
+
+/** 一批對局卡片（一批不要超過 50 張）上各自的貢獻分數與 MVP／ACE。
+ *  標籤要比同隊五個人，卡片只有自己那一列，所以用 matches.game_id 一次查整批的十個人，
+ *  隊伍歸屬用卡片帶的 roster 對。team_id 在語意層是私有欄位，不能直接查。 */
+export function useCardContribution(rows: CardRow[]): Map<string, { score: number | null; tag?: ContribTag }> {
+  const gameIds = [...new Set(rows.map((r) => r.game_id))]
+  const res = useCube(
+    gameIds.length
+      ? {
+          dimensions: ["participants.participant_key"],
+          measures: ["contribution.score"],
+          filters: [{ member: "matches.game_id", operator: "equals", values: gameIds.map(String) }],
+          limit: gameIds.length * 10,
+        }
+      : null,
+  )
+  const scores = new Map(res.rows.map((r) => [String(r["participants.participant_key"]), contribScore(r)]))
+  const key = (m: { platform_id: string; game_id: number }, pid: number) => `${m.platform_id}:${m.game_id}:${pid}`
+  return new Map(
+    rows.map((m) => {
+      const score = scores.get(key(m, m.participant_id)) ?? null
+      const team = (m.roster ?? []).filter((p) => p.team_id === m.team_id).map((p) => scores.get(key(m, p.participant_id)) ?? null)
+      return [key(m, m.participant_id), { score, tag: contribTagOf(score, team, m.win === 1) }]
+    }),
+  )
+}
