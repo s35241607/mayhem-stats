@@ -8,6 +8,7 @@ import { MAX_GAME_IDS, iconUrl, num, type CubeRow } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 import { CubeMatchList, MatchList } from "@/components/MatchList"
 import { RoleChip, RoleLegend } from "@/components/RoleChip"
+import { ContribRadarChart } from "@/components/charts"
 import { ContribBars, ContribInline, ContribMeter, ContribTagBadge } from "@/components/Contribution"
 import { CONTRIB_PARTS, contribScore, contribTagOf, useCardContribution, useContribution, type ContribTag } from "@/hooks/useContribution"
 import { participantKey, useBuildRoles } from "@/hooks/useBuildRoles"
@@ -264,10 +265,19 @@ function Scoreboard({
                 <ContribMeter score={score} tag={tag} expanded={open.has(p.participant_id)} onToggle={() => toggle(p.participant_id)} />
 
                 {open.has(p.participant_id) && (
-                  <ContribBars
-                    row={contrib.get(keyOf(p))}
-                    className="reveal grid w-full basis-full gap-x-8 gap-y-1.5 rounded-md bg-secondary/30 px-3 py-2 sm:grid-cols-2 lg:grid-cols-3"
-                  />
+                  // 雷達看形狀、橫條看確切數字；窄了雷達在上、橫條在下
+                  <div className="reveal flex w-full basis-full flex-wrap items-center gap-x-6 gap-y-2 rounded-md bg-secondary/30 px-3 py-2">
+                    <div className="w-[260px] shrink-0">
+                      <ContribRadarChart
+                        data={CONTRIB_PARTS.map((c) => {
+                          const row = contrib.get(keyOf(p))
+                          return { label: c.label, hint: c.hint, value: row ? num(row[c.key]) : null }
+                        })}
+                        height={220}
+                      />
+                    </div>
+                    <ContribBars row={contrib.get(keyOf(p))} className="grid min-w-[260px] flex-1 gap-x-8 gap-y-1.5 sm:grid-cols-2" />
+                  </div>
                 )}
               </div>
               )
