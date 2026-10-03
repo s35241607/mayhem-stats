@@ -20,6 +20,8 @@ SWEEP_EVERY_TICKS = 10      # 30s * 10 = 5 分鐘
 POST_GAME_DELAY = 20        # 打完後等客戶端寫完戰績再抓
 
 IN_GAME_PHASES = {"GameStart", "InProgress", "Reconnect", "WaitingForStats", "PreEndOfGame"}
+# 賽後畫面存在的階段：這時才抓得到 /lol-end-of-game/v1/eog-stats-block（見 _capture_eog）
+EOG_PHASES = {"WaitingForStats", "PreEndOfGame", "EndOfGame"}
 
 
 class Collector:
@@ -154,6 +156,24 @@ class Collector:
                     self.status["lastError"] = f"對局 {game_id} 略過: {type(exc).__name__}: {exc}"
         return seen, new
 
+    def _capture_eog(self, client):
+        """賽後統計擷取（實驗）：把賽後畫面那一份統計存下來，看裡面有沒有治療／護盾隊友的欄位。
+
+        賽後畫面關掉就沒了，所以賽後階段每輪都試；抓不到（404、客戶端剛好忙）一律靜靜略過，
+        絕不能影響對局採集。欄位名會印在 log 裡，打完一場看 autostart.log 就知道。"""
+        try:
+            block = client.eog_stats_block()
+            conn = db.connect()
+            try:
+                stored, keys = db.store_eog_snapshot(conn, block)
+            finally:
+                conn.close()
+        except Exception:
+            return False
+        if stored:
+            print(f"賽後統計已存 gameId={block.get('gameId')}，stats 欄位 {len(keys)} 個：{keys}")
+        return stored
+
     # ------------------------------------------------------------------ loop
 
     async def _run_ingest(self, trigger):
@@ -198,6 +218,10 @@ class Collector:
             self.status["lastError"] = str(exc)
             self._was_connected = False
             return
+
+        # 賽後統計要在賽後畫面還在的時候抓，放在最前面，不要被下面的等待或補掃拖到畫面被關掉
+        if phase in EOG_PHASES:
+            await asyncio.to_thread(self._capture_eog, client)
 
         # 客戶端剛開起來就立刻補掃,不要等到下一個五分鐘的整點。
         # 這段空窗期正是最可能漏資料的時候——尤其追蹤好友只有 20 場的視窗,

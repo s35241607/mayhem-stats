@@ -968,8 +968,10 @@ export type ContribRadarDatum = { label: string; hint: string; value: number | n
  *  形狀在虛線圈外的那一項就是比同出裝定位、同勝負的一般人多，圈內是少。
  *  頂點標籤是名稱與數字，數字偏離 50 達 CONTRIB_GAP 才上勝／敗色（和 ContribScore 同一套）。
  *  形狀用資料色，不用勝敗色：雷達整體不是「好壞」，好壞由虛線圈和數字顏色表達。 */
-export function ContribRadarChart({ data, height = 280 }: { data: ContribRadarDatum[]; height?: number }) {
+export function ContribRadarChart({ data: all, height = 280 }: { data: ContribRadarDatum[]; height?: number }) {
   const theme = useTheme()
+  // 沒有值的項目（例如沒有治療到隊友的場次沒有治療軸）直接略過那個頂點，畫成 0 會被讀成「完全沒做」
+  const data = useMemo(() => all.filter((d) => d.value !== null), [all])
   const boxRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
   useEffect(() => {

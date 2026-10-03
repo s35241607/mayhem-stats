@@ -135,6 +135,18 @@ CREATE TABLE IF NOT EXISTS dim_item_stats (
   PRIMARY KEY (item_id, stat)
 );
 
+-- 賽後統計擷取（實驗）：賽後畫面那一份統計的原始 JSON。
+-- 對局明細端點沒有「治療／護盾隊友」的量；這一份的 stats 是通用的鍵值表，有沒有要打完一場才知道，
+-- 所以先整份存下來，stat_keys 列出出現過的欄位名，不用解開 raw_json 就能看。
+-- 只對採集器開著、剛好撞上賽後畫面的場次有效；raw_json 裡有其他玩家的名字，只留在本機資料庫，
+-- 沒有任何 API 會讀這張表。
+CREATE TABLE IF NOT EXISTS eog_snapshots (
+  game_id     INTEGER PRIMARY KEY,
+  captured_at INTEGER NOT NULL,
+  stat_keys   TEXT    NOT NULL,
+  raw_json    TEXT    NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_m_queue        ON matches(queue_id);
 CREATE INDEX IF NOT EXISTS idx_pa_augment     ON participant_augments(augment_id);
 CREATE INDEX IF NOT EXISTS idx_pi_item        ON participant_items(item_id);
@@ -556,6 +568,36 @@ def replace_dimension(conn, table, rows):
                 "INSERT OR IGNORE INTO dim_item_stats (item_id, stat, value) VALUES (?,?,?)",
                 [(row["id"], k, v) for row in rows for k, v in (row.get("stats") or {}).items()],
             )
+
+
+def eog_stat_keys(block):
+    """賽後統計裡所有玩家與隊伍的 stats 出現過的欄位名（排序）。"""
+    keys = set()
+    for team in block.get("teams") or []:
+        keys.update((team.get("stats") or {}).keys())
+        for player in team.get("players") or []:
+            keys.update((player.get("stats") or {}).keys())
+    keys.update(((block.get("localPlayer") or {}).get("stats") or {}).keys())
+    return sorted(keys)
+
+
+def store_eog_snapshot(conn, block):
+    """存一份賽後統計的原始 JSON，回傳 (有沒有寫入, 欄位名清單)。
+
+    賽後階段每輪都會抓一次，同一場只留一份；後來抓到的欄位比較多（客戶端一開始可能還沒算完）才覆蓋。"""
+    game_id = block.get("gameId")
+    keys = eog_stat_keys(block)
+    if not game_id:
+        return False, keys
+    with conn:
+        cur = conn.execute(
+            """INSERT INTO eog_snapshots (game_id, captured_at, stat_keys, raw_json) VALUES (?,?,?,?)
+               ON CONFLICT(game_id) DO UPDATE SET
+                 captured_at = excluded.captured_at, stat_keys = excluded.stat_keys, raw_json = excluded.raw_json
+               WHERE json_array_length(excluded.stat_keys) > json_array_length(eog_snapshots.stat_keys)""",
+            (game_id, int(time.time()), json.dumps(keys, ensure_ascii=False), json.dumps(block, ensure_ascii=False)),
+        )
+    return cur.rowcount > 0, keys
 
 
 def start_run(conn, trigger):

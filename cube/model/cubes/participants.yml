@@ -60,7 +60,7 @@ cubes:
         sql: "{CUBE}.rowid = {comp_context}.participant_rowid"
         relationship: one_to_one
 
-      # 貢獻分數（各項指標在同定位、同勝負裡的百分位），同樣一對一
+      # 貢獻分數（各項指標在同類型裡的名次百分位；6 分鐘內的重開局沒有這一列），同樣一對一
       - name: contribution
         sql: "{CUBE}.rowid = {contribution}.participant_rowid"
         relationship: one_to_one

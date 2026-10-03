@@ -1,21 +1,23 @@
 import { useCube } from "@/hooks/useCube"
 import { num, type CubeRow } from "@/lib/cube"
 
-// 貢獻分數的查詢與常數。分數的定義只有一份，在語意層（cube/model/cubes/contribution.yml）；
+// 貢獻分數的查詢與常數。分數的定義只有一份，在語意層（cube/model/cubes/contribution.yml，規格見 docs/contribution-scoring.md）；
 // 畫法在 components/Contribution.tsx。
 
 /** 貢獻（分數 − 50）要偏離多少才算好或差，低於這個值的數字用淡色。
- *  單場分數標準差約 19；好友比較頁拿收縮後的平均分數比，「人 × 出裝」大約落在 ±8 */
-export const CONTRIB_GAP = 4
+ *  分數是同類型內的名次百分位，單場標準差約 29（舊版加權平均約 19，門檻 4，按同樣比例放大成 6）。
+ *  好友比較頁拿收縮後的平均分數比，「人 × 出裝」的差距也跟著放大約 1.5 倍 */
+export const CONTRIB_GAP = 6
 
-/** 貢獻的六項，順序固定：先「做了多少」再「做得多有效」 */
+/** 貢獻的六項，順序固定：先「做了多少」（輸出、承傷）再「撐住」（存活）再「參與與幫忙」（參團、控場、治療）。
+ *  治療只在偵測到有治療到隊友的場次才有值，其他場次是空值（雷達圖會略過那個頂點）。 */
 export const CONTRIB_PARTS = [
-  { key: "contribution.dmg_pct", label: "輸出", hint: "對英雄傷害佔隊伍的比例" },
-  { key: "contribution.soak_pct", label: "承傷", hint: "承受傷害＋自身減免佔隊伍的比例" },
+  { key: "contribution.dmg_pct", label: "輸出", hint: "對英雄傷害佔隊伍的比例（除以依陣容算的期望份額）" },
+  { key: "contribution.soak_pct", label: "承傷", hint: "承受傷害＋自身減免佔隊伍的比例（除以依陣容算的期望份額）" },
+  { key: "contribution.surv_pct", label: "存活", hint: "死亡佔隊伍死亡的比例，越低越好（分數越高代表死得越少）" },
   { key: "contribution.kp_pct", label: "參團", hint: "(擊殺＋助攻) / 隊伍擊殺" },
-  { key: "contribution.cc_pct", label: "控制", hint: "控制敵人的時間佔隊伍的比例" },
-  { key: "contribution.kda_pct", label: "KDA", hint: "(擊殺＋助攻) / 死亡" },
-  { key: "contribution.eff_pct", label: "效率", hint: "每 1 金錢打出的對英雄傷害" },
+  { key: "contribution.cc_pct", label: "控場", hint: "每分鐘控制敵人的時間（Combo Breaker 讓控場邊際遞減，權重中等）" },
+  { key: "contribution.heal_pct", label: "治療", hint: "每分鐘治療量，只在偵測到有治療到隊友的場次計（含自補，護盾沒有資料）" },
 ] as const
 export const CONTRIB_MEASURES = ["contribution.score", ...CONTRIB_PARTS.map((c) => c.key)]
 

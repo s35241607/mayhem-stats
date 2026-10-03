@@ -239,14 +239,14 @@ views:
             alias: contribution_damage
           - name: soak_pct
             alias: contribution_soak
-          - name: kda_pct
-            alias: contribution_kda
+          - name: surv_pct
+            alias: contribution_survival
           - name: kp_pct
             alias: contribution_kill_participation
           - name: cc_pct
             alias: contribution_cc
-          - name: eff_pct
-            alias: contribution_efficiency
+          - name: heal_pct
+            alias: contribution_heal
 
       - join_path: participants.augments
         includes:

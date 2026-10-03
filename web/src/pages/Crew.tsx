@@ -22,10 +22,10 @@ import { cn } from "@/lib/utils"
 import { BUILD_ROLES, BUILD_SHORT, MIN_GAMES, NO_LIMIT, round0 } from "./shared"
 
 // ── 「適合／不適合」的判斷：貢獻為主、勝率為輔 ─────────────────────────
-// 貢獻：語意層的 contribution.score——輸出、承傷、KDA、參團、控制、效率六項，各自和「同出裝定位、同勝負」
-//       的人比成百分位，再依定位加權（坦克重承傷與控制、輸出重傷害與效率…）。50＝一般人。
-//       和同勝負的人比，所以不受輸贏影響：只看勝率不公平，ARAM 的勝負很大一部分是隊友與陣容。
-//       這裡用「分數 − 50」，依場次往 0 收縮。
+// 貢獻：語意層的 contribution.score——輸出、承傷、存活、參團、控場（有治療到隊友時再加治療），各自和「同類型」
+//       （出裝定位 × 英雄官方主定位）的人比成名次百分位，再依出裝定位加權、同類型內再排一次名。50＝同類型的中位數。
+//       分數不用擊殺、金錢、勝負當輸入，所以不受輸贏影響：只看勝率不公平，大亂鬥的勝負很大一部分是隊友與陣容
+//       （前三場團戰的贏家只有 54% 會贏）。這裡用「分數 − 50」，依場次往 0 收縮；單場標準差約 29，門檻見 CONTRIB_GAP。
 // 勝率：和這個人「自己的」整體勝率比（每個人本來水準不同），依場次往他的平均收縮後的差距。
 // 強判斷（適合／不適合）一定要貢獻達標，勝率只能讓它降級或補充說明：
 //   貢獻好 → 適合（勝率明顯差時改成「非戰之罪」）；貢獻差 → 不適合（勝率明顯好時改成「靠隊友」）；
@@ -40,7 +40,7 @@ const PICKS_SHOWN = 3
 const n0 = (r: CubeRow | undefined, k: string) => (r ? (num(r[k]) ?? 0) : 0)
 const opt = (r: CubeRow | undefined, k: string) => (r ? num(r[k]) : null)
 const signed = (v: number, digits = 1) => `${v >= 0 ? "+" : ""}${v.toFixed(digits)}`
-/** 綜合貢獻換成「和一般人（50）的差距」 */
+/** 綜合貢獻換成「和同類型中位數（50）的差距」 */
 const dev = (r: CubeRow | undefined) => {
   const v = opt(r, "contribution.score")
   return v === null ? null : v - 50
@@ -70,12 +70,12 @@ function PlayerName({ player, className }: { player: Player; className?: string 
 type Verdict = "good" | "unlucky" | "winning" | "bad" | "lucky" | "losing"
 
 const VERDICT: Record<Verdict, { label: string; side: "pos" | "neg"; strong: boolean; hint: string }> = {
-  good: { label: "適合", side: "pos", strong: true, hint: "貢獻比同定位的一般人多，勝率也沒有比平常差" },
-  unlucky: { label: "非戰之罪", side: "pos", strong: false, hint: "貢獻比一般人多，但勝率比平常低——輸多半不是他的問題" },
-  winning: { label: "勝率好", side: "pos", strong: false, hint: "勝率比平常高，貢獻和一般人差不多" },
-  bad: { label: "不適合", side: "neg", strong: true, hint: "貢獻比同定位的一般人少，勝率也沒有比平常好" },
-  lucky: { label: "靠隊友", side: "neg", strong: false, hint: "勝率比平常高，但貢獻比一般人少——贏多半是隊友或陣容" },
-  losing: { label: "勝率差", side: "neg", strong: false, hint: "勝率比平常低，貢獻和一般人差不多" },
+  good: { label: "適合", side: "pos", strong: true, hint: "貢獻比同類型的中位數高，勝率也沒有比平常差" },
+  unlucky: { label: "非戰之罪", side: "pos", strong: false, hint: "貢獻比同類型的中位數高，但勝率比平常低——輸多半不是他的問題" },
+  winning: { label: "勝率好", side: "pos", strong: false, hint: "勝率比平常高，貢獻和同類型差不多" },
+  bad: { label: "不適合", side: "neg", strong: true, hint: "貢獻比同類型的中位數低，勝率也沒有比平常好" },
+  lucky: { label: "靠隊友", side: "neg", strong: false, hint: "勝率比平常高，但貢獻比同類型的中位數低——贏多半是隊友或陣容" },
+  losing: { label: "勝率差", side: "neg", strong: false, hint: "勝率比平常低，貢獻和同類型差不多" },
 }
 const ORDER: Verdict[] = ["good", "unlucky", "winning", "bad", "lucky", "losing"]
 
@@ -121,7 +121,7 @@ function classify(items: Item[], base: number | null, minGames: number, wrGap: n
 const tip = (i: Pick) =>
   `${i.label}・${VERDICT[i.verdict].label}（${VERDICT[i.verdict].hint}）\n` +
   `${i.games} 場・${i.wins} 勝 ${i.games - i.wins} 敗・勝率 ${i.winrate?.toFixed(1)}%\n` +
-  `勝率比他自己平均 ${signed(i.wr)}pp・貢獻比同定位的一般人 ${signed(i.perfAdj, 0)}（綜合貢獻 ${i.perf === null ? "—" : Math.round(50 + i.perf)}，50＝一般人，依場次收縮前）`
+  `勝率比他自己平均 ${signed(i.wr)}pp・貢獻比同類型的中位數 ${signed(i.perfAdj, 0)}（綜合貢獻 ${i.perf === null ? "—" : Math.round(50 + i.perf)}，50＝中位數，依場次收縮前）`
 
 function verdictClass(v: Verdict) {
   const { side, strong } = VERDICT[v]
@@ -413,7 +413,7 @@ function PlayerDrawerBody({
           <PickList title="英雄：好的一面" items={analysis.champCall.pos} empty={`還沒有英雄在 ${CHAMP_MIN} 場以上明顯比平常好`} />
           <PickList title="英雄：要注意的" items={analysis.champCall.neg} empty={`還沒有英雄在 ${CHAMP_MIN} 場以上明顯比平常差`} />
           <p className="text-[11px] text-muted-foreground">
-            「勝」是勝率比他自己平均高幾個百分點；「貢」是綜合貢獻比同定位的一般人（50）高多少。都已依場次收縮。
+            「勝」是勝率比他自己平均高幾個百分點；「貢」是綜合貢獻比同類型的中位數（50）高多少。都已依場次收縮。
             適合／不適合看的是貢獻，勝率只用來補充：貢獻好但勝率差是「非戰之罪」，貢獻差但勝率好是「靠隊友」
           </p>
         </div>
@@ -429,9 +429,10 @@ function PlayerDrawerBody({
           </div>
         </div>
         <div className="mb-2 text-[11px] text-muted-foreground">
-          每一項都和「同出裝定位、同勝負」的人比（贏的場和贏家比、輸的場和輸家比），換成百分位：50＝一般人，
-          雷達裡的虛線圈與橫條中間的刻度就是 50。所以不受輸贏影響，看的是他自己做得比別人多還是少。綜合貢獻依定位加權：
-          坦克重承傷與控制、輸出重傷害與效率、刺客重傷害與 KDA、輔助重參團與控制
+          每一項都和「同類型」（出裝定位 × 英雄官方主定位）的人比，換成名次百分位：50＝同類型的中位數，
+          雷達裡的虛線圈與橫條中間的刻度就是 50。分數不用擊殺、金錢、勝負當輸入，所以不受輸贏影響，看的是他自己做得比同類型多還是少。
+          綜合貢獻依出裝定位加權：坦克重承傷、參團與控場，輸出位重輸出與存活，輔助重參團與控場；有治療到隊友的場次再加治療（沒有就不算、也不扣分）。
+          護盾沒有資料，所以護盾型英雄只做到不扣分
         </div>
         {!settled || contrib.loading ? (
           <Skeleton className="h-[300px] w-full" />
@@ -497,7 +498,7 @@ function PlayerDrawerBody({
                   baseline={overallWr}
                   baselineLabel="他自己的整體勝率"
                 />
-                <span title="這幾場的綜合貢獻（50＝同定位、同勝負的一般人，未收縮）" className="text-right text-[12px]">
+                <span title="這幾場的綜合貢獻（50＝同類型的中位數，未收縮）" className="text-right text-[12px]">
                   <ContribScore dev={perf} />
                 </span>
               </ExpandRow>
@@ -937,7 +938,7 @@ function LookupPanel({
 const CHAMPION_LOOKUP: LookupKind = {
   title: "查英雄",
   caption:
-    "選一隻英雄，看每個人玩它的戰績，點一個人展開他玩這隻英雄的每一場。「勝率」是和他自己整體勝率的差距（依場次收縮後），戰績條的刻度也是他自己的整體勝率；「貢獻」是這幾場的綜合貢獻（50＝同定位、同勝負的一般人，不受輸贏影響）",
+    "選一隻英雄，看每個人玩它的戰績，點一個人展開他玩這隻英雄的每一場。「勝率」是和他自己整體勝率的差距（依場次收縮後），戰績條的刻度也是他自己的整體勝率；「貢獻」是這幾場的綜合貢獻（50＝同類型的中位數，不受輸贏影響）",
   noun: "英雄",
   counter: "隻",
   verb: "玩",
@@ -1102,7 +1103,7 @@ export function Crew() {
       {/* ── 全員一覽：每人一列，迷你雷達 + 判斷 ── */}
       <Panel
         title="全員一覽"
-        caption={`定位依「終場出裝」判斷（AD 輸出、AD 刺客、AP 輸出、AP 刺客、坦克、AD 鬥士、AP 坦、輔助）：AD 刺客是穿甲裝為主，AP 刺客是 AP 輸出裝配上官方定位為刺客的英雄，其餘不看官方定位。雷達是各出裝佔他場次的比例（最常用的頂到外框）。判斷以「貢獻」為主：輸出、承傷、KDA、參團、控制、效率六項，各自和同出裝定位、同勝負的人比（不受輸贏影響），依定位加權成綜合貢獻（50＝一般人）；收縮後高或低 ${CONTRIB_GAP} 分以上才算數。貢獻好是「適合」、差是「不適合」；勝率（和他自己平均比，出裝 ${WR_GAP_ROLE}pp、英雄 ${WR_GAP_CHAMP}pp）只做補充——貢獻好但勝率差是「非戰之罪」、貢獻差但勝率好是「靠隊友」、貢獻普通時才單看勝率（虛線框）。滑過看數字；點一列看完整分析`}
+        caption={`定位依「終場出裝」判斷（AD 輸出、AD 刺客、AP 輸出、AP 刺客、坦克、AD 鬥士、AP 坦、輔助）：AD 刺客是穿甲裝為主，AP 刺客是 AP 輸出裝配上官方定位為刺客的英雄，其餘不看官方定位。雷達是各出裝佔他場次的比例（最常用的頂到外框）。判斷以「貢獻」為主：輸出、承傷、存活、參團、控場（有治療到隊友時再加治療）各自和同類型（出裝定位 × 英雄官方主定位）的人比（不受輸贏影響），依出裝定位加權成綜合貢獻（同類型的中位數＝50）；收縮後高或低 ${CONTRIB_GAP} 分以上才算數。貢獻好是「適合」、差是「不適合」；勝率（和他自己平均比，出裝 ${WR_GAP_ROLE}pp、英雄 ${WR_GAP_CHAMP}pp）只做補充——貢獻好但勝率差是「非戰之罪」、貢獻差但勝率好是「靠隊友」、貢獻普通時才單看勝率（虛線框）。滑過看數字；點一列看完整分析`}
       >
         {loading ? (
           <Skeleton className="h-[640px] w-full" />
@@ -1145,7 +1146,7 @@ export function Crew() {
                       </span>
                       <span
                         className="block text-[11px] text-muted-foreground"
-                        title="綜合貢獻：輸出、承傷、KDA、參團、控制、效率各自和同出裝定位、同勝負的人比，依定位加權。50＝一般人，不受輸贏影響"
+                        title="綜合貢獻：輸出、承傷、存活、參團、控場（有治療到隊友時再加治療）各自和同類型的人比，依出裝定位加權。50＝同類型的中位數，不受輸贏影響"
                       >
                         綜合貢獻 <ContribScore dev={perf} className="font-semibold" />
                       </span>

@@ -335,7 +335,7 @@ const STAT_SECTIONS: { title: string; rows: StatRow[] }[] = [
 ]
 
 function StatTable({ players, roleOf, contrib }: { players: Player[]; roleOf: Map<string, string>; contrib: Map<string, CubeRow> }) {
-  // 貢獻是百分位（同出裝定位、同勝負），不是這場的原始數字；缺值給 -1，畫成「—」且不會被標成最高
+  // 貢獻是同類型內的名次百分位，不是這場的原始數字；缺值（重開局、沒有治療隊友的治療軸）給 -1，畫成「—」且不會被標成最高
   const pct = (key: string) => (p: Player) => {
     const r = contrib.get(keyOf(p))
     return (r ? num(r[key]) : null) ?? -1
@@ -344,7 +344,7 @@ function StatTable({ players, roleOf, contrib }: { players: Player[]; roleOf: Ma
   const sections = [
     ...STAT_SECTIONS,
     {
-      title: "貢獻（和同出裝定位、同勝負的人比，50＝一般人）",
+      title: "貢獻（和同類型的人比，50＝中位數）",
       rows: [
         { label: "綜合貢獻", get: pct("contribution.score"), fmt: fmtPct },
         ...CONTRIB_PARTS.map((c) => ({ label: c.label, get: pct(c.key), fmt: fmtPct })),
@@ -497,9 +497,10 @@ export function MatchDetail({
           </div>
           <Scoreboard players={players} roleOf={roleOf} contrib={contrib} />
           <p className="mt-2 text-xs text-muted-foreground">
-            貢獻分數（0～100，50＝一般人）：輸出、承傷、KDA、參團、控制、效率六項，各自和「同出裝定位、同勝負」的人比成百分位，
-            再依出裝定位加權（輸出型不看承傷、坦克不看效率）。橫條以 50 為中線，往右比一般人多、往左較少；
-            因為只和同勝負的人比，輸贏不會影響分數。MVP＝贏的一隊最高、ACE＝輸的一隊最高；點一列看六項明細。
+            貢獻分數（0～100，50＝同類型的中位數）：輸出、承傷、存活、參團、控場，有治療到隊友時再加治療，各自和「同類型」
+            （出裝定位 × 英雄官方主定位）的人比成名次百分位，再依出裝定位加權（輸出型不看承傷）。橫條以 50 為中線，
+            往右比同類型的中位數高、往左較低。分數不用擊殺、金錢、勝負當輸入，輸贏不會影響分數；護盾沒有資料，只做到不扣分；
+            6 分鐘內的重開局不計分。MVP＝贏的一隊最高、ACE＝輸的一隊最高；點一列看六項明細。
           </p>
         </TabsContent>
         <TabsContent value="stats">

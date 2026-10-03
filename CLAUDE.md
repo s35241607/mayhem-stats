@@ -25,6 +25,9 @@ ARAM: Mayhem 的本機戰績採集與分析工具。FastAPI（`app.py`）+ Cube 
   規則寫在各 cube 的 `meta.materialize.sql`，`features.py` 在啟動時與每輪採集後照它重建。
   改這段 SQL **不會**被 Cube 的熱重載套用——要重啟服務或 `uv run features.py`。
   新的衍生表 cube 若要對全部參賽者跑視窗函數，也照這個做法，不要每個查詢現算（資料十倍時一個查詢十幾秒）。
+- **貢獻分數的規格與實測依據在 `docs/contribution-scoring.md`**：規則本體在 `contribution.yml` 的 `meta.materialize.sql`，兩邊一起改。
+  它是「同類型（出裝定位 × 英雄官方主定位）內的名次百分位」，所以用到 `dim_champion_roles`；前端門檻 `CONTRIB_GAP` 跟分數的標準差綁在一起。
+  不要把擊殺、金錢、勝負、KDA 比放回輸入（都是結果）；護盾沒有資料，只能做到不扣分。
 - **`cube/model/views/` 是給 AI Agent 與外部工具的查詢入口**，前端不用、自由探索頁會濾掉。在 cube 加了對外有用的欄位，記得一併加進對應的 view，並補上 description。
 - **聚合走 Cube，逐列走 `/api/matches`；新的可下鑽維度一律用 `game_ids`**，不要再往 `/api/matches` 加篩選參數。
   作法：用和圖表同一組條件向 Cube 查 `<cube>.game_id`，再交給 `<DrillPanel query gameIdKey>`（`components/MatchList.tsx`）。

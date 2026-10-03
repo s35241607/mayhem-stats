@@ -117,6 +117,11 @@ class LCUClient:
         """單場完整明細,包含全部 10 名玩家(清單 API 只給自己一個人)。"""
         return self.get(f"/lol-match-history/v1/games/{game_id}")
 
+    def eog_stats_block(self):
+        """賽後統計（賽後畫面那一份）。只有賽後畫面存在時才有，其他時候回 404（raise_for_status 的 HTTPError），
+        呼叫端自己處理。對局明細端點沒有治療／護盾隊友的量，這一份有沒有，要打完一場才知道。"""
+        return self.get("/lol-end-of-game/v1/eog-stats-block")
+
     def asset(self, name):
         return self.get(f"/lol-game-data/assets/v1/{name}.json")
 
