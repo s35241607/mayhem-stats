@@ -1,6 +1,8 @@
 import { Fragment, useMemo, useState, type CSSProperties } from "react"
 import { ArrowRight, Check, ChevronDown, ChevronsUpDown, Search } from "lucide-react"
 import { RecordCell } from "@/components/cells"
+import { ContribBars, ContribScore } from "@/components/Contribution"
+import { CONTRIB_GAP, CONTRIB_MEASURES } from "@/hooks/useContribution"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
@@ -33,8 +35,6 @@ const ROLE_MIN = MIN_GAMES
 const CHAMP_MIN = 3
 const WR_GAP_ROLE = 3
 const WR_GAP_CHAMP = 5
-/** 貢獻（收縮後，分數 − 50）要偏離多少才算好或差：單場分數標準差約 19，好友圈「人 × 出裝」大約落在 ±8 */
-const CONTRIB_GAP = 4
 const PICKS_SHOWN = 3
 
 const n0 = (r: CubeRow | undefined, k: string) => (r ? (num(r[k]) ?? 0) : 0)
@@ -127,59 +127,6 @@ function verdictClass(v: Verdict) {
   const { side, strong } = VERDICT[v]
   if (side === "pos") return strong ? "border-win/50 bg-win/15 text-win font-semibold" : "border-dashed border-win/40 text-win"
   return strong ? "border-loss/50 bg-loss/15 text-loss font-semibold" : "border-dashed border-loss/40 text-loss"
-}
-
-/** 綜合貢獻的數字：0～100，50＝同定位、同勝負的一般人；差距不到門檻的用淡色 */
-function ContribScore({ dev: d, className }: { dev: number | null; className?: string }) {
-  return (
-    <span
-      className={cn(
-        "font-mono tabular-nums",
-        d === null || Math.abs(d) < CONTRIB_GAP ? "text-muted-foreground" : d > 0 ? "text-win" : "text-loss",
-        className,
-      )}
-    >
-      {d === null ? "—" : Math.round(50 + d)}
-    </span>
-  )
-}
-
-/** 貢獻的六項（語意層 contribution.yml），順序固定：先「做了多少」再「做得多有效」 */
-const CONTRIB_PARTS = [
-  { key: "contribution.dmg_pct", label: "輸出", hint: "對英雄傷害佔隊伍的比例" },
-  { key: "contribution.soak_pct", label: "承傷", hint: "承受傷害＋自身減免佔隊伍的比例" },
-  { key: "contribution.kp_pct", label: "參團", hint: "(擊殺＋助攻) / 隊伍擊殺" },
-  { key: "contribution.cc_pct", label: "控制", hint: "控制敵人的時間佔隊伍的比例" },
-  { key: "contribution.kda_pct", label: "KDA", hint: "(擊殺＋助攻) / 死亡" },
-  { key: "contribution.eff_pct", label: "效率", hint: "每 1 金錢打出的對英雄傷害" },
-] as const
-const CONTRIB_MEASURES = ["contribution.score", ...CONTRIB_PARTS.map((c) => c.key)]
-
-/** 六項貢獻的橫條：每項是百分位，中間的刻度是 50（一般人），往右是做得比一般人多 */
-function ContribBars({ row }: { row: CubeRow | undefined }) {
-  return (
-    <div className="space-y-1.5">
-      {CONTRIB_PARTS.map((c) => {
-        const v = opt(row, c.key)
-        const d = v === null ? null : v - 50
-        return (
-          <div key={c.key} className="grid grid-cols-[2.5rem_minmax(0,1fr)_2rem] items-center gap-2" title={`${c.label}：${c.hint}\n在同出裝定位、同勝負的人裡的百分位（這幾場平均），50＝一般人`}>
-            <span className="text-[12px]">{c.label}</span>
-            <span className="relative h-2 rounded-full bg-muted/50">
-              {v !== null && (
-                <span
-                  className={cn("absolute inset-y-0 rounded-full", d !== null && d >= 0 ? "bg-win/70" : "bg-loss/70")}
-                  style={d !== null && d >= 0 ? { left: "50%", width: `${d}%` } : { left: `${v}%`, width: `${50 - v}%` }}
-                />
-              )}
-              <span className="absolute inset-y-[-2px] left-1/2 w-px bg-muted-foreground/60" />
-            </span>
-            <ContribScore dev={d} className="text-right text-[12px]" />
-          </div>
-        )
-      })}
-    </div>
-  )
 }
 
 /** 迷你雷達（出裝定位八個頂點）：形狀是各出裝定位佔他自己場次的比例（偏好怎麼玩），頂點是判斷結果。

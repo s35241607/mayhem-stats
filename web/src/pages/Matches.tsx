@@ -4,10 +4,12 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Panel } from "@/components/primitives"
-import { MAX_GAME_IDS, iconUrl } from "@/lib/cube"
+import { MAX_GAME_IDS, iconUrl, num, type CubeRow } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 import { CubeMatchList, MatchList } from "@/components/MatchList"
 import { RoleChip, RoleLegend } from "@/components/RoleChip"
+import { ContribBars, ContribInline, ContribMeter, type ContribTag } from "@/components/Contribution"
+import { CONTRIB_PARTS, contribScore, useContribution } from "@/hooks/useContribution"
 import { participantKey, useBuildRoles } from "@/hooks/useBuildRoles"
 import { cn } from "@/lib/utils"
 
@@ -163,10 +165,31 @@ function RosterRow({ roster, teamId, self }: { roster: Mate[]; teamId: number; s
 
 // ─────────────────────────────────────────── 計分板
 
-function Scoreboard({ players, roleOf }: { players: Player[]; roleOf: Map<string, string> }) {
+function Scoreboard({
+  players,
+  roleOf,
+  contrib,
+}: {
+  players: Player[]
+  roleOf: Map<string, string>
+  contrib: Map<string, CubeRow>
+}) {
+  // 展開六項明細的人（可以同時開幾個互相比）
+  const [open, setOpen] = useState<Set<number>>(new Set())
+  const toggle = (id: number) =>
+    setOpen((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(id)) next.add(id)
+      return next
+    })
+  const scoreOf = (p: Player) => contribScore(contrib.get(keyOf(p)))
   const teams = [100, 200].map((teamId) => {
     const members = players.filter((p) => p.team_id === teamId)
+    const scores = members.map(scoreOf)
+    // 十個人的分數都到齊才標 MVP／ACE，免得資料還沒回來時誤標
+    const best = scores.every((v) => v !== null) && scores.length ? Math.max(...(scores as number[])) : null
     return {
+      best,
       teamId,
       members,
       won: members[0]?.win === 1,
@@ -201,7 +224,10 @@ function Scoreboard({ players, roleOf }: { players: Player[]; roleOf: Map<string
           </div>
 
           <div className="divide-y">
-            {team.members.map((p) => (
+            {team.members.map((p) => {
+              const score = scoreOf(p)
+              const tag: ContribTag | undefined = score !== null && score === team.best ? (team.won ? "MVP" : "ACE") : undefined
+              return (
               <div
                 key={p.participant_id}
                 className={cn(
@@ -237,8 +263,18 @@ function Scoreboard({ players, roleOf }: { players: Player[]; roleOf: Map<string
                 <div className="w-[70px] text-right text-sm tabular-nums text-muted-foreground">
                   {p.gold_earned.toLocaleString()}
                 </div>
+
+                <ContribMeter score={score} tag={tag} expanded={open.has(p.participant_id)} onToggle={() => toggle(p.participant_id)} />
+
+                {open.has(p.participant_id) && (
+                  <ContribBars
+                    row={contrib.get(keyOf(p))}
+                    className="reveal grid w-full basis-full gap-x-8 gap-y-1.5 rounded-md bg-secondary/30 px-3 py-2 sm:grid-cols-2 lg:grid-cols-3"
+                  />
+                )}
               </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       ))}
@@ -291,7 +327,23 @@ const STAT_SECTIONS: { title: string; rows: StatRow[] }[] = [
   },
 ]
 
-function StatTable({ players, roleOf }: { players: Player[]; roleOf: Map<string, string> }) {
+function StatTable({ players, roleOf, contrib }: { players: Player[]; roleOf: Map<string, string>; contrib: Map<string, CubeRow> }) {
+  // 貢獻是百分位（同出裝定位、同勝負），不是這場的原始數字；缺值給 -1，畫成「—」且不會被標成最高
+  const pct = (key: string) => (p: Player) => {
+    const r = contrib.get(keyOf(p))
+    return (r ? num(r[key]) : null) ?? -1
+  }
+  const fmtPct = (n: number) => (n < 0 ? "—" : String(Math.round(n)))
+  const sections = [
+    ...STAT_SECTIONS,
+    {
+      title: "貢獻（和同出裝定位、同勝負的人比，50＝一般人）",
+      rows: [
+        { label: "綜合貢獻", get: pct("contribution.score"), fmt: fmtPct },
+        ...CONTRIB_PARTS.map((c) => ({ label: c.label, get: pct(c.key), fmt: fmtPct })),
+      ] as StatRow[],
+    },
+  ]
   return (
     <div className="overflow-x-auto rounded-lg border">
       <table className="w-full min-w-[900px] text-sm">
@@ -326,7 +378,7 @@ function StatTable({ players, roleOf }: { players: Player[]; roleOf: Map<string,
           </tr>
         </thead>
         <tbody>
-          {STAT_SECTIONS.map((section) => (
+          {sections.map((section) => (
             // key 要掛在 Fragment 上，掛在裡面的 tr 是無效的
             <Fragment key={section.title}>
               <tr className="bg-secondary/40">
@@ -389,6 +441,8 @@ export function MatchDetail({
   const [error, setError] = useState<string | null>(null)
   // 十個人各自的出裝定位
   const roleOf = useBuildRoles(data ? data.players.map(keyOf) : [])
+  // 十個人各自的貢獻分數與六項百分位（語意層 contribution）
+  const contrib = useContribution(data ? data.players.map(keyOf) : [], true)
 
   useEffect(() => {
     setData(null)
@@ -434,10 +488,15 @@ export function MatchDetail({
           <div className="mb-2 flex justify-end">
             <RoleLegend />
           </div>
-          <Scoreboard players={players} roleOf={roleOf} />
+          <Scoreboard players={players} roleOf={roleOf} contrib={contrib} />
+          <p className="mt-2 text-xs text-muted-foreground">
+            貢獻分數（0～100，50＝一般人）：輸出、承傷、KDA、參團、控制、效率六項，各自和「同出裝定位、同勝負」的人比成百分位，
+            再依出裝定位加權（輸出型不看承傷、坦克不看效率）。橫條以 50 為中線，往右比一般人多、往左較少；
+            因為只和同勝負的人比，輸贏不會影響分數。MVP＝贏的一隊最高、ACE＝輸的一隊最高；點一列看六項明細。
+          </p>
         </TabsContent>
         <TabsContent value="stats">
-          <StatTable players={players} roleOf={roleOf} />
+          <StatTable players={players} roleOf={roleOf} contrib={contrib} />
           <p className="mt-2 text-xs text-muted-foreground">
             每一列的全場最高值以主色標示。上方色條藍＝隊伍 1、紅＝隊伍 2；色條下是這場的出裝定位。
           </p>
@@ -494,11 +553,13 @@ function MatchCardChunk({
 }) {
   // 這場的出裝定位：向 Cube 查（見 useBuildRoles）
   const roleOf = useBuildRoles(rows.map(keyOf))
+  const contrib = useContribution(rows.map(keyOf))
   return (
     <>
       {rows.map((m, j) => {
         const i = offset + j
         const role = roleOf.get(keyOf(m))
+        const score = contribScore(contrib.get(keyOf(m)))
         const kda = m.deaths === 0 ? "Perfect" : ((m.kills + m.assists) / m.deaths).toFixed(2)
         const kp = m.team_kills ? Math.round(((m.kills + m.assists) / m.team_kills) * 100) : 0
         return (
@@ -524,6 +585,7 @@ function MatchCardChunk({
                 <span className="truncate font-semibold" title={m.riot_id ?? undefined}>{m.riot_id ?? "—"}</span>
                 {role && <RoleChip role={role} />}
                 <span className="shrink-0 text-muted-foreground">{m.champion_name}</span>
+                <span className="shrink-0 text-muted-foreground"><ContribInline score={score} /></span>
                 <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">{fmtDate(m.game_creation)}</span>
               </div>
             )}
@@ -575,8 +637,10 @@ function MatchCardChunk({
               <RosterRow roster={m.roster ?? []} teamId={m.team_id} self={m.participant_id} />
 
               {!showPlayer && (
-                <div className="shrink-0 text-right">
+                // 固定寬度：晶片有寬有窄，加上貢獻分數後右欄不能跟著變寬，不然每列的敵我頭像會左右錯位
+                <div className="w-[118px] shrink-0 text-right">
                   <div className="flex items-center justify-end gap-1.5 text-xs text-muted-foreground">
+                    <ContribInline score={score} />
                     {role && <RoleChip role={role} />}
                   </div>
                   <div className="whitespace-nowrap text-[11px] text-muted-foreground">{fmtDate(m.game_creation)}</div>
