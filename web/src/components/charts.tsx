@@ -966,9 +966,9 @@ export type ContribRadarDatum = { label: string; hint: string; value: number | n
 
 /** 貢獻六項的雷達：六個頂點各是一項百分位（0～100，外框 100），50 那一圈畫成虛線——
  *  形狀在虛線圈外的那一項就是比同出裝定位、同勝負的一般人多，圈內是少。
- *  頂點標籤是名稱與數字，數字偏離 50 達 CONTRIB_GAP 才上勝／敗色（和 ContribScore 同一套）。
+ *  頂點標籤是名稱與數字，數字偏離 50 達 gap（預設 CONTRIB_GAP，表現分傳 PERF_GAP）才上勝／敗色（和 ContribScore 同一套）。
  *  形狀用資料色，不用勝敗色：雷達整體不是「好壞」，好壞由虛線圈和數字顏色表達。 */
-export function ContribRadarChart({ data: all, height = 280 }: { data: ContribRadarDatum[]; height?: number }) {
+export function ContribRadarChart({ data: all, height = 280, gap = CONTRIB_GAP }: { data: ContribRadarDatum[]; height?: number; gap?: number }) {
   const theme = useTheme()
   // 沒有值的項目（例如沒有治療到隊友的場次沒有治療軸）直接略過那個頂點，畫成 0 會被讀成「完全沒做」
   const data = useMemo(() => all.filter((d) => d.value !== null), [all])
@@ -996,7 +996,7 @@ export function ContribRadarChart({ data: all, height = 280 }: { data: ContribRa
       const dev = d.value === null ? 0 : d.value - 50
       rich[`n${i}`] = { color: theme.text, fontSize: 13, fontWeight: 600, lineHeight: 18 }
       rich[`v${i}`] = {
-        color: d.value === null || Math.abs(dev) < CONTRIB_GAP ? theme.muted : dev > 0 ? theme.win : theme.loss,
+        color: d.value === null || Math.abs(dev) < gap ? theme.muted : dev > 0 ? theme.win : theme.loss,
         fontSize: 11,
         fontFamily: MONO,
         fontWeight: 600,
@@ -1067,7 +1067,7 @@ export function ContribRadarChart({ data: all, height = 280 }: { data: ContribRa
         },
       ],
     }
-  }, [data, theme, geo.r, geo.cx, geo.cy])
+  }, [data, theme, gap, geo.r, geo.cx, geo.cy])
 
   return (
     <div ref={boxRef}>

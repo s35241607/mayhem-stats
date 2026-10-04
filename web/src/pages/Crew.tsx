@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils"
 import { BUILD_ROLES, BUILD_SHORT, MIN_GAMES, NO_LIMIT, round0 } from "./shared"
 
 // ── 「適合／不適合」的判斷：貢獻為主、勝率為輔 ─────────────────────────
-// 貢獻：語意層的 contribution.score——輸出、承傷、存活、參團、控場（有治療或護盾隊友時再加治療護盾），各自和「同類型」
+// 貢獻：語意層的 contribution.score（隊內貢獻排名，占全隊的比例，不含當局表現分——表現分和勝負相關，不能拿來判斷「運氣」）——輸出、承傷、存活、參團、控場（有治療或護盾隊友時再加治療護盾），各自和「同類型」
 //       （出裝定位 × 英雄官方主定位）的人比成名次百分位，再依出裝定位加權、同類型內再排一次名。50＝同類型的中位數。
 //       分數不用擊殺、金錢、勝負當輸入，所以不受輸贏影響：只看勝率不公平，大亂鬥的勝負很大一部分是隊友與陣容
 //       （前三場團戰的贏家只有 54% 會贏）。這裡用「分數 − 50」，依場次往 0 收縮；單場標準差約 29，門檻見 CONTRIB_GAP。
@@ -40,7 +40,7 @@ const PICKS_SHOWN = 3
 const n0 = (r: CubeRow | undefined, k: string) => (r ? (num(r[k]) ?? 0) : 0)
 const opt = (r: CubeRow | undefined, k: string) => (r ? num(r[k]) : null)
 const signed = (v: number, digits = 1) => `${v >= 0 ? "+" : ""}${v.toFixed(digits)}`
-/** 綜合貢獻換成「和同類型中位數（50）的差距」 */
+/** 隊內貢獻換成「和同類型中位數（50）的差距」 */
 const dev = (r: CubeRow | undefined) => {
   const v = opt(r, "contribution.score")
   return v === null ? null : v - 50
@@ -121,7 +121,7 @@ function classify(items: Item[], base: number | null, minGames: number, wrGap: n
 const tip = (i: Pick) =>
   `${i.label}・${VERDICT[i.verdict].label}（${VERDICT[i.verdict].hint}）\n` +
   `${i.games} 場・${i.wins} 勝 ${i.games - i.wins} 敗・勝率 ${i.winrate?.toFixed(1)}%\n` +
-  `勝率比他自己平均 ${signed(i.wr)}pp・貢獻比同類型的中位數 ${signed(i.perfAdj, 0)}（綜合貢獻 ${i.perf === null ? "—" : Math.round(50 + i.perf)}，50＝中位數，依場次收縮前）`
+  `勝率比他自己平均 ${signed(i.wr)}pp・貢獻比同類型的中位數 ${signed(i.perfAdj, 0)}（隊內貢獻 ${i.perf === null ? "—" : Math.round(50 + i.perf)}，50＝中位數，依場次收縮前）`
 
 function verdictClass(v: Verdict) {
   const { side, strong } = VERDICT[v]
@@ -413,7 +413,7 @@ function PlayerDrawerBody({
           <PickList title="英雄：好的一面" items={analysis.champCall.pos} empty={`還沒有英雄在 ${CHAMP_MIN} 場以上明顯比平常好`} />
           <PickList title="英雄：要注意的" items={analysis.champCall.neg} empty={`還沒有英雄在 ${CHAMP_MIN} 場以上明顯比平常差`} />
           <p className="text-[11px] text-muted-foreground">
-            「勝」是勝率比他自己平均高幾個百分點；「貢」是綜合貢獻比同類型的中位數（50）高多少。都已依場次收縮。
+            「勝」是勝率比他自己平均高幾個百分點；「貢」是隊內貢獻比同類型的中位數（50）高多少。都已依場次收縮。
             適合／不適合看的是貢獻，勝率只用來補充：貢獻好但勝率差是「非戰之罪」，貢獻差但勝率好是「靠隊友」
           </p>
         </div>
@@ -425,13 +425,13 @@ function PlayerDrawerBody({
             貢獻分解{role ? `・出裝是${role}時` : "・所有出裝"}
           </div>
           <div className="text-[12px]">
-            綜合貢獻 <ContribScore dev={dev(contrib.rows[0])} className="text-base font-semibold" />
+            隊內貢獻 <ContribScore dev={dev(contrib.rows[0])} className="text-base font-semibold" />
           </div>
         </div>
         <div className="mb-2 text-[11px] text-muted-foreground">
           每一項都和「同類型」（出裝定位 × 英雄官方主定位）的人比，換成名次百分位：50＝同類型的中位數，
           雷達裡的虛線圈與橫條中間的刻度就是 50。分數不用擊殺、金錢、勝負當輸入，所以不受輸贏影響，看的是他自己做得比同類型多還是少。
-          綜合貢獻依出裝定位加權：坦克重承傷、參團與控場，輸出位重輸出與存活，輔助重參團與控場；有治療或護盾隊友的場次再加「治療護盾」（沒有就不算、也不扣分）。
+          隊內貢獻依出裝定位加權：坦克重承傷、參團與控場，輸出位重輸出與存活，輔助重參團與控場；有治療或護盾隊友的場次再加「治療護盾」（沒有就不算、也不扣分）。
           治療與護盾隊友的量只有開始擷取賽後統計之後的場次才有，舊場次只看得到含自補的治療量，護盾型英雄在舊場次只做到不扣分
         </div>
         {!settled || contrib.loading ? (
@@ -498,7 +498,7 @@ function PlayerDrawerBody({
                   baseline={overallWr}
                   baselineLabel="他自己的整體勝率"
                 />
-                <span title="這幾場的綜合貢獻（50＝同類型的中位數，未收縮）" className="text-right text-[12px]">
+                <span title="這幾場的隊內貢獻（50＝同類型的中位數，未收縮）" className="text-right text-[12px]">
                   <ContribScore dev={perf} />
                 </span>
               </ExpandRow>
@@ -589,7 +589,7 @@ function CompContext({
     `${role ?? "所有出裝"}・${bucket ? `${spec.label} ${bucket}` : "所有陣容"}\n` +
     (c.games
       ? `${c.games} 場・${c.wins} 勝 ${c.games - c.wins} 敗・勝率 ${c.winrate?.toFixed(1)}%\n比他自己平均 ${signed(dev(c))}pp（依場次收縮）` +
-        (c.perf === null ? "" : `・綜合貢獻 ${Math.round(50 + c.perf)}`)
+        (c.perf === null ? "" : `・隊內貢獻 ${Math.round(50 + c.perf)}`)
       : "沒有對局")
 
   return (
@@ -938,7 +938,7 @@ function LookupPanel({
 const CHAMPION_LOOKUP: LookupKind = {
   title: "查英雄",
   caption:
-    "選一隻英雄，看每個人玩它的戰績，點一個人展開他玩這隻英雄的每一場。「勝率」是和他自己整體勝率的差距（依場次收縮後），戰績條的刻度也是他自己的整體勝率；「貢獻」是這幾場的綜合貢獻（50＝同類型的中位數，不受輸贏影響）",
+    "選一隻英雄，看每個人玩它的戰績，點一個人展開他玩這隻英雄的每一場。「勝率」是和他自己整體勝率的差距（依場次收縮後），戰績條的刻度也是他自己的整體勝率；「貢獻」是這幾場的隊內貢獻（50＝同類型的中位數，不受輸贏影響）",
   noun: "英雄",
   counter: "隻",
   verb: "玩",
@@ -1103,7 +1103,7 @@ export function Crew() {
       {/* ── 全員一覽：每人一列，迷你雷達 + 判斷 ── */}
       <Panel
         title="全員一覽"
-        caption={`定位依「終場出裝」判斷（AD 輸出、AD 刺客、AP 輸出、AP 刺客、坦克、AD 鬥士、AP 鬥士、輔助）：AD 刺客是穿甲裝為主，AP 刺客是 AP 輸出裝配上官方定位為刺客的英雄，其餘不看官方定位。雷達是各出裝佔他場次的比例（最常用的頂到外框）。判斷以「貢獻」為主：輸出、承傷、存活、參團、控場（有治療或護盾隊友時再加治療護盾）各自和同類型（出裝定位 × 英雄官方主定位）的人比（不受輸贏影響），依出裝定位加權成綜合貢獻（同類型的中位數＝50）；收縮後高或低 ${CONTRIB_GAP} 分以上才算數。貢獻好是「適合」、差是「不適合」；勝率（和他自己平均比，出裝 ${WR_GAP_ROLE}pp、英雄 ${WR_GAP_CHAMP}pp）只做補充——貢獻好但勝率差是「非戰之罪」、貢獻差但勝率好是「靠隊友」、貢獻普通時才單看勝率（虛線框）。滑過看數字；點一列看完整分析`}
+        caption={`定位依「終場出裝」判斷（AD 輸出、AD 刺客、AP 輸出、AP 刺客、坦克、AD 鬥士、AP 鬥士、輔助）：AD 刺客是穿甲裝為主，AP 刺客是 AP 輸出裝配上官方定位為刺客的英雄，其餘不看官方定位。雷達是各出裝佔他場次的比例（最常用的頂到外框）。判斷以「貢獻」為主：輸出、承傷、存活、參團、控場（有治療或護盾隊友時再加治療護盾）各自和同類型（出裝定位 × 英雄官方主定位）的人比（不受輸贏影響），依出裝定位加權成隊內貢獻（同類型的中位數＝50）；收縮後高或低 ${CONTRIB_GAP} 分以上才算數。貢獻好是「適合」、差是「不適合」；勝率（和他自己平均比，出裝 ${WR_GAP_ROLE}pp、英雄 ${WR_GAP_CHAMP}pp）只做補充——貢獻好但勝率差是「非戰之罪」、貢獻差但勝率好是「靠隊友」、貢獻普通時才單看勝率（虛線框）。滑過看數字；點一列看完整分析`}
       >
         {loading ? (
           <Skeleton className="h-[640px] w-full" />
@@ -1146,9 +1146,9 @@ export function Crew() {
                       </span>
                       <span
                         className="block text-[11px] text-muted-foreground"
-                        title="綜合貢獻：輸出、承傷、存活、參團、控場（有治療或護盾隊友時再加治療護盾）各自和同類型的人比，依出裝定位加權。50＝同類型的中位數，不受輸贏影響"
+                        title="隊內貢獻：輸出、承傷、存活、參團、控場（有治療或護盾隊友時再加治療護盾）各自和同類型的人比，依出裝定位加權。50＝同類型的中位數，不受輸贏影響"
                       >
-                        綜合貢獻 <ContribScore dev={perf} className="font-semibold" />
+                        隊內貢獻 <ContribScore dev={perf} className="font-semibold" />
                       </span>
                     </span>
                     <MiniHex data={a.radar} total={gamesOf(p.puuid)} call={a.roleCall} />

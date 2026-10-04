@@ -233,6 +233,21 @@ views:
 
       - join_path: participants.contribution
         includes:
+          # perf＝當局表現分（這場打得有多好，全隊都打得好可以全隊都高）；score 與 *_pct＝隊內排名（誰在隊裡扛得多）
+          - name: perf
+            alias: performance_score
+          - name: perf_dmg
+            alias: performance_damage
+          - name: perf_soak
+            alias: performance_soak
+          - name: perf_surv
+            alias: performance_survival
+          - name: perf_kp
+            alias: performance_kill_participation
+          - name: perf_cc
+            alias: performance_cc
+          - name: perf_heal
+            alias: performance_heal
           - name: score
             alias: contribution_score
           - name: dmg_pct

@@ -26,7 +26,9 @@ ARAM: Mayhem 的本機戰績採集與分析工具。FastAPI（`app.py`）+ Cube 
   改這段 SQL **不會**被 Cube 的熱重載套用——要重啟服務或 `uv run features.py`。
   新的衍生表 cube 若要對全部參賽者跑視窗函數，也照這個做法，不要每個查詢現算（資料十倍時一個查詢十幾秒）。
 - **貢獻分數的規格與實測依據在 `docs/contribution-scoring.md`**：規則本體在 `contribution.yml` 的 `meta.materialize.sql`，兩邊一起改。
-  它是「同類型（出裝定位 × 英雄官方主定位）內的名次百分位」，所以用到 `dim_champion_roles`；前端門檻 `CONTRIB_GAP` 跟分數的標準差綁在一起。
+  有兩個分數：`perf`（當局表現分，每分鐘實際數值和同類型 × 同時長帶的人比，全隊都打得好可以全隊都高；計分板、卡片、MVP／ACE 用）
+  與 `score`（隊內排名，占全隊的比例、同類型內名次，零和所以各隊平均都在 50；好友比較頁的運氣判斷用，不能換成 perf，因為 perf 和勝負相關）。
+  都用到 `dim_champion_roles`；前端門檻 `CONTRIB_GAP`／`PERF_GAP` 跟各自分數的標準差綁在一起。
   不要把擊殺、金錢、勝負、KDA 比放回輸入（都是結果）。對局明細沒有護盾與治療隊友的量；賽後統計端點有，
   採集器自動存進 `eog_snapshots` 並拆進 `eog_player_stats`，貢獻的「治療護盾」軸有這份資料就用它（只對開始擷取之後的場次有效，
   舊場次退回含自補的治療量，護盾只做到不扣分）。

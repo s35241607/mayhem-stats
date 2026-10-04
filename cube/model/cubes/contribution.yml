@@ -1,5 +1,10 @@
 cubes:
-  # 貢獻分數：這場在團戰裡做了多少，和「同類型」的人比，換成名次百分位（0～100，50＝同類型的中位數）。
+  # 貢獻有兩個分數，回答兩個不同的問題（0～100，50＝同類型的中位數；同類型＝出裝定位 × 英雄官方主定位）：
+  #   perf（當局表現分）：這場你打得有多好——每分鐘的實際數值，和同類型、同時長帶的所有人比，加權平均後不再重新排名。
+  #     全隊都打得好，全隊都可以高於 50。贏的隊平均 53.8、輸的隊 46.2（結果的影響是有意的，這就是「打得好」）。
+  #   score（隊內排名）：你在隊裡扛了多少份量——占全隊的比例（除以依陣容算的期望份額），同類型內再排一次名次。
+  #     份額在隊內是零和的（五個人加起來一定是 100%），所以各隊平均都在 50 附近（贏 50.8、輸 49.2），
+  #     它看不出隊伍整體打得好不好，只看誰扛得多。用來和勝率分開看（好友比較頁的「運氣」判斷靠它）。
   # 完整規格與實測依據見 docs/contribution-scoring.md，這裡只留規則本體與「為什麼」。
   #
   # 大亂鬥是十個人擠在單路上的連續團戰（約每 53 秒一場、中位 5 殺、14 秒），靠團戰贏了之後推塔決勝。
@@ -39,6 +44,13 @@ cubes:
   #   治療護盾（有量才加，再乘分量）輔助 20、坦克・鬥士・AP 鬥士 10、其他 5
   #
   # 百分位用中位名次：同值的取平均名次，所以一群人的平均永遠是 50。
+  #
+  # 當局表現分（perf）用同樣的五個軸、同樣的權重與治療護盾規則，只是換了比的東西（pa_* 欄位）：
+  #   輸出＝每分鐘對英雄傷害、承傷＝每分鐘（承受＋減免）、存活＝每分鐘死亡（越少越好）、參團與控場同上；
+  #   和「同類型 × 時長帶」的人比（<14、14～18、18～22、22 分鐘以上；不到 30 人併回出裝定位 × 時長帶）。
+  #   為什麼分時長帶：每分鐘數值隨遊戲變長一路升高（AD 輸出每分傷害 1635→2807、坦克承傷 6148→13189），不分的話短局永遠吃虧；
+  #   分了之後分數和時長的相關是 0.05。
+  #   加權平均後不再排名：平均分數的標準差約 20（隊內排名約 29），前端門檻按比例縮小。
   - name: contribution
     title: 貢獻分數
     # 規則本體在 meta.materialize.sql。每次入庫後由 features.py 照它重建 mat_contribution，這裡直接讀表：
@@ -60,6 +72,12 @@ cubes:
               mp.dmg_to_champions * 1.0 / NULLIF(mp.team_dmg, 0) AS s_dmg,
               COALESCE(mp.dmg_taken, 0) + COALESCE(mp.dmg_mitigated, 0) AS soak,
               mp.deaths AS deaths,
+              -- 表現分用的絕對值（每分鐘）。時長帶：每分鐘數值隨遊戲變長一路升高（AD 輸出每分傷害短局 1635、22 分鐘以上 2807），
+              -- 所以只和同時長帶的人比；若不分，短局的人永遠吃虧
+              mp.dmg_to_champions * 60.0 / m.game_duration AS dpm,
+              mp.deaths * 60.0 / m.game_duration AS ddpm,
+              (COALESCE(mp.dmg_taken, 0) + COALESCE(mp.dmg_mitigated, 0)) * 60.0 / m.game_duration AS spm,
+              CASE WHEN m.game_duration < 840 THEN 0 WHEN m.game_duration < 1080 THEN 1 WHEN m.game_duration < 1320 THEN 2 ELSE 3 END AS band,
               (mp.kills + mp.assists) * 1.0 / NULLIF(mp.team_kills, 0) AS m_kp,
               COALESCE(mp.time_ccing_others, 0) * 60.0 / m.game_duration AS cc1,
               COALESCE(mp.cc_duration, 0) * 60.0 / m.game_duration AS cc2,
@@ -93,13 +111,18 @@ cubes:
               AVG(cc1 * cc1) OVER (PARTITION BY queue_id, build_role) AS q_cc1,
               AVG(cc2) OVER (PARTITION BY queue_id, build_role) AS a_cc2,
               AVG(cc2 * cc2) OVER (PARTITION BY queue_id, build_role) AS q_cc2,
-              COUNT(*) OVER (PARTITION BY queue_id, build_role, cls) AS cell_n
+              COUNT(*) OVER (PARTITION BY queue_id, build_role, cls) AS cell_n,
+              COUNT(*) OVER (PARTITION BY queue_id, build_role, cls, band) AS cellb_n,
+              COUNT(*) OVER (PARTITION BY queue_id, build_role, band) AS rb_n
             FROM shares
           ),
           metrics AS (
             SELECT *,
               -- 同類型：出裝定位 × 官方主定位；格子不到 30 人就併回出裝定位
               CASE WHEN cell_n >= 30 THEN build_role || '|' || COALESCE(cls, '') ELSE build_role || '|*' END AS cell,
+              -- 表現分的比較對象：同類型 × 時長帶；不到 30 人就併回「出裝定位 × 時長帶」，再不夠就只看出裝定位
+              CASE WHEN cellb_n >= 30 THEN build_role || '|' || COALESCE(cls, '') || '|' || band
+                   WHEN rb_n >= 30 THEN build_role || '|*|' || band ELSE build_role || '|*' END AS acell,
               -- 份額 ÷ 期望份額：期望份額＝這個定位的平均份額 ÷ 同隊五人的加總，隊友搶同一份工作時不會被稀釋
               s_dmg * SUM(l_dmg) OVER (PARTITION BY platform_id, game_id, team_id) / l_dmg AS r_dmg,
               s_soak * SUM(l_soak) OVER (PARTITION BY platform_id, game_id, team_id) / l_soak AS r_soak,
@@ -147,13 +170,45 @@ cubes:
                            WHEN COUNT(*) OVER (PARTITION BY queue_id, m_ally IS NULL) = 1 THEN 50.0
                            ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, m_ally IS NULL ORDER BY m_ally) * (COUNT(*) OVER (PARTITION BY queue_id, m_ally IS NULL) - 1)
                                          + CUME_DIST() OVER (PARTITION BY queue_id, m_ally IS NULL ORDER BY m_ally) * COUNT(*) OVER (PARTITION BY queue_id, m_ally IS NULL) - 1)
-                                / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, m_ally IS NULL) - 1)) END AS p_ally
+                                / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, m_ally IS NULL) - 1)) END AS p_ally,
+              -- 表現分（絕對表現）：每分鐘數值，和「同類型 × 時長帶」的所有人比，不看隊友占了多少
+              CASE WHEN dpm IS NULL THEN NULL
+                           WHEN COUNT(*) OVER (PARTITION BY queue_id, acell, dpm IS NULL) = 1 THEN 50.0
+                           ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, acell, dpm IS NULL ORDER BY dpm) * (COUNT(*) OVER (PARTITION BY queue_id, acell, dpm IS NULL) - 1)
+                                         + CUME_DIST() OVER (PARTITION BY queue_id, acell, dpm IS NULL ORDER BY dpm) * COUNT(*) OVER (PARTITION BY queue_id, acell, dpm IS NULL) - 1)
+                                / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, acell, dpm IS NULL) - 1)) END AS pa_dmg,
+              CASE WHEN spm IS NULL THEN NULL
+                           WHEN COUNT(*) OVER (PARTITION BY queue_id, acell, spm IS NULL) = 1 THEN 50.0
+                           ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, acell, spm IS NULL ORDER BY spm) * (COUNT(*) OVER (PARTITION BY queue_id, acell, spm IS NULL) - 1)
+                                         + CUME_DIST() OVER (PARTITION BY queue_id, acell, spm IS NULL ORDER BY spm) * COUNT(*) OVER (PARTITION BY queue_id, acell, spm IS NULL) - 1)
+                                / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, acell, spm IS NULL) - 1)) END AS pa_soak,
+              CASE WHEN ddpm IS NULL THEN NULL
+                           WHEN COUNT(*) OVER (PARTITION BY queue_id, acell, ddpm IS NULL) = 1 THEN 50.0
+                           ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, acell, ddpm IS NULL ORDER BY ddpm DESC) * (COUNT(*) OVER (PARTITION BY queue_id, acell, ddpm IS NULL) - 1)
+                                         + CUME_DIST() OVER (PARTITION BY queue_id, acell, ddpm IS NULL ORDER BY ddpm DESC) * COUNT(*) OVER (PARTITION BY queue_id, acell, ddpm IS NULL) - 1)
+                                / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, acell, ddpm IS NULL) - 1)) END AS pa_surv,
+              CASE WHEN m_kp IS NULL THEN NULL
+                           WHEN COUNT(*) OVER (PARTITION BY queue_id, acell, m_kp IS NULL) = 1 THEN 50.0
+                           ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, acell, m_kp IS NULL ORDER BY m_kp) * (COUNT(*) OVER (PARTITION BY queue_id, acell, m_kp IS NULL) - 1)
+                                         + CUME_DIST() OVER (PARTITION BY queue_id, acell, m_kp IS NULL ORDER BY m_kp) * COUNT(*) OVER (PARTITION BY queue_id, acell, m_kp IS NULL) - 1)
+                                / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, acell, m_kp IS NULL) - 1)) END AS pa_kp,
+              CASE WHEN z_cc IS NULL THEN NULL
+                           WHEN COUNT(*) OVER (PARTITION BY queue_id, acell, z_cc IS NULL) = 1 THEN 50.0
+                           ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, acell, z_cc IS NULL ORDER BY z_cc) * (COUNT(*) OVER (PARTITION BY queue_id, acell, z_cc IS NULL) - 1)
+                                         + CUME_DIST() OVER (PARTITION BY queue_id, acell, z_cc IS NULL ORDER BY z_cc) * COUNT(*) OVER (PARTITION BY queue_id, acell, z_cc IS NULL) - 1)
+                                / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, acell, z_cc IS NULL) - 1)) END AS pa_cc,
+              CASE WHEN m_heal IS NULL THEN NULL
+                           WHEN COUNT(*) OVER (PARTITION BY queue_id, acell, m_heal IS NULL) = 1 THEN 50.0
+                           ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, acell, m_heal IS NULL ORDER BY m_heal) * (COUNT(*) OVER (PARTITION BY queue_id, acell, m_heal IS NULL) - 1)
+                                         + CUME_DIST() OVER (PARTITION BY queue_id, acell, m_heal IS NULL ORDER BY m_heal) * COUNT(*) OVER (PARTITION BY queue_id, acell, m_heal IS NULL) - 1)
+                                / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, acell, m_heal IS NULL) - 1)) END AS pa_heal_old
             FROM metrics
           ),
           healed AS (
             SELECT *,
               -- 有賽後統計的人：有量才有這個軸（p_ally 排不出來時退回舊算法）；有統計但量是 0 → 不適用
               CASE WHEN has_eog = 1 AND m_ally IS NULL THEN NULL ELSE COALESCE(p_ally, p_heal_old) END AS p_heal,
+              CASE WHEN has_eog = 1 AND m_ally IS NULL THEN NULL ELSE COALESCE(p_ally, pa_heal_old) END AS pa_heal,
               CASE WHEN p_ally IS NOT NULL THEN ally_w ELSE 1.0 END AS heal_k,
               CASE WHEN p_ally IS NOT NULL THEN 'eog' WHEN NOT (has_eog = 1 AND m_ally IS NULL) AND p_heal_old IS NOT NULL THEN 'flag' END AS heal_src
             FROM ranked
@@ -172,7 +227,12 @@ cubes:
               ROUND((COALESCE(k.p_dmg, 0) * COALESCE(w.w_dmg, 1) + COALESCE(k.p_soak, 0) * COALESCE(w.w_soak, 1) + COALESCE(k.p_surv, 0) * COALESCE(w.w_surv, 1)
                + COALESCE(k.p_kp, 0) * COALESCE(w.w_kp, 1) + COALESCE(k.p_cc, 0) * COALESCE(w.w_cc, 1) + COALESCE(k.p_heal, 0) * COALESCE(w.w_heal, 5) * k.heal_k)
               / NULLIF((k.p_dmg IS NOT NULL) * COALESCE(w.w_dmg, 1) + (k.p_soak IS NOT NULL) * COALESCE(w.w_soak, 1) + (k.p_surv IS NOT NULL) * COALESCE(w.w_surv, 1)
-                       + (k.p_kp IS NOT NULL) * COALESCE(w.w_kp, 1) + (k.p_cc IS NOT NULL) * COALESCE(w.w_cc, 1) + (k.p_heal IS NOT NULL) * COALESCE(w.w_heal, 5) * k.heal_k, 0), 9) AS comp
+                       + (k.p_kp IS NOT NULL) * COALESCE(w.w_kp, 1) + (k.p_cc IS NOT NULL) * COALESCE(w.w_cc, 1) + (k.p_heal IS NOT NULL) * COALESCE(w.w_heal, 5) * k.heal_k, 0), 9) AS comp,
+              -- 當局表現分：同樣的權重，加權平均絕對表現的百分位，不再重新排名——全隊都打得好就可以全隊都高於 50
+              ROUND((COALESCE(k.pa_dmg, 0) * COALESCE(w.w_dmg, 1) + COALESCE(k.pa_soak, 0) * COALESCE(w.w_soak, 1) + COALESCE(k.pa_surv, 0) * COALESCE(w.w_surv, 1)
+               + COALESCE(k.pa_kp, 0) * COALESCE(w.w_kp, 1) + COALESCE(k.pa_cc, 0) * COALESCE(w.w_cc, 1) + COALESCE(k.pa_heal, 0) * COALESCE(w.w_heal, 5) * k.heal_k)
+              / NULLIF((k.pa_dmg IS NOT NULL) * COALESCE(w.w_dmg, 1) + (k.pa_soak IS NOT NULL) * COALESCE(w.w_soak, 1) + (k.pa_surv IS NOT NULL) * COALESCE(w.w_surv, 1)
+                       + (k.pa_kp IS NOT NULL) * COALESCE(w.w_kp, 1) + (k.pa_cc IS NOT NULL) * COALESCE(w.w_cc, 1) + (k.pa_heal IS NOT NULL) * COALESCE(w.w_heal, 5) * k.heal_k, 0), 9) AS perf
             FROM healed k LEFT JOIN weights w ON w.build_role = k.build_role
           )
           SELECT participant_rowid, build_role, cell, p_dmg, p_soak, p_surv, p_kp, p_cc, p_heal, heal_src,
@@ -180,7 +240,8 @@ cubes:
                            WHEN COUNT(*) OVER (PARTITION BY queue_id, cell, comp IS NULL) = 1 THEN 50.0
                            ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, cell, comp IS NULL ORDER BY comp) * (COUNT(*) OVER (PARTITION BY queue_id, cell, comp IS NULL) - 1)
                                          + CUME_DIST() OVER (PARTITION BY queue_id, cell, comp IS NULL ORDER BY comp) * COUNT(*) OVER (PARTITION BY queue_id, cell, comp IS NULL) - 1)
-                                / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, cell, comp IS NULL) - 1)) END AS score
+                                / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, cell, comp IS NULL) - 1)) END AS score,
+            pa_dmg, pa_soak, pa_surv, pa_kp, pa_cc, pa_heal, perf
           FROM combined
 
     # 與 participants.yml 相同的 refresh key，理由寫在那裡。SQL 必須一字不差才會被合併。
@@ -202,9 +263,79 @@ cubes:
         public: false
 
     measures:
+      - name: perf
+        title: 當局表現分
+        description: "這幾場的當局表現（0～100，50＝同類型、同時長帶的中位數）：每分鐘的傷害、承傷、死亡（越少越好）加上參團、控場，有治療或護盾隊友的場次再加治療護盾，各自和同類型、同時長帶的所有人比百分位，依出裝定位加權平均，不再重新排名。全隊都打得好可以全隊都高於 50，所以會和勝負相關（贏的隊平均 53.8、輸的隊 46.2）。要看「隊內誰扛得多」用 score。6 分鐘內的重開局不計分。"
+        sql: perf
+        type: avg
+        meta:
+          group: 貢獻
+          decimals: 0
+          higherIsBetter: true
+
+      - name: perf_dmg
+        title: 表現・輸出
+        description: "每分鐘對英雄傷害，在同類型、同時長帶的人裡的百分位（50＝中位數）。"
+        sql: pa_dmg
+        type: avg
+        meta:
+          group: 貢獻
+          decimals: 0
+          higherIsBetter: true
+
+      - name: perf_soak
+        title: 表現・承傷
+        description: "每分鐘承受傷害＋自身減免，在同類型、同時長帶的人裡的百分位（50＝中位數）。"
+        sql: pa_soak
+        type: avg
+        meta:
+          group: 貢獻
+          decimals: 0
+          higherIsBetter: true
+
+      - name: perf_surv
+        title: 表現・存活
+        description: "每分鐘死亡（越少越好），在同類型、同時長帶的人裡的百分位（50＝中位數，越高代表死得越少）。"
+        sql: pa_surv
+        type: avg
+        meta:
+          group: 貢獻
+          decimals: 0
+          higherIsBetter: true
+
+      - name: perf_kp
+        title: 表現・參團
+        description: "參團率（擊殺＋助攻佔隊伍擊殺），在同類型、同時長帶的人裡的百分位（50＝中位數）。"
+        sql: pa_kp
+        type: avg
+        meta:
+          group: 貢獻
+          decimals: 0
+          higherIsBetter: true
+
+      - name: perf_cc
+        title: 表現・控場
+        description: "每分鐘控制敵人的時間（兩個控場欄位標準化後平均），在同類型、同時長帶的人裡的百分位（50＝中位數）。"
+        sql: pa_cc
+        type: avg
+        meta:
+          group: 貢獻
+          decimals: 0
+          higherIsBetter: true
+
+      - name: perf_heal
+        title: 表現・治療護盾
+        description: "有賽後統計的場次：每分鐘有效治療＋護盾隊友在所有有量的人裡的百分位；舊場次：每分鐘治療量（含自補）在同類型、同時長帶、偵測到有治療隊友的人裡的百分位。沒有治療或護盾隊友的場次是空值，不扣分。"
+        sql: pa_heal
+        type: avg
+        meta:
+          group: 貢獻
+          decimals: 0
+          higherIsBetter: true
+
       - name: score
-        title: 綜合貢獻
-        description: "這幾場的綜合貢獻（0～100，50＝同類型的中位數；同類型＝出裝定位 × 英雄官方主定位）。輸出、承傷、存活、參團、控場依出裝定位加權，有治療或護盾隊友的場次再加治療護盾，換成同類型內的名次百分位。不用擊殺、金錢、勝負當輸入，用來和勝率分開看。6 分鐘內的重開局不計分。"
+        title: 隊內貢獻排名
+        description: "這幾場在隊內扛的份量（0～100，50＝同類型的中位數；同類型＝出裝定位 × 英雄官方主定位）。輸出、承傷、存活（占全隊的比例，除以依陣容算的期望份額）、參團、控場依出裝定位加權，有治療或護盾隊友的場次再加治療護盾，換成同類型內的名次百分位。份額在隊內是零和的，所以各隊平均都在 50 附近，看不出隊伍整體打得好不好；要看「這場打得有多好」用 perf。不用擊殺、金錢、勝負當輸入，用來和勝率分開看。6 分鐘內的重開局不計分。"
         sql: score
         type: avg
         meta:
@@ -213,7 +344,7 @@ cubes:
           higherIsBetter: true
 
       - name: dmg_pct
-        title: 貢獻・輸出
+        title: 隊內・輸出
         description: "對英雄傷害佔隊伍比例（除以依陣容算的期望份額）在同類型的人裡的百分位（50＝中位數）。"
         sql: p_dmg
         type: avg
@@ -223,7 +354,7 @@ cubes:
           higherIsBetter: true
 
       - name: soak_pct
-        title: 貢獻・承傷
+        title: 隊內・承傷
         description: "承受傷害＋自身減免佔隊伍比例（除以依陣容算的期望份額）在同類型的人裡的百分位（50＝中位數）。"
         sql: p_soak
         type: avg
@@ -233,7 +364,7 @@ cubes:
           higherIsBetter: true
 
       - name: surv_pct
-        title: 貢獻・存活
+        title: 隊內・存活
         description: "死亡佔隊伍死亡的比例（越低越好，除以依陣容算的期望份額）在同類型的人裡的百分位（50＝中位數，越高代表死得越少）。取代原本的 KDA。"
         sql: p_surv
         type: avg
@@ -243,7 +374,7 @@ cubes:
           higherIsBetter: true
 
       - name: kp_pct
-        title: 貢獻・參團
+        title: 隊內・參團
         description: "參團率（擊殺＋助攻佔隊伍擊殺）在同類型的人裡的百分位（50＝中位數）。"
         sql: p_kp
         type: avg
@@ -253,7 +384,7 @@ cubes:
           higherIsBetter: true
 
       - name: cc_pct
-        title: 貢獻・控場
+        title: 隊內・控場
         description: "每分鐘控制敵人的時間（兩個控場欄位標準化後平均）在同類型的人裡的百分位（50＝中位數）。"
         sql: p_cc
         type: avg
@@ -263,7 +394,7 @@ cubes:
           higherIsBetter: true
 
       - name: heal_pct
-        title: 貢獻・治療護盾
+        title: 隊內・治療護盾
         description: "每分鐘有效治療＋護盾隊友在所有有治療或護盾隊友的人裡的百分位（50＝中位數；有賽後統計的場次，不分定位）；沒有賽後統計的舊場次改用每分鐘治療量（含自補）在同類型、偵測到有治療隊友的人裡的百分位。沒有治療或護盾隊友的場次是空值，不扣分。"
         sql: p_heal
         type: avg
