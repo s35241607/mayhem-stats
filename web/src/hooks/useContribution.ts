@@ -9,15 +9,15 @@ import { num, type CubeRow } from "@/lib/cube"
  *  好友比較頁拿收縮後的平均分數比，「人 × 出裝」的差距也跟著放大約 1.5 倍 */
 export const CONTRIB_GAP = 6
 
-/** 貢獻的六項，順序固定：先「做了多少」（輸出、承傷）再「撐住」（存活）再「參與與幫忙」（參團、控場、治療）。
- *  治療只在偵測到有治療到隊友的場次才有值，其他場次是空值（雷達圖會略過那個頂點）。 */
+/** 貢獻的六項，順序固定：先「做了多少」（輸出、承傷）再「撐住」（存活）再「參與與幫忙」（參團、控場、治療護盾）。
+ *  治療護盾只在有治療或護盾隊友的場次才有值，其他場次是空值（雷達圖會略過那個頂點）。 */
 export const CONTRIB_PARTS = [
   { key: "contribution.dmg_pct", label: "輸出", hint: "對英雄傷害佔隊伍的比例（除以依陣容算的期望份額）" },
   { key: "contribution.soak_pct", label: "承傷", hint: "承受傷害＋自身減免佔隊伍的比例（除以依陣容算的期望份額）" },
   { key: "contribution.surv_pct", label: "存活", hint: "死亡佔隊伍死亡的比例，越低越好（分數越高代表死得越少）" },
   { key: "contribution.kp_pct", label: "參團", hint: "(擊殺＋助攻) / 隊伍擊殺" },
   { key: "contribution.cc_pct", label: "控場", hint: "每分鐘控制敵人的時間（Combo Breaker 讓控場邊際遞減，權重中等）" },
-  { key: "contribution.heal_pct", label: "治療", hint: "每分鐘治療量，只在偵測到有治療到隊友的場次計（含自補，護盾沒有資料）" },
+  { key: "contribution.heal_pct", label: "治療護盾", hint: "每分鐘有效治療＋護盾隊友，只在有治療或護盾隊友的場次計（不分定位排名；舊場次沒有護盾的量，改用含自補的治療量）" },
 ] as const
 export const CONTRIB_MEASURES = ["contribution.score", ...CONTRIB_PARTS.map((c) => c.key)]
 

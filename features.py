@@ -54,7 +54,12 @@ def definitions() -> list[tuple[str, str, str]]:
 
 # 衍生表是照哪一份對局資料算的。對局只會新增（INSERT OR IGNORE、沒有刪除），
 # 一場的參賽者、裝備、增幅在同一個 transaction 寫入，所以看參賽者表就夠了。
-SOURCE_SQL = "SELECT COALESCE(MAX(rowid), 0) || ':' || COUNT(*) FROM match_participants"
+# 貢獻分數也讀 eog_player_stats（賽後統計拆出來的治療／護盾隊友），所以列數也算進去：
+# 賽後統計若比對局明細晚幾秒到，下一輪採集會發現衍生表落後而重建。
+SOURCE_SQL = (
+    "SELECT COALESCE(MAX(rowid), 0) || ':' || COUNT(*) || ':' || (SELECT COUNT(*) FROM eog_player_stats)"
+    " FROM match_participants"
+)
 
 
 def stale(conn: sqlite3.Connection) -> bool:

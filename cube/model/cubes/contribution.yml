@@ -10,7 +10,7 @@ cubes:
   #   為什麼：官方輔助出坦克裝的被當坦克打分，承傷權重 35% 拖低 8.7 分；坦克英雄出 AP 輸出裝、鬥士出坦克裝也一樣。
   #   同類型不到 30 人（queue × 定位 × 本職）就併回出裝定位；6 分鐘內的重開局不計分、也不進同類型的比較。
   #
-  # 五個軸（輸出、承傷、存活、參團、控場）加上有治療到隊友時的治療軸，各自在同類型內取名次百分位：
+  # 五個軸（輸出、承傷、存活、參團、控場）各自在同類型內取名次百分位；有治療或護盾隊友時再加「治療護盾」軸（算法見下）：
   #   輸出：對英雄傷害佔隊伍比例 ÷ 期望份額。
   #   承傷：(承受傷害＋自身減免)佔隊伍比例 ÷ 期望份額。
   #   期望份額＝這個定位的平均份額 ÷ 同隊五人的加總：隊上多一個搶同一份工作的人，份額本來就會被稀釋
@@ -20,10 +20,15 @@ cubes:
   #   參團：(擊殺＋助攻) / 隊伍擊殺。人人都在場（團戰出席率每個定位都是 96%），量的是「參與多少比例的擊殺」；輔助靠它。
   #   控場：time_ccing_others 與 cc_duration 兩欄位每分鐘值，各自在定位內標準化後平均。
   #     Combo Breaker（被控 7 秒內有 5 秒就淨化並免控 3 秒）讓控場邊際遞減，隊伍控場時間差與勝負幾乎無關，權重中等。
-  #   治療：total_heal 每分鐘值，只在 units_healed ≥ 2（偵測到有治療到隊友）的場次計，同類型內排名。
-  #     total_heal 含自補。對局明細端點沒有治療隊友與護盾的量，所以護盾型英雄先做到「不扣分」；
-  #     賽後統計（collector 存進 eog_snapshots）有 TOTAL_HEAL_ON_TEAMMATES、TOTAL_DAMAGE_SHIELDED_ON_TEAMMATES
-  #     與 totalTimeSpentDead，但只對開始擷取之後的場次有效，累積夠了再納入計分（見 docs/contribution-scoring.md）。
+  #   治療護盾：對局明細端點沒有治療隊友與護盾隊友的量，賽後統計有（collector 存進 eog_snapshots，拆成 eog_player_stats，
+  #     只對開始擷取之後的場次有效，無法回補），所以分兩種場次：
+  #     有賽後統計：每分鐘有效治療＋護盾隊友（TOTAL_HEAL_ON_TEAMMATES＋TOTAL_DAMAGE_SHIELDED_ON_TEAMMATES）。這場量是 0 的人，
+  #       這個軸不適用（不扣分，和護盾型英雄以外的人一視同仁）。樣本還少，所以在所有「有治療或護盾隊友」的人之間排名、不分定位；
+  #       池子不到 20 人就不排，退回舊算法。權重再乘「分量」：支援隊友的量佔自己對英雄傷害的比例，到 20% 才算全額——
+  #       附帶一點護盾的（例如李星的 W）權重很小，不會被拉到排名最後面扣分；以此為職責的（悠咪、索拉卡、卡瑪）是全額。
+  #     沒有賽後統計（舊場次）：total_heal 每分鐘值，只在 units_healed ≥ 2（偵測到有治療到隊友）的場次計，同類型內排名；
+  #       total_heal 含自補，護盾看不到，所以舊場次的護盾型英雄只做到「不扣分」。
+  #     新舊場次用的是兩種量，各自排名；欄位 heal_src 標出是哪一種（eog／flag）。樣本夠了再把新算法分到同類型內排名。
   #
   # 綜合貢獻＝各軸百分位依出裝定位加權平均（權重在下面 weights，缺值的軸不算、權重重新分配），
   # 再在同類型內取一次名次百分位。權重是判斷不是估出來的，各自隨機 ±30% 排名相關仍 ≥ 0.99。
@@ -31,7 +36,7 @@ cubes:
   #   鬥士・AP 鬥士  輸出 30、承傷 25、存活 15、參團 15、控場 10
   #   坦克         承傷 35、參團 20、控場 20、輸出 10、存活 10
   #   輔助         參團 25、控場 25、存活 20、輸出 10、承傷 10
-  #   治療（偵測到才加）輔助 20、坦克・鬥士・AP 鬥士 10、其他 5
+  #   治療護盾（有量才加，再乘分量）輔助 20、坦克・鬥士・AP 鬥士 10、其他 5
   #
   # 百分位用中位名次：同值的取平均名次，所以一群人的平均永遠是 50。
   - name: contribution
@@ -58,11 +63,19 @@ cubes:
               (mp.kills + mp.assists) * 1.0 / NULLIF(mp.team_kills, 0) AS m_kp,
               COALESCE(mp.time_ccing_others, 0) * 60.0 / m.game_duration AS cc1,
               COALESCE(mp.cc_duration, 0) * 60.0 / m.game_duration AS cc2,
-              CASE WHEN COALESCE(mp.units_healed, 1) >= 2 THEN COALESCE(mp.total_heal, 0) * 60.0 / m.game_duration END AS m_heal
+              -- 舊算法（沒有賽後統計的場次）：units_healed ≥ 2 偵測有治療到隊友，用含自補的 total_heal
+              CASE WHEN COALESCE(mp.units_healed, 1) >= 2 THEN COALESCE(mp.total_heal, 0) * 60.0 / m.game_duration END AS m_heal,
+              -- 新算法（有賽後統計的場次）：每分鐘有效治療＋護盾隊友；這場有統計但量是 0 的人，治療軸不適用（不扣分）
+              e.game_id IS NOT NULL AS has_eog,
+              CASE WHEN e.heal_on_teammates + e.shield_on_teammates > 0 THEN (e.heal_on_teammates + e.shield_on_teammates) * 60.0 / m.game_duration END AS m_ally,
+              -- 分量：支援隊友的量佔自己對英雄傷害的比例，到 20% 才算全額權重。附帶一點護盾的（例如李星的 W）權重很小，
+              -- 不會被拉到排名最後面而被扣分；以此為職責的（悠咪、索拉卡、卡瑪）是全額
+              COALESCE(MIN(1.0, (e.heal_on_teammates + e.shield_on_teammates) * 1.0 / NULLIF(mp.dmg_to_champions, 0) / 0.2), 1.0) AS ally_w
             FROM match_participants mp
             JOIN matches m ON m.platform_id = mp.platform_id AND m.game_id = mp.game_id
             JOIN mat_builds b ON b.participant_rowid = mp.rowid
             LEFT JOIN primary_class pc ON pc.champion_id = mp.champion_id
+            LEFT JOIN eog_player_stats e ON e.game_id = mp.game_id AND e.puuid = mp.puuid
             WHERE m.game_duration >= 360
           ),
           shares AS (
@@ -96,7 +109,7 @@ cubes:
             FROM stats
           ),
           ranked AS (
-            SELECT participant_rowid, build_role, cell, queue_id,
+            SELECT participant_rowid, build_role, cell, queue_id, has_eog, m_ally, ally_w,
               CASE WHEN r_dmg IS NULL THEN NULL
                            WHEN COUNT(*) OVER (PARTITION BY queue_id, cell, r_dmg IS NULL) = 1 THEN 50.0
                            ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, cell, r_dmg IS NULL ORDER BY r_dmg) * (COUNT(*) OVER (PARTITION BY queue_id, cell, r_dmg IS NULL) - 1)
@@ -126,8 +139,24 @@ cubes:
                            WHEN COUNT(*) OVER (PARTITION BY queue_id, cell, m_heal IS NULL) = 1 THEN 50.0
                            ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, cell, m_heal IS NULL ORDER BY m_heal) * (COUNT(*) OVER (PARTITION BY queue_id, cell, m_heal IS NULL) - 1)
                                          + CUME_DIST() OVER (PARTITION BY queue_id, cell, m_heal IS NULL ORDER BY m_heal) * COUNT(*) OVER (PARTITION BY queue_id, cell, m_heal IS NULL) - 1)
-                                / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, cell, m_heal IS NULL) - 1)) END AS p_heal
+                                / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, cell, m_heal IS NULL) - 1)) END AS p_heal_old,
+              -- 治療／護盾隊友的單位是通用的（每分鐘有效治療＋護盾），樣本還少，所以在所有「有治療或護盾隊友」的人之間排名、
+              -- 不分定位；池子不到 20 人就不排，退回舊算法
+              CASE WHEN m_ally IS NULL THEN NULL
+                           WHEN COUNT(*) OVER (PARTITION BY queue_id, m_ally IS NULL) < 20 THEN NULL
+                           WHEN COUNT(*) OVER (PARTITION BY queue_id, m_ally IS NULL) = 1 THEN 50.0
+                           ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, m_ally IS NULL ORDER BY m_ally) * (COUNT(*) OVER (PARTITION BY queue_id, m_ally IS NULL) - 1)
+                                         + CUME_DIST() OVER (PARTITION BY queue_id, m_ally IS NULL ORDER BY m_ally) * COUNT(*) OVER (PARTITION BY queue_id, m_ally IS NULL) - 1)
+                                / (2.0 * (COUNT(*) OVER (PARTITION BY queue_id, m_ally IS NULL) - 1)) END AS p_ally
             FROM metrics
+          ),
+          healed AS (
+            SELECT *,
+              -- 有賽後統計的人：有量才有這個軸（p_ally 排不出來時退回舊算法）；有統計但量是 0 → 不適用
+              CASE WHEN has_eog = 1 AND m_ally IS NULL THEN NULL ELSE COALESCE(p_ally, p_heal_old) END AS p_heal,
+              CASE WHEN p_ally IS NOT NULL THEN ally_w ELSE 1.0 END AS heal_k,
+              CASE WHEN p_ally IS NOT NULL THEN 'eog' WHEN NOT (has_eog = 1 AND m_ally IS NULL) AND p_heal_old IS NOT NULL THEN 'flag' END AS heal_src
+            FROM ranked
           ),
           weights(build_role, w_dmg, w_soak, w_surv, w_kp, w_cc, w_heal) AS (
             VALUES ('坦克', 10, 35, 10, 20, 20, 10),
@@ -141,12 +170,12 @@ cubes:
             SELECT k.*,
               -- 四捨五入到 9 位：數學上相同的綜合分不會因為浮點加總順序不同而被拆開，名次才是確定的
               ROUND((COALESCE(k.p_dmg, 0) * COALESCE(w.w_dmg, 1) + COALESCE(k.p_soak, 0) * COALESCE(w.w_soak, 1) + COALESCE(k.p_surv, 0) * COALESCE(w.w_surv, 1)
-               + COALESCE(k.p_kp, 0) * COALESCE(w.w_kp, 1) + COALESCE(k.p_cc, 0) * COALESCE(w.w_cc, 1) + COALESCE(k.p_heal, 0) * COALESCE(w.w_heal, 5))
+               + COALESCE(k.p_kp, 0) * COALESCE(w.w_kp, 1) + COALESCE(k.p_cc, 0) * COALESCE(w.w_cc, 1) + COALESCE(k.p_heal, 0) * COALESCE(w.w_heal, 5) * k.heal_k)
               / NULLIF((k.p_dmg IS NOT NULL) * COALESCE(w.w_dmg, 1) + (k.p_soak IS NOT NULL) * COALESCE(w.w_soak, 1) + (k.p_surv IS NOT NULL) * COALESCE(w.w_surv, 1)
-                       + (k.p_kp IS NOT NULL) * COALESCE(w.w_kp, 1) + (k.p_cc IS NOT NULL) * COALESCE(w.w_cc, 1) + (k.p_heal IS NOT NULL) * COALESCE(w.w_heal, 5), 0), 9) AS comp
-            FROM ranked k LEFT JOIN weights w ON w.build_role = k.build_role
+                       + (k.p_kp IS NOT NULL) * COALESCE(w.w_kp, 1) + (k.p_cc IS NOT NULL) * COALESCE(w.w_cc, 1) + (k.p_heal IS NOT NULL) * COALESCE(w.w_heal, 5) * k.heal_k, 0), 9) AS comp
+            FROM healed k LEFT JOIN weights w ON w.build_role = k.build_role
           )
-          SELECT participant_rowid, build_role, cell, p_dmg, p_soak, p_surv, p_kp, p_cc, p_heal,
+          SELECT participant_rowid, build_role, cell, p_dmg, p_soak, p_surv, p_kp, p_cc, p_heal, heal_src,
             CASE WHEN comp IS NULL THEN NULL
                            WHEN COUNT(*) OVER (PARTITION BY queue_id, cell, comp IS NULL) = 1 THEN 50.0
                            ELSE 100.0 * (PERCENT_RANK() OVER (PARTITION BY queue_id, cell, comp IS NULL ORDER BY comp) * (COUNT(*) OVER (PARTITION BY queue_id, cell, comp IS NULL) - 1)
@@ -175,7 +204,7 @@ cubes:
     measures:
       - name: score
         title: 綜合貢獻
-        description: "這幾場的綜合貢獻（0～100，50＝同類型的中位數；同類型＝出裝定位 × 英雄官方主定位）。輸出、承傷、存活、參團、控場依出裝定位加權，有治療到隊友的場次再加治療，換成同類型內的名次百分位。不用擊殺、金錢、勝負當輸入，用來和勝率分開看。6 分鐘內的重開局不計分。"
+        description: "這幾場的綜合貢獻（0～100，50＝同類型的中位數；同類型＝出裝定位 × 英雄官方主定位）。輸出、承傷、存活、參團、控場依出裝定位加權，有治療或護盾隊友的場次再加治療護盾，換成同類型內的名次百分位。不用擊殺、金錢、勝負當輸入，用來和勝率分開看。6 分鐘內的重開局不計分。"
         sql: score
         type: avg
         meta:
@@ -234,8 +263,8 @@ cubes:
           higherIsBetter: true
 
       - name: heal_pct
-        title: 貢獻・治療
-        description: "每分鐘治療量在同類型、同樣有治療到隊友的人裡的百分位（50＝中位數）。只算偵測到有治療隊友的場次，其他場次是空值；治療量含自補，護盾沒有資料。"
+        title: 貢獻・治療護盾
+        description: "每分鐘有效治療＋護盾隊友在所有有治療或護盾隊友的人裡的百分位（50＝中位數；有賽後統計的場次，不分定位）；沒有賽後統計的舊場次改用每分鐘治療量（含自補）在同類型、偵測到有治療隊友的人裡的百分位。沒有治療或護盾隊友的場次是空值，不扣分。"
         sql: p_heal
         type: avg
         meta:

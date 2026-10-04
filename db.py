@@ -147,6 +147,21 @@ CREATE TABLE IF NOT EXISTS eog_snapshots (
   raw_json    TEXT    NOT NULL
 );
 
+-- 賽後統計裡拆出來、計分要用的欄位（來源是 eog_snapshots 的原始 JSON，見 eog_players）。
+-- 對局明細端點沒有治療隊友與護盾隊友的量，所以只有開始擷取之後的場次有資料，沒辦法回補舊場次；
+-- 用 (game_id, puuid) 對回 match_participants。沒有 puuid 的玩家不存。
+CREATE TABLE IF NOT EXISTS eog_player_stats (
+  game_id             INTEGER NOT NULL,
+  puuid               TEXT    NOT NULL,
+  team_id             INTEGER,
+  champion_id         INTEGER,
+  heal_on_teammates   INTEGER NOT NULL,
+  shield_on_teammates INTEGER NOT NULL,
+  time_spent_dead     INTEGER,
+  total_heal          INTEGER,
+  PRIMARY KEY (game_id, puuid)
+);
+
 CREATE INDEX IF NOT EXISTS idx_m_queue        ON matches(queue_id);
 CREATE INDEX IF NOT EXISTS idx_pa_augment     ON participant_augments(augment_id);
 CREATE INDEX IF NOT EXISTS idx_pi_item        ON participant_items(item_id);
@@ -248,6 +263,8 @@ def _migrate(conn):
             for col in missing:
                 conn.execute(f"ALTER TABLE match_participants ADD COLUMN {col} INTEGER")
         _backfill_from_raw(conn, missing)
+
+    backfill_eog_players(conn)
 
 
 def _backfill_local_time(conn):
@@ -581,6 +598,43 @@ def eog_stat_keys(block):
     return sorted(keys)
 
 
+def eog_players(block):
+    """賽後統計裡每位玩家要拆進 eog_player_stats 的欄位。
+
+    stats 缺了治療隊友或護盾隊友的鍵（客戶端早期還沒算完的版本）就略過那位玩家：
+    缺值不能存成 0，0 會被當成「真的沒治療過隊友」。沒有 puuid 的也略過。"""
+    out = []
+    for team in block.get("teams") or []:
+        for player in team.get("players") or []:
+            stats = player.get("stats") or {}
+            if not player.get("puuid") or "totalHealsOnTeammates" not in stats or "totalDamageShieldedOnTeammates" not in stats:
+                continue
+            out.append((
+                block.get("gameId"), player["puuid"], player.get("teamId") or team.get("teamId"), player.get("championId"),
+                int(stats["totalHealsOnTeammates"] or 0), int(stats["totalDamageShieldedOnTeammates"] or 0),
+                stats.get("totalTimeSpentDead"), stats.get("totalHeal"),
+            ))
+    return out
+
+
+def _store_eog_players(conn, block):
+    conn.executemany(
+        """INSERT OR REPLACE INTO eog_player_stats
+           (game_id, puuid, team_id, champion_id, heal_on_teammates, shield_on_teammates, time_spent_dead, total_heal)
+           VALUES (?,?,?,?,?,?,?,?)""",
+        eog_players(block),
+    )
+
+
+def backfill_eog_players(conn):
+    """把已存的賽後統計快照拆進 eog_player_stats（拆欄位的規則改了、或表是後來才建的時候補上）。"""
+    have = {row[0] for row in conn.execute("SELECT DISTINCT game_id FROM eog_player_stats")}
+    with conn:
+        for game_id, raw in conn.execute("SELECT game_id, raw_json FROM eog_snapshots").fetchall():
+            if game_id not in have:
+                _store_eog_players(conn, json.loads(raw))
+
+
 def store_eog_snapshot(conn, block):
     """存一份賽後統計的原始 JSON，回傳 (有沒有寫入, 欄位名清單)。
 
@@ -597,6 +651,9 @@ def store_eog_snapshot(conn, block):
                WHERE json_array_length(excluded.stat_keys) > json_array_length(eog_snapshots.stat_keys)""",
             (game_id, int(time.time()), json.dumps(keys, ensure_ascii=False), json.dumps(block, ensure_ascii=False)),
         )
+        # 快照有寫入（新的、或欄位比較多的）才跟著更新玩家欄位，比較少的那份不能蓋掉
+        if cur.rowcount > 0:
+            _store_eog_players(conn, block)
     return cur.rowcount > 0, keys
 
 

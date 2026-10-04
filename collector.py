@@ -16,7 +16,10 @@ import features
 import lcu
 
 POLL_INTERVAL = 30          # 秒
-SWEEP_EVERY_TICKS = 10      # 30s * 10 = 5 分鐘
+# 對局中與賽後階段密集輪詢（本機 GET，很便宜）。賽後畫面通常很快就被關掉，30 秒一次只抓得到一半
+# （實測 22 場只存到 11 場賽後統計），而治療／護盾隊友的量只有賽後統計有，漏一場就少一筆資料。
+FAST_POLL_INTERVAL = 5
+SWEEP_EVERY = 300           # 秒：補漏掃描固定每 5 分鐘；輪詢間隔會變，所以用時間算、不再數輪數
 POST_GAME_DELAY = 20        # 打完後等客戶端寫完戰績再抓
 
 IN_GAME_PHASES = {"GameStart", "InProgress", "Reconnect", "WaitingForStats", "PreEndOfGame"}
@@ -38,6 +41,7 @@ class Collector:
         self._skipped = set()   # 抓明細失敗的對局,只記錄不重試到天荒地老
         self._dimensions_loaded = False
         self._was_connected = False
+        self._last_sweep = 0.0  # 上一次採集（任何觸發）的 time.monotonic()，補漏掃描從這裡起算
         self.on_change = None
 
     # ---------------------------------------------------------------- ingest
@@ -177,6 +181,7 @@ class Collector:
     # ------------------------------------------------------------------ loop
 
     async def _run_ingest(self, trigger):
+        self._last_sweep = time.monotonic()
         try:
             seen, new = await asyncio.to_thread(self._ingest, trigger)
             self.status["lastRun"] = {
@@ -194,16 +199,19 @@ class Collector:
 
     async def run_forever(self):
         self.status["running"] = True
-        ticks = 0
         while True:
             try:
-                await self._tick(ticks)
+                await self._tick()
             except Exception as exc:
                 self.status["lastError"] = f"{type(exc).__name__}: {exc}"
-            ticks += 1
-            await asyncio.sleep(POLL_INTERVAL)
+            await asyncio.sleep(self._poll_interval())
 
-    async def _tick(self, ticks):
+    def _poll_interval(self):
+        """對局中與賽後階段用短間隔，抓得到賽後統計；其餘時間維持 30 秒。"""
+        busy = self._saw_in_game or self.status.get("phase") in (IN_GAME_PHASES | EOG_PHASES)
+        return FAST_POLL_INTERVAL if busy else POLL_INTERVAL
+
+    async def _tick(self):
         try:
             client = await asyncio.to_thread(lcu.LCUClient.connect)
             phase = await asyncio.to_thread(client.gameflow_phase)
@@ -240,7 +248,7 @@ class Collector:
             await self._run_ingest("realtime")
             return
 
-        if ticks % SWEEP_EVERY_TICKS == 0:
+        if time.monotonic() - self._last_sweep >= SWEEP_EVERY:
             await self._run_ingest("sweep")
 
     # ---------------------------------------------------------------- status

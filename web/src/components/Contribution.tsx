@@ -4,7 +4,7 @@ import { num, type CubeRow } from "@/lib/cube"
 import { cn } from "@/lib/utils"
 
 // 貢獻分數的呈現。分數的定義只有一份，在語意層（cube/model/cubes/contribution.yml，規格見 docs/contribution-scoring.md）：
-// 輸出、承傷、存活、參團、控場（有治療到隊友時再加治療）各自和「同類型」（出裝定位 × 英雄官方主定位）的人比成名次百分位，
+// 輸出、承傷、存活、參團、控場（有治療或護盾隊友時再加治療護盾）各自和「同類型」（出裝定位 × 英雄官方主定位）的人比成名次百分位，
 // 再依出裝定位加權、同類型內再排一次名。50＝同類型的中位數。
 // 這裡只負責畫（常數與查詢在 hooks/useContribution.ts）：好友比較頁、單場計分板、對局卡片共用同一套數字與橫條。
 
@@ -39,14 +39,14 @@ function DivergingBar({ v, className }: { v: number | null; className?: string }
   )
 }
 
-/** 六項貢獻的橫條：每項是同類型內的百分位，中間的刻度是 50（中位數），往右是做得比同類型多；沒有值的項目（例如沒有治療隊友的場次）顯示「—」 */
+/** 六項貢獻的橫條：每項是同類型內的百分位，中間的刻度是 50（中位數），往右是做得比同類型多；沒有值的項目（例如沒有治療或護盾隊友的場次）顯示「—」 */
 export function ContribBars({ row, className }: { row: CubeRow | undefined; className?: string }) {
   return (
     <div className={className ?? "space-y-1.5"}>
       {CONTRIB_PARTS.map((c) => {
         const v = row ? num(row[c.key]) : null
         return (
-          <div key={c.key} className="grid grid-cols-[2.5rem_minmax(0,1fr)_2rem] items-center gap-2" title={`${c.label}：${c.hint}\n在同類型的人裡的百分位，50＝中位數`}>
+          <div key={c.key} className="grid grid-cols-[3.5rem_minmax(0,1fr)_2rem] items-center gap-2" title={`${c.label}：${c.hint}\n在同類型的人裡的百分位，50＝中位數`}>
             <span className="text-[12px]">{c.label}</span>
             <DivergingBar v={v} className="h-2" />
             <ContribScore dev={v === null ? null : v - 50} className="text-right text-[12px]" />
