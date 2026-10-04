@@ -126,6 +126,10 @@ const edge = spawn("C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe
 // 用 new WebSocket(...) 送 CDP 指令。
 ```
 
+**啟動參數要加 `--disable-extensions`**：這台的 Edge 連全新的 user-data-dir 都會自動載入 Dark Reader，
+它在 `<html>` 加 `data-darkreader-*`、把頁面（特別是 portal 出去的抽屜）改成深色，亮色主題看起來像「抽屜底色錯了、字看不見」。
+截圖看到顏色怪，先查 `document.documentElement.outerHTML` 有沒有 darkreader。
+
 截圖前要做的三件事：
 
 1. **等內容真的就緒**——招牌文字出現、沒有 `[data-slot="skeleton"]`、

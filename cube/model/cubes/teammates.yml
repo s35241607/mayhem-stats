@@ -170,3 +170,12 @@ cubes:
           group: 玩家
           unit: "%"
           decimals: 1
+
+      # 本地日期（採集時存好的 local_date），不是在 Cube 裡換算時區。MAX 不受一對多 join 重複影響。
+      - name: last_played
+        title: 最近同場
+        sql: "MAX({matches.local_date})"
+        type: string
+        description: 最近一次和這個人同場的本地日期（YYYY-MM-DD）
+        meta:
+          group: 玩家

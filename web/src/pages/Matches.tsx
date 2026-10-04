@@ -47,6 +47,8 @@ export type MatchRow = {
   items: Item[]
   augments: Augment[]
   roster: Mate[]
+  /** 「和某人同場」的下鑽才有：那個人那場的參賽者編號，卡片上把他的英雄圈出來 */
+  with_participant_id?: number | null
 }
 
 export type Player = MatchRow & {
@@ -143,7 +145,7 @@ function AugmentRow({ augments, size = "size-6" }: { augments: Augment[]; size?:
 
 /** 同場另外九個人的英雄：我方（不含自己）在左、對手在右。
  *  只放圖示不放名稱——一是排不下，二是列表不應該整排列出其他玩家的帳號。 */
-function RosterRow({ roster, teamId, self }: { roster: Mate[]; teamId: number; self: number }) {
+function RosterRow({ roster, teamId, self, withId }: { roster: Mate[]; teamId: number; self: number; withId?: number | null }) {
   const ally = roster.filter((p) => p.team_id === teamId && p.participant_id !== self)
   const foe = roster.filter((p) => p.team_id !== teamId)
   if (!ally.length && !foe.length) return null
@@ -151,7 +153,14 @@ function RosterRow({ roster, teamId, self }: { roster: Mate[]; teamId: number; s
     <div className={cn("flex items-center gap-0.5", dim && "opacity-80")} title={title}>
       <span className="w-3 shrink-0 text-[10px] leading-none text-muted-foreground">{label}</span>
       {list.map((p) => (
-        <img key={p.participant_id} src={iconUrl(p.champion_icon)} alt="" title={p.champion_name} className="size-5 rounded bg-icon-tile" />
+        <img
+          key={p.participant_id}
+          src={iconUrl(p.champion_icon)}
+          alt=""
+          title={p.participant_id === withId ? `${p.champion_name}（就是這個人）` : p.champion_name}
+          // 下鑽的那個人：強調色外框，同隊在「我」那排、敵對在「敵」那排
+          className={cn("size-5 rounded bg-icon-tile", p.participant_id === withId && "ring-2 ring-primary")}
+        />
       ))}
     </div>
   )
@@ -660,7 +669,7 @@ function MatchCardChunk({
 
               <div className="min-w-0 flex-1" />
 
-              <RosterRow roster={m.roster ?? []} teamId={m.team_id} self={m.participant_id} />
+              <RosterRow roster={m.roster ?? []} teamId={m.team_id} self={m.participant_id} withId={m.with_participant_id} />
 
               {!showPlayer && (
                 // 固定寬度：晶片有寬有窄，加上貢獻分數後右欄不能跟著變寬，不然每列的敵我頭像會左右錯位

@@ -295,6 +295,7 @@ views:
           - games
           - wins
           - winrate
+          - last_played
 
       - join_path: teammates.matches
         includes:

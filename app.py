@@ -913,7 +913,8 @@ def recent_matches(
     和 Cube 那邊的分桶是同一份資料,所以圖上點到的格子和這裡列出來的場次一定對得起來。
 
     date_from / date_to 是全域的期間篩選(本地日期,含頭含尾)。
-    with_puuid + relation(teammate / opponent)列出和某人同隊或對上的場次,給隊友頁下鑽用。
+    with_puuid + relation(teammate / opponent)列出和某人同隊或對上的場次,給隊友頁下鑽用;
+    不給 relation 是兩種都列。每列會多一個 with_participant_id(那個人那場的參賽者編號)。
     champion 是英雄名稱(和 Cube 的 champions.name 同一份對照),給英雄頁下鑽用。
     augment 是增幅名稱(和 Cube 的 augments.name 同一份對照),給增幅頁下鑽用。
 
@@ -981,6 +982,8 @@ def recent_matches(
             slice_sql += " AND m.local_date <= ?"
             slice_params.append(date_to)
         if with_puuid is not None:
+            if relation not in (None, "teammate", "opponent"):
+                return JSONResponse(status_code=400, content={"error": "relation 只能是 teammate 或 opponent"})
             same_team = {"teammate": "=", "opponent": "<>"}.get(relation or "", None)
             slice_sql += f"""
                 AND EXISTS (SELECT 1 FROM match_participants o
@@ -1079,6 +1082,18 @@ def recent_matches(
                 by_game.setdefault((row["platform_id"], row["game_id"]), []).append(dict(row))
             for match in matches:
                 match["roster"] = by_game.get((match["platform_id"], match["game_id"]), [])
+
+            # 和某人同場的下鑽：標出那個人那場是誰（參賽者編號），卡片上才能把他的英雄圈出來、
+            # 「同隊和敵對一起列」時一眼看出這場是哪一種
+            if with_puuid is not None:
+                with_rows = conn.execute(
+                    f"""SELECT platform_id, game_id, participant_id FROM match_participants
+                        WHERE puuid = ? AND (platform_id, game_id) IN ({",".join("(?,?)" for _ in games)})""",
+                    [with_puuid, *(value for key in games for value in key)],
+                ).fetchall()
+                with_of = {(r["platform_id"], r["game_id"]): r["participant_id"] for r in with_rows}
+                for match in matches:
+                    match["with_participant_id"] = with_of.get((match["platform_id"], match["game_id"]))
 
         count_sql = """
             SELECT COUNT(*) AS n, COALESCE(SUM(mp.win), 0) AS wins FROM match_participants mp
