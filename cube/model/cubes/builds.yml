@@ -8,10 +8,12 @@ cubes:
   # AD／AP／坦度三堆（一件裝備同時屬於幾堆就平分），輔助裝另成一堆。再看各堆佔的金額比例：
   #   - 輔助裝 ≥ 35%                                   → 輔助
   #   - 坦度 ≥ 50%，且 AD、AP 都 < 25%                  → 坦克
-  #   - 坦度 ≥ 30%                                     → AD 鬥士／AP 坦（看 AD、AP 哪堆多）
+  #   - 坦度 ≥ 30%                                     → AD 鬥士／AP 鬥士（看 AD、AP 哪堆多）
   #   - 其餘，AD ≥ AP：AD 金額裡「穿甲裝」最多           → AD 刺客，否則 AD 輸出
   #   - 其餘，AP > AD：英雄的官方主定位是刺客            → AP 刺客，否則 AP 輸出
   #   - 沒有任何成裝（太早結束）                         → 未成形
+  #   「AP 鬥士」舊稱「AP 坦」：它和 AD 鬥士對稱（坦度裝約一半、另一半是傷害裝，只差傷害類型），不是坦克；
+  #   坦克要求坦度 ≥ 50% 且 AD、AP 各 < 25%（幾乎純坦裝），所以坦度很高但帶了 25% 以上傷害裝的人也歸鬥士。
   #
   # 刺客為什麼要另外判斷：類別 ArmorPenetration 同時貼在妖夢、傲慢（物理致命）與蒐集者、多明尼克（暴擊）上，
   # 只看類別會把刺客全併進 AD 輸出。所以 AD 的金額再依裝備數值（dim_item_stats，從裝備說明取出）細分：
@@ -97,7 +99,7 @@ cubes:
                 WHEN g.tank / (g.ad + g.ap + g.tank + g.sup) >= 0.5
                      AND g.ad / (g.ad + g.ap + g.tank + g.sup) < 0.25
                      AND g.ap / (g.ad + g.ap + g.tank + g.sup) < 0.25 THEN '坦克'
-                WHEN g.tank / (g.ad + g.ap + g.tank + g.sup) >= 0.3 THEN CASE WHEN g.ad >= g.ap THEN 'AD 鬥士' ELSE 'AP 坦' END
+                WHEN g.tank / (g.ad + g.ap + g.tank + g.sup) >= 0.3 THEN CASE WHEN g.ad >= g.ap THEN 'AD 鬥士' ELSE 'AP 鬥士' END
                 WHEN g.ad >= g.ap THEN
                   CASE WHEN g.ad_pen > g.ad_crit AND g.ad_pen > g.ad_as AND g.ad_pen > g.ad_other
                        THEN 'AD 刺客' ELSE 'AD 輸出' END
@@ -122,7 +124,7 @@ cubes:
                 WHEN 'AP 刺客' THEN dmg_share
                 WHEN '坦克' THEN taken_share
                 WHEN 'AD 鬥士' THEN (dmg_share + taken_share) / 2
-                WHEN 'AP 坦' THEN (dmg_share + taken_share) / 2
+                WHEN 'AP 鬥士' THEN (dmg_share + taken_share) / 2
                 WHEN '輔助' THEN kp
               END AS role_metric
             FROM classified
@@ -153,7 +155,7 @@ cubes:
       # 字串而不是數字比較：理由同 participants.is_me（CASE 運算式沒有型別親和性）
       - name: build_role
         title: 出裝定位
-        description: "依終場裝備判斷的實際定位：AD 輸出、AD 刺客、AP 輸出、AP 刺客、坦克、AD 鬥士、AP 坦、輔助、未成形。AD 刺客＝AD 裝以物理致命／穿甲裝為主；AP 刺客＝AP 輸出裝且英雄官方主定位是刺客。規則見 cube/model/cubes/builds.yml；和英雄的官方定位（champion_roles）不同，同一隻英雄不同場可能不一樣。"
+        description: "依終場裝備判斷的實際定位：AD 輸出、AD 刺客、AP 輸出、AP 刺客、坦克、AD 鬥士、AP 鬥士、輔助、未成形。AD 刺客＝AD 裝以物理致命／穿甲裝為主；AP 刺客＝AP 輸出裝且英雄官方主定位是刺客。規則見 cube/model/cubes/builds.yml；和英雄的官方定位（champion_roles）不同，同一隻英雄不同場可能不一樣。"
         sql: build_role
         type: string
         meta:
@@ -186,13 +188,13 @@ cubes:
     measures:
       # 表現分數：這場的「定位關鍵指標」減掉全資料庫同模式、同出裝定位的平均（百分點）。
       # 每個定位的工作不同，關鍵指標也不同：
-      #   AD／AP 輸出、AD／AP 刺客 → 傷害佔比；坦克 → 承傷佔比；AD 鬥士／AP 坦 → 兩者平均；輔助 → 參團率
+      #   AD／AP 輸出、AD／AP 刺客 → 傷害佔比；坦克 → 承傷佔比；AD 鬥士／AP 鬥士 → 兩者平均；輔助 → 參團率
       # 都是「佔我方隊伍的比例」，陣容已經內含：隊上輸出越多，同樣打法的傷害佔比自然越低。
       # 基準用全資料庫（每場 10 人都算，Mayhem 約 3,200 筆），比只看自己人穩定得多；
       # 基準不跟著期間篩選變動，所以不同期間的分數可以直接比。
       - name: perf_index
         title: 表現分數
-        description: "定位關鍵指標和全資料庫同出裝定位平均的差距（百分點）。AD／AP 輸出與刺客看傷害佔比、坦克看承傷佔比、AD 鬥士／AP 坦看兩者平均、輔助看參團率。正數代表這個定位的工作做得比一般人多。"
+        description: "定位關鍵指標和全資料庫同出裝定位平均的差距（百分點）。AD／AP 輸出與刺客看傷害佔比、坦克看承傷佔比、AD 鬥士／AP 鬥士看兩者平均、輔助看參團率。正數代表這個定位的工作做得比一般人多。"
         sql: perf_index
         type: avg
         meta:
@@ -203,7 +205,7 @@ cubes:
 
       - name: role_metric
         title: 定位關鍵指標
-        description: "依出裝定位取的關鍵指標（%）：輸出與刺客看傷害佔比、坦克看承傷佔比、鬥士／AP 坦看兩者平均、輔助看參團率。"
+        description: "依出裝定位取的關鍵指標（%）：輸出與刺客看傷害佔比、坦克看承傷佔比、鬥士／AP 鬥士看兩者平均、輔助看參團率。"
         sql: role_metric
         type: avg
         meta:

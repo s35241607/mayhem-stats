@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils"
 
 /** 出裝定位標籤。八種定位沒辦法各給一個分得開的顏色（見 index.css 的 --role-*），所以拆成兩個編碼：
  *  - 顏色＝傷害類型：AD 橘、AP 紫、坦克與輔助青（不靠輸出吃飯的）
- *  - 框線＝站位：實心＝前排（坦克、AD 鬥士、AP 坦）、虛線＝刺客、空心＝輸出與輔助
+ *  - 框線＝站位：實心＝前排（坦克、AD 鬥士、AP 鬥士）、虛線＝刺客、空心＝輸出與輔助
  *  文字一律用前景色（顏色只放在點、框與底色），色盲或亮色主題也讀得到。 */
 type Tone = "ad" | "ap" | "util"
 type Shape = "front" | "assassin" | "back"
@@ -13,7 +13,7 @@ const ROLE_STYLE: Record<string, { tone: Tone; shape: Shape }> = {
   "AD 鬥士": { tone: "ad", shape: "front" },
   "AD 刺客": { tone: "ad", shape: "assassin" },
   "AD 輸出": { tone: "ad", shape: "back" },
-  "AP 坦": { tone: "ap", shape: "front" },
+  "AP 鬥士": { tone: "ap", shape: "front" },
   "AP 刺客": { tone: "ap", shape: "assassin" },
   "AP 輸出": { tone: "ap", shape: "back" },
 }
