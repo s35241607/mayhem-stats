@@ -217,7 +217,10 @@ test.describe("好友比較頁：全員一覽", () => {
     for (const row of await matrixRows(page).all()) {
       const m = await memberOf(row)
       const exp = expectedCells(m.puuid)
-      const shown = await row.getByTestId("crew-role-chip").evaluateAll((els) => els.map((e) => `${(e as HTMLElement).dataset.label}:${(e as HTMLElement).dataset.strength}`))
+      // 出裝欄是六種出裝固定各一條（小森林），沒玩過的沒有 data-strength；比的是判定不是「持平」的那幾條
+      const shown = await row.getByTestId("crew-role-chip").evaluateAll((els) =>
+        els.filter((e) => (e as HTMLElement).dataset.strength && (e as HTMLElement).dataset.strength !== "看不出").map((e) => `${(e as HTMLElement).dataset.label}:${(e as HTMLElement).dataset.strength}`),
+      )
       const want = ROLES.filter((r) => exp[r].strength !== "看不出").map((r) => `${r}:${exp[r].strength}`)
       expect([...shown].sort(), nameOf(m.riot_id)).toEqual([...want].sort())
       await expect(row.getByTestId("crew-overall")).toHaveAttribute("data-strength", exp["整體"].strength)
@@ -234,24 +237,16 @@ test.describe("好友比較頁：全員一覽", () => {
     )
   })
 
-  test("出裝標籤前面是 1、2、3… 連續的名次，看得出的排在還在誤差內的前面", async ({ page }) => {
+  test("出裝欄每人六條、順序固定（坦克、鬥士、刺客、射手、法師、輔助），大家上下對得齊", async ({ page }) => {
     for (const row of await matrixRows(page).all()) {
-      const chips = await row.getByTestId("crew-role-chip").evaluateAll((els) =>
-        els.map((e) => ({ rank: (e.firstElementChild as HTMLElement).innerText, strength: (e as HTMLElement).dataset.strength! })),
-      )
-      const pos = chips.filter((c) => c.strength === "強勢" || c.strength === "偏強")
-      const neg = chips.filter((c) => c.strength === "不強勢" || c.strength === "偏弱")
-      for (const list of [pos, neg]) {
-        expect(list.map((c) => c.rank)).toEqual(list.map((_, i) => String(i + 1)))
-        const firstLean = list.findIndex((c) => c.strength === "偏強" || c.strength === "偏弱")
-        if (firstLean >= 0) expect(list.slice(firstLean).every((c) => c.strength === "偏強" || c.strength === "偏弱")).toBe(true)
-      }
+      const labels = await row.getByTestId("crew-role-chip").evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.label))
+      expect(labels).toEqual(["坦克", "鬥士", "刺客", "射手", "法師", "輔助"])
     }
   })
 
   test("圖例與「怎麼判斷的」：五級判定、▲▼ 勝率補充、為什麼不再用適合／不適合", async ({ page }) => {
     const box = panel(page, "全員一覽")
-    for (const t of [/比平均強（看得出）/, /高 4 分以上，還在誤差內/, /低於平均（看得出）/, /勝率比他自己的平均明顯高／低/]) {
+    for (const t of [/比平均強（看得出）/, /高 4 分以上，還在誤差內/, /低於平均（看得出）/, /實心＝看得出、空心＝還在誤差內/]) {
       await expect(box.getByText(t)).toBeVisible()
     }
     await box.getByText(/怎麼判斷的/).click()
