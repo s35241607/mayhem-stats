@@ -46,3 +46,7 @@ icon_cache/
 # Playwright 端對端測試的產物
 web/test-results/
 web/playwright-report/
+
+# 全站預設查詢區間（管理員在畫面上設定，執行期資料）
+.site_config.json
+.site_config.tmp

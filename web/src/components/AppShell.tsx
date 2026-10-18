@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react"
+import { useState, type CSSProperties, type ReactNode } from "react"
 import {
   Calculator,
   LayoutDashboard,
@@ -46,7 +46,12 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -56,11 +61,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { useCollectorStatus, useCube } from "@/hooks/useCube"
-import { DATE_RANGES, useFilters } from "@/lib/filters"
+import { useCollectorStatus } from "@/hooks/useCube"
+import { DATE_RANGES, comparePatch, useFilters } from "@/lib/filters"
 import { MAYHEM_QUEUE_ID } from "@/lib/cube"
 import { AccountSwitcher, ViewingOtherBanner } from "@/components/AccountSwitcher"
 import { ThemeSwitcher } from "@/components/ThemeSwitcher"
+import { SiteDefaultsDialog } from "@/components/SiteDefaultsDialog"
 import { useCrumbs } from "@/lib/breadcrumb"
 
 export type PageId =
@@ -188,52 +194,50 @@ function CollectorPill() {
   )
 }
 
-/** 遊戲版本（主.次）的多選。選項來自資料裡實際有的版本，不受期間篩選影響（選了 7 天也要看得到舊版本）。 */
+/** 遊戲版本（主.次）：多選，或「某版本之後」。選項來自資料裡實際有的版本，不受期間篩選影響（選了 7 天也要看得到舊版本）。 */
 function VersionFilter() {
-  const { versions, setVersions } = useFilters()
-  const query = useMemo(
-    () => ({
-      measures: ["matches.count"],
-      dimensions: ["matches.patch"],
-      filters: [{ member: "matches.queue_id", operator: "equals" as const, values: [MAYHEM_QUEUE_ID] }],
-      order: { "matches.patch": "asc" as const },
-      limit: 100,
-    }),
-    [],
-  )
-  const { rows, loading } = useCube(query)
-  const options = useMemo(
-    () =>
-      rows
-        .map((r) => ({ patch: String(r["matches.patch"]), games: Number(r["matches.count"] ?? 0) }))
-        // 版號要照數字排（16.9 在 16.10 前面），字串排序會錯
-        .sort((a, b) => {
-          const [am, an] = a.patch.split(".").map(Number)
-          const [bm, bn] = b.patch.split(".").map(Number)
-          return am - bm || an - bn
-        }),
-    [rows],
-  )
+  const { versions, setVersions, versionFrom, setVersionFrom, versionOptions: options } = useFilters()
   const toggle = (patch: string, on: boolean) => {
     const next = on ? [...versions, patch] : versions.filter((v) => v !== patch)
     setVersions(options.map((o) => o.patch).filter((p) => next.includes(p)))
   }
-  const label = !versions.length ? "全部版本" : versions.length <= 2 ? versions.join("、") : `${versions[0]} 等 ${versions.length} 個`
+  const label = versionFrom
+    ? `${versionFrom} 之後`
+    : !versions.length ? "全部版本" : versions.length <= 2 ? versions.join("、") : `${versions[0]} 等 ${versions.length} 個`
+  // 起點以後（含）的場次合計，給子選單每一列看「選這個會剩幾場」
+  const gamesFrom = (patch: string) => options.filter((o) => comparePatch(o.patch, patch) >= 0).reduce((a, o) => a + o.games, 0)
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="h-7 w-[150px] justify-between gap-2 rounded-[min(var(--radius-md),10px)] text-sm font-normal" disabled={loading && !options.length}>
+        <Button variant="outline" size="sm" className="h-7 w-[150px] justify-between gap-2 rounded-[min(var(--radius-md),10px)] text-sm font-normal" disabled={!options.length && !versionFrom}>
           <span className="truncate">{label}</span>
           <ChevronDown className="size-3.5 shrink-0 opacity-60" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-64">
-        <DropdownMenuLabel>遊戲版本（可多選）</DropdownMenuLabel>
-        <DropdownMenuItem onSelect={() => setVersions([])} disabled={!versions.length}>
+        <DropdownMenuLabel>遊戲版本</DropdownMenuLabel>
+        <DropdownMenuItem onSelect={() => setVersions([])} disabled={!versions.length && !versionFrom}>
           全部版本
         </DropdownMenuItem>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger className={versionFrom ? "text-primary" : undefined}>
+            {versionFrom ? `${versionFrom} 之後` : "某版本之後…"}
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-56">
+            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">包含該版本，之後的新版本會自動算進去</DropdownMenuLabel>
+            <DropdownMenuRadioGroup value={versionFrom ?? ""} onValueChange={(v) => setVersionFrom(v || null)}>
+              {[...options].reverse().map((o) => (
+                <DropdownMenuRadioItem key={o.patch} value={o.patch}>
+                  <span className="font-mono">{o.patch}</span> 之後
+                  <span className="ml-auto pl-4 text-xs text-muted-foreground">{gamesFrom(o.patch)} 場</span>
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
         <DropdownMenuSeparator />
+        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">指定版本（可多選）</DropdownMenuLabel>
         {options.map((o) => (
           <DropdownMenuCheckboxItem
             key={o.patch}
@@ -246,7 +250,7 @@ function VersionFilter() {
             <span className="ml-auto pl-4 text-xs text-muted-foreground">{o.games} 場</span>
           </DropdownMenuCheckboxItem>
         ))}
-        {!options.length && !loading && <div className="px-2 py-1.5 text-xs text-muted-foreground">資料裡還沒有版本資訊</div>}
+        {!options.length && <div className="px-2 py-1.5 text-xs text-muted-foreground">資料裡還沒有版本資訊</div>}
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -450,6 +454,7 @@ export function AppShell({
             <Separator orientation="vertical" className="!h-5" />
             <Breadcrumb title={meta.title} caption={meta.caption} />
             <GlobalFilters />
+            <SiteDefaultsDialog />
             <ThemeSwitcher />
           </div>
         </header>

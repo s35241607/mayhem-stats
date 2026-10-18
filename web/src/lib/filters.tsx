@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react"
-import { MAYHEM_QUEUE_ID, type CubeFilter, type CubeQuery } from "@/lib/cube"
+import { MAYHEM_QUEUE_ID, cubeQuery, type CubeFilter, type CubeQuery } from "@/lib/cube"
 
 export type Drill = CubeFilter & { label: string }
 
@@ -53,6 +53,20 @@ export function dateBounds(range: string): [string, string] | null {
   return [localDate(from), localDate(today)]
 }
 
+/** 版號照數字比（16.9 在 16.10 前面），字串比會錯 */
+export function comparePatch(a: string, b: string) {
+  const [am, an] = a.split(".").map(Number)
+  const [bm, bn] = b.split(".").map(Number)
+  return am - bm || an - bn
+}
+
+export type VersionOption = { patch: string; games: number }
+
+/** 全站的預設查詢區間（/api/config）。只有管理員能改；打開頁面時套用，之後每個人可以自己換，換了不存回去。 */
+export type SiteDefaults = { queue: string | null; dateRange: string; versionFrom: string | null }
+
+const BUILTIN_DEFAULTS: SiteDefaults = { queue: MAYHEM_QUEUE_ID, dateRange: "all", versionFrom: null }
+
 type FilterState = {
   /** 帳號清單載入完成（或確定載不到）之前是 false。
    *  這段期間 account 還是 null，apply() 組出來的查詢會少了帳號篩選，
@@ -70,9 +84,21 @@ type FilterState = {
   setQueueId: (id: string | null) => void
   dateRange: string
   setDateRange: (range: string) => void
-  /** 遊戲版本（主.次，例如 16.17）。多選；空陣列 = 全部版本。 */
+  /** 手動勾選的遊戲版本（主.次，例如 16.17）。多選；空陣列且沒有 versionFrom = 全部版本。 */
   versions: string[]
   setVersions: (versions: string[]) => void
+  /** 「這個版本（含）之後」。設了就以它為準、忽略 versions；之後出的新版本會自動包含進來。 */
+  versionFrom: string | null
+  setVersionFrom: (patch: string | null) => void
+  /** 資料裡實際有的版本（只看 Mayhem、不受期間影響），由舊到新 */
+  versionOptions: VersionOption[]
+  /** 實際送出的版本條件：versionFrom 展開成具體版本，或手動勾選的那幾個；空陣列 = 不限 */
+  activeVersions: string[]
+  siteDefaults: SiteDefaults
+  /** 這個人能不能改全站預設（本機，或鏡像上 admins 名單裡的 Discord 帳號） */
+  canEditDefaults: boolean
+  /** 存成全站預設。成功回 null，失敗回錯誤訊息。 */
+  saveSiteDefaults: (next: SiteDefaults) => Promise<string | null>
   drills: Drill[]
   addDrill: (drill: Drill) => void
   removeDrill: (index: number) => void
@@ -97,9 +123,83 @@ export function FilterProvider({ children }: { children: ReactNode }) {
   const [queueId, setQueueId] = useState<string | null>(MAYHEM_QUEUE_ID)
   const [dateRange, setDateRange] = useState<string>("all")
   const [versions, setVersions] = useState<string[]>([])
+  const [versionFrom, setVersionFrom] = useState<string | null>(null)
+  const [versionOptions, setVersionOptions] = useState<VersionOption[]>([])
+  const [versionsLoaded, setVersionsLoaded] = useState(false)
+  const [siteDefaults, setSiteDefaults] = useState<SiteDefaults>(BUILTIN_DEFAULTS)
+  const [canEditDefaults, setCanEditDefaults] = useState(false)
+  const [configLoaded, setConfigLoaded] = useState(false)
   const [drills, setDrills] = useState<Drill[]>([])
-  const [ready, setReady] = useState(false)
+  const [playersLoaded, setPlayersLoaded] = useState(false)
   const [viewer, setViewer] = useState<Viewer | null>(null)
+
+  // 預設條件要在第一個查詢送出之前就定好，否則頁面會先用內建預設查一輪、再換條件重查
+  useEffect(() => {
+    fetch("/api/config")
+      .then((r) => r.json())
+      .then((d: { defaults: SiteDefaults; canEdit: boolean }) => {
+        setSiteDefaults(d.defaults)
+        setCanEditDefaults(d.canEdit)
+        setQueueId(d.defaults.queue)
+        setDateRange(d.defaults.dateRange)
+        setVersionFrom(d.defaults.versionFrom)
+      })
+      .catch(() => undefined)
+      .finally(() => setConfigLoaded(true))
+  }, [])
+
+  // 版本選項放在這裡而不是選單元件裡：「某版本之後」要先知道有哪些版本才能展開成查詢條件
+  useEffect(() => {
+    const controller = new AbortController()
+    const load = () =>
+      cubeQuery(
+        {
+          measures: ["matches.count"],
+          dimensions: ["matches.patch"],
+          filters: [{ member: "matches.queue_id", operator: "equals", values: [MAYHEM_QUEUE_ID] }],
+          limit: 100,
+        },
+        controller.signal,
+      )
+        .then((rows) =>
+          setVersionOptions(
+            rows
+              .map((r) => ({ patch: String(r["matches.patch"]), games: Number(r["matches.count"] ?? 0) }))
+              .filter((o) => /^\d+\.\d+$/.test(o.patch))
+              .sort((a, b) => comparePatch(a.patch, b.patch)),
+          ),
+        )
+        .catch(() => undefined)
+        .finally(() => setVersionsLoaded(true))
+    void load()
+    // 新版本的第一場進來時，「某版本之後」要自動把它算進去
+    window.addEventListener("mayhem:data-changed", load)
+    return () => {
+      controller.abort()
+      window.removeEventListener("mayhem:data-changed", load)
+    }
+  }, [])
+
+  // 「某版本之後」還沒拿到版本清單時展開不出條件，先等，不要用「全部版本」查一輪
+  const ready = playersLoaded && configLoaded && (!versionFrom || versionsLoaded)
+  const activeVersions = useMemo(() => {
+    if (!versionFrom) return versions
+    const later = versionOptions.map((o) => o.patch).filter((p) => comparePatch(p, versionFrom) >= 0)
+    // 起點比資料裡所有版本都新：照字面送出，查到 0 場才是對的（空陣列會變成「不限版本」）
+    return later.length ? later : [versionFrom]
+  }, [versionFrom, versions, versionOptions])
+
+  const saveSiteDefaults = async (next: SiteDefaults) => {
+    const res = await fetch("/api/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(next),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) return (body.error as string) ?? "儲存失敗"
+    setSiteDefaults(body.defaults)
+    return null
+  }
 
   useEffect(() => {
     const loadPlayers = () => fetch("/api/players")
@@ -112,7 +212,7 @@ export function FilterProvider({ children }: { children: ReactNode }) {
       })
       .catch(() => undefined)
       // 載不到也要放行，否則後端一掛整個畫面就永遠停在骨架
-      .finally(() => setReady(true))
+      .finally(() => setPlayersLoaded(true))
     void loadPlayers()
     window.addEventListener("mayhem:data-changed", loadPlayers)
     fetch("/api/me")
@@ -153,8 +253,8 @@ export function FilterProvider({ children }: { children: ReactNode }) {
     if (queueId) {
       baseline.push({ member: "matches.queue_id", operator: "equals", values: [queueId] })
     }
-    if (versions.length) {
-      baseline.push({ member: "matches.patch", operator: "equals", values: versions })
+    if (activeVersions.length) {
+      baseline.push({ member: "matches.patch", operator: "equals", values: activeVersions })
     }
 
     return {
@@ -173,7 +273,21 @@ export function FilterProvider({ children }: { children: ReactNode }) {
       dateRange,
       setDateRange,
       versions,
-      setVersions,
+      // 手動勾選和「某版本之後」互斥：勾了就是在指定版本，起點清掉
+      setVersions: (next) => {
+        setVersions(next)
+        setVersionFrom(null)
+      },
+      versionFrom,
+      setVersionFrom: (patch) => {
+        setVersionFrom(patch)
+        setVersions([])
+      },
+      versionOptions,
+      activeVersions,
+      siteDefaults,
+      canEditDefaults,
+      saveSiteDefaults,
       drills,
       addDrill: (drill) =>
         setDrills((prev) =>
@@ -197,7 +311,7 @@ export function FilterProvider({ children }: { children: ReactNode }) {
         const params: Record<string, string> = {}
         if (account) params.puuid = account.puuid
         if (queueId) params.queue = queueId
-        if (versions.length) params.patch = versions.join(",")
+        if (activeVersions.length) params.patch = activeVersions.join(",")
         if (bounds) {
           params.date_from = bounds[0]
           params.date_to = bounds[1]
@@ -242,7 +356,7 @@ export function FilterProvider({ children }: { children: ReactNode }) {
     }
     // setLinked 每次渲染都是新函式，但它讀的 players 已經在依賴裡
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, account, players, viewer, queueId, dateRange, versions, drills])
+  }, [ready, account, players, viewer, queueId, dateRange, versions, versionFrom, versionOptions, activeVersions, siteDefaults, canEditDefaults, drills])
 
   return <FilterContext.Provider value={value}>{children}</FilterContext.Provider>
 }

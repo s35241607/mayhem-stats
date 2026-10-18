@@ -939,6 +939,75 @@ def link_account(body: LinkBody, request: Request):
     return whoami(request)
 
 
+# 全站的預設查詢區間：打開頁面時全域篩選（模式、期間、版本起點）的初始值。只有管理員能改，
+# 每個人進來之後仍可自己換，換了不會存回來。
+# 存在獨立的 JSON 檔、不放 mayhem.db：鏡像對 mayhem.db 是唯讀的，但鏡像上的管理員也要能改，
+# 而本機與鏡像兩個行程要讀到同一份。檔名加點、列進 .gitignore——它是執行期的設定，不是程式。
+SITE_CONFIG_FILE = BASE_DIR / ".site_config.json"
+SITE_DATE_RANGES = {"all", "last 7 days", "last 14 days", "last 30 days", "last 90 days"}  # 和前端 DATE_RANGES 一致
+SITE_DEFAULTS = {"queue": str(lcu.MAYHEM_QUEUE_ID), "dateRange": "all", "versionFrom": None}
+
+
+def _clean_site_defaults(raw) -> dict:
+    """只留認得的鍵與合法的值；不合法的退回內建預設，檔案被手動改壞也不會讓前端拿到怪值。"""
+    raw = raw if isinstance(raw, dict) else {}
+    queue = raw.get("queue", SITE_DEFAULTS["queue"])
+    date_range = raw.get("dateRange", SITE_DEFAULTS["dateRange"])
+    version_from = raw.get("versionFrom", SITE_DEFAULTS["versionFrom"])
+    return {
+        # None = 全部模式
+        "queue": queue if queue in (None, str(lcu.MAYHEM_QUEUE_ID)) else SITE_DEFAULTS["queue"],
+        "dateRange": date_range if date_range in SITE_DATE_RANGES else SITE_DEFAULTS["dateRange"],
+        "versionFrom": version_from if isinstance(version_from, str) and re.fullmatch(r"\d+\.\d+", version_from) else None,
+    }
+
+
+def site_defaults() -> dict:
+    try:
+        return _clean_site_defaults(json.loads(SITE_CONFIG_FILE.read_text(encoding="utf-8")).get("defaults"))
+    except (OSError, ValueError, AttributeError):
+        return dict(SITE_DEFAULTS)
+
+
+def _is_admin(request: Request) -> bool:
+    """本機（非公開模式）一律是管理員；鏡像上只有 .public_oauth 的 admins 名單上、用 Discord 登入的人。
+    共用密碼登入沒有個別身分，不能是管理員。"""
+    if not PUBLIC:
+        return True
+    who = _session(request)
+    if not who or not who["discord_id"]:
+        return False
+    return _matches(oauth_config().get("admins", []), {"id": who["discord_id"], "username": who["username"] or ""})
+
+
+@app.get("/api/config")
+def get_config(request: Request):
+    return {"defaults": site_defaults(), "canEdit": _is_admin(request)}
+
+
+class ConfigBody(BaseModel):
+    queue: Optional[str] = None
+    dateRange: str = "all"
+    versionFrom: Optional[str] = None
+
+
+@app.post("/api/config")
+def set_config(body: ConfigBody, request: Request):
+    if not _is_admin(request):
+        return JSONResponse(status_code=403, content={"error": "只有管理員可以改預設查詢區間"})
+    wanted = body.model_dump()
+    cleaned = _clean_site_defaults(wanted)
+    if cleaned != wanted:
+        return JSONResponse(status_code=400, content={"error": "模式、期間或版本的值不合法"})
+    # 先寫暫存檔再換名：另一個行程同時在讀時不會讀到寫一半的 JSON
+    tmp = SITE_CONFIG_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"defaults": cleaned}, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(SITE_CONFIG_FILE)
+    who = _session(request) if PUBLIC else None
+    print(f"{who['name'] if who else '本機'} 把預設查詢區間改成 {cleaned}")
+    return get_config(request)
+
+
 def _resolve_puuid(conn, puuid: Optional[str]) -> Optional[str]:
     """沒指定就用本機帳號。所有頁面預設看自己，但可以切換到別人。"""
     if puuid:
