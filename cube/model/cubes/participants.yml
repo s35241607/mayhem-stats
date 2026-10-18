@@ -806,6 +806,20 @@ cubes:
           group: 貢獻
           decimals: 0
 
+      - name: ace_games
+        title: ACE 場次
+        description: "拿到 ACE 的場次：輸的那一隊裡本場貢獻 v2 最高（同分都算），和計分板、對局卡片的 ACE 同一個定義。"
+        sql: >
+          CASE WHEN {CUBE}.win = 0
+           AND (SELECT v.work_score_v2 FROM mat_contribution_v2 v WHERE v.participant_rowid = {CUBE}.rowid)
+             = (SELECT MAX(o.work_score_v2) FROM match_participants t JOIN mat_contribution_v2 o ON o.participant_rowid = t.rowid
+                WHERE t.platform_id = {CUBE}.platform_id AND t.game_id = {CUBE}.game_id AND t.team_id = {CUBE}.team_id)
+          THEN {CUBE}.rowid END
+        type: count_distinct
+        meta:
+          group: 貢獻
+          decimals: 0
+
       - name: avg_assists
         title: 平均助攻
         description: "每場平均助攻數。"

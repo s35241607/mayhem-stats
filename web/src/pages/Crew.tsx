@@ -1,5 +1,5 @@
 import { Fragment, createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react"
-import { ArrowRight, BookOpen, Check, ChevronDown, ChevronRight, ChevronsUpDown, Crown, Flame, Hammer, HeartHandshake, Infinity as InfinityIcon, Medal, Search, Shield, Handshake, Snowflake, Sparkles, Star, Trophy, type LucideIcon } from "lucide-react"
+import { ArrowRight, BookOpen, Check, ChevronDown, ChevronRight, ChevronsUpDown, Crown, Flame, Hammer, HeartHandshake, Infinity as InfinityIcon, Medal, Search, Shield, Handshake, Snowflake, Sparkles, Star, Trophy, Zap, Users, Skull, Award, Mountain, Heart, Moon, CalendarCheck, type LucideIcon } from "lucide-react"
 import { RecordCell } from "@/components/cells"
 import { ContribBars, ContribScore } from "@/components/Contribution"
 import { PERF_PARTS, WORK, WORK_GAMES, WORK_GAP, WORK_MEASURES, WORK_PARTS } from "@/hooks/useContribution"
@@ -10,6 +10,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { EmptyState, Panel, QueryError } from "@/components/primitives"
+import { Hint } from "@/components/TipLayer"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ContribRadarChart, SHRINK_K, shrunk } from "@/components/charts"
@@ -448,7 +449,7 @@ function RoleStrip({ roles, reach, ownWr }: { roles: Judged[]; reach: number; ow
         return (
           <span
             key={label}
-            title={j ? tipOf(j, ownWr) : `${label}：沒有玩過`}
+            data-tip={j ? tipOf(j, ownWr) : `${label}：沒有玩過`}
             data-testid="crew-role-chip"
             data-label={label}
             data-strength={j?.strength}
@@ -505,23 +506,32 @@ function LuckTag({ j }: { j: Judged }) {
 function RowLegend() {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-      {LEVELS.map((l) => (
-        <span key={l.label} className="flex items-center gap-1.5" data-testid="crew-level-legend">
-          <span className={cn("rounded border px-1 text-[10px]", l.strength ? STRENGTH_CLASS[l.strength] : "border-dashed text-muted-foreground")}>{l.label}</span>
-          {l.note}
-        </span>
-      ))}
+      <span className="flex flex-wrap items-center gap-1">
+        {LEVELS.map((l) => (
+          <span
+            key={l.label}
+            data-testid="crew-level-legend"
+            data-tip={`${l.label}：${l.note}`}
+            className={cn("cursor-help rounded border px-1 text-[10px]", l.strength ? STRENGTH_CLASS[l.strength] : "border-dashed text-muted-foreground")}
+          >
+            {l.label}
+          </span>
+        ))}
+        <span className="ml-1">由強到弱</span>
+      </span>
       <span className="flex items-center gap-1">
         <span className="size-2.5 rounded-full border-2 border-win bg-win" />
         <span className="size-2.5 rounded-full border-2 border-win bg-card" />
         <span className="size-2.5 rounded-full border-2 border-muted-foreground/40 bg-muted-foreground/30" />
-        出裝欄：實心＝看得出、空心＝還在誤差內、灰＝不到 {MIN_N} 場；橫線是誤差範圍，滑過看勝率
+        <span data-tip={`出裝欄：實心＝看得出、空心＝還在誤差內、灰＝不到 ${MIN_N} 場；橫線是誤差範圍，滑過看勝率`} className="cursor-help">
+          出裝點
+        </span>
       </span>
       <span>
-        <span className="rounded-sm bg-win/15 px-1 text-[10px] text-win">{WR_NOTES.unlucky}</span> 貢獻高、勝率還沒跟上（低 {WR_LUCK}pp 以上）
+        <span className="cursor-help rounded-sm bg-win/15 px-1 text-[10px] text-win" data-tip={`${WR_NOTES.unlucky}：貢獻高、勝率還沒跟上（比他平常低 ${WR_LUCK}pp 以上）`}>{WR_NOTES.unlucky}</span>
       </span>
       <span>
-        <span className="rounded-sm bg-muted px-1 text-[10px] text-muted-foreground">{WR_NOTES.carried}</span> 貢獻還在追，但和隊友配合常贏
+        <span className="cursor-help rounded-sm bg-muted px-1 text-[10px] text-muted-foreground" data-tip={`${WR_NOTES.carried}：貢獻還在追，但和隊友配合常贏（勝率比他平常高 ${WR_LUCK}pp 以上）`}>{WR_NOTES.carried}</span>
       </span>
     </div>
   )
@@ -589,7 +599,7 @@ function ChampBadge({ j, rank, ownWr, onClick }: { j: Judged; rank: number; ownW
   const tip = `第 ${rank} 名・${tipOf(j, ownWr)}${onClick ? "\n點一下看他玩這隻的每一場" : ""}`
   if (!onClick) {
     return (
-      <span title={tip} className="relative shrink-0" data-testid="crew-champ" data-strength={j.strength}>
+      <span data-tip={tip} className="relative shrink-0" data-testid="crew-champ" data-strength={j.strength}>
         {body}
       </span>
     )
@@ -599,7 +609,7 @@ function ChampBadge({ j, rank, ownWr, onClick }: { j: Judged; rank: number; ownW
     <span
       role="button"
       tabIndex={0}
-      title={tip}
+      data-tip={tip}
       aria-label={`看${j.label}的每一場`}
       data-testid="crew-champ"
       data-strength={j.strength}
@@ -661,7 +671,7 @@ function ChampSide({
             還有 {rest} 隻
           </button>
         ) : (
-          <span className="text-[11px] text-muted-foreground" title="點這一列看完整排名">
+          <span className="text-[11px] text-muted-foreground" data-tip="點這一列看完整排名">
             還有 {rest} 隻
           </span>
         ))}
@@ -774,7 +784,7 @@ function ExpandRow({
       data-row-key={rowKey}
       onClick={onToggle}
       aria-expanded={open}
-      title={open ? `收起${label}的每一場` : `展開${label}的每一場`}
+      data-tip={open ? `收起${label}的每一場` : `展開${label}的每一場`}
       style={style}
       className={cn(className, "w-full text-left transition hover:bg-accent", open && "bg-primary/10 hover:bg-primary/15")}
     >
@@ -803,12 +813,14 @@ function SummaryCard({ title, main, sub, strength, label, note }: { title: strin
   return (
     <div className="rounded-lg border p-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs text-muted-foreground">{title}</span>
+        <span className="flex items-center gap-1 text-xs text-muted-foreground">
+          {title}
+          <Hint text={note} />
+        </span>
         <span className={cn("rounded border px-1.5 text-[11px]", STRENGTH_CLASS[strength])}>{label}</span>
       </div>
       <div className="mt-1 font-mono text-2xl font-bold tabular-nums">{main}</div>
       <div className="font-mono text-[11px] tabular-nums text-muted-foreground">{sub}</div>
-      <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">{note}</p>
     </div>
   )
 }
@@ -965,6 +977,10 @@ const styleLine = (s: PlayStyle) => {
 
 const TITLE_MIN_GAMES = 20
 const TITLE_MIN_EOG = 10
+/** 逆風支柱：敗場（有本場貢獻的）至少這麼多場 */
+const TITLE_MIN_LOSSES = 10
+/** 夜貓子：0～5 點開打的場次至少占這麼多 %（不然人人都能是「最常熬夜」的那個） */
+const NIGHT_MIN_SHARE = 10
 /** 里程碑：場次的門檻，由高到低找第一個達到的 */
 const GAME_MILESTONES = [
   { games: 500, name: "五百場老將" },
@@ -986,7 +1002,18 @@ const TITLE_MEASURES = [
   "participants.time_dead_share",
   "participants.time_dead_games",
   "participants.champion_count",
+  "participants.first_blood_rate",
+  "participants.kill_participation",
+  "participants.multikill_rate",
+  "participants.ace_games",
 ]
+
+/** 稱號另外要的三份資料，併進 TITLE_MEASURES 那一列（鍵名是這裡自訂的，不是語意層的成員）：
+ *  敗場的平均本場貢獻（segment losses_only）、0～5 點開打的場次、最常玩那隻英雄的場次 */
+const X_LOSS_WORK = "x.loss_work"
+const X_LOSS_GAMES = "x.loss_games"
+const X_NIGHT_GAMES = "x.night_games"
+const X_TOP_CHAMP = "x.top_champ_games"
 
 /** 徽章的等級：傳說（五殺之王、MVP 常客，最難拿的兩個）用增幅稜鏡色，其餘稱號用金色，里程碑用銀色。
  *  顏色都是主題變數（--prismatic／--gold／--silver），亮色主題有各自加深的版本 */
@@ -1053,12 +1080,52 @@ const TITLES: TitleDef[] = [
     lower: true,
     fmt: (v) => `死亡時間只占 ${v.toFixed(1)}%`,
   },
+  { name: "先馳得點", icon: Zap, tier: "gold", hint: "親自拿到首殺的場次比例最高", value: (r) => opt(r, "participants.first_blood_rate"), fmt: (v) => `首殺率 ${v.toFixed(1)}%` },
+  { name: "團戰核心", icon: Users, tier: "gold", hint: "參團率（擊殺＋助攻占全隊擊殺）最高", value: (r) => opt(r, "participants.kill_participation"), fmt: (v) => `參團率 ${v.toFixed(1)}%` },
+  { name: "多殺專家", icon: Skull, tier: "gold", hint: "拿到雙殺以上的場次比例最高", value: (r) => opt(r, "participants.multikill_rate"), fmt: (v) => `多殺場次 ${v.toFixed(1)}%` },
+  {
+    name: "逆境王牌",
+    icon: Award,
+    tier: "legend",
+    hint: "拿到 ACE（輸的一隊裡本場貢獻最高）的場次比例最高",
+    value: (r) => {
+      const g = n0(r, "participants.games")
+      return g ? (100 * n0(r, "participants.ace_games")) / g : null
+    },
+    fmt: (v) => `ACE 率 ${v.toFixed(1)}%`,
+  },
+  {
+    name: "逆風支柱",
+    icon: Mountain,
+    tier: "gold",
+    hint: `輸掉的場次裡平均本場貢獻最高（至少 ${TITLE_MIN_LOSSES} 場敗場）：輸了也有扛起工作`,
+    value: (r) => opt(r, X_LOSS_WORK),
+    eligible: (r) => n0(r, X_LOSS_GAMES) >= TITLE_MIN_LOSSES,
+    fmt: (v) => `敗場平均貢獻 ${v.toFixed(1)}`,
+  },
+  { name: "本命專精", icon: Heart, tier: "gold", hint: "最常玩的那隻英雄玩得最多場", value: (r) => n0(r, X_TOP_CHAMP) || null, fmt: (v) => `最常玩的英雄 ${v} 場` },
+  {
+    name: "夜貓子",
+    icon: Moon,
+    tier: "gold",
+    hint: `0～5 點開打的場次占比最高（至少 ${NIGHT_MIN_SHARE}%）`,
+    value: (r) => {
+      const g = n0(r, "participants.games")
+      return g ? (100 * n0(r, X_NIGHT_GAMES)) / g : null
+    },
+    eligible: (r) => {
+      const g = n0(r, "participants.games")
+      return g > 0 && (100 * n0(r, X_NIGHT_GAMES)) / g >= NIGHT_MIN_SHARE
+    },
+    fmt: (v) => `深夜場 ${v.toFixed(1)}%`,
+  },
+  { name: "全勤獎", icon: CalendarCheck, tier: "gold", hint: "場次最多", value: (r) => n0(r, "participants.games") || null, fmt: (v) => `${v} 場` },
   { name: "英雄百科", icon: BookOpen, tier: "gold", hint: "玩過的英雄最多", value: (r) => opt(r, "participants.champion_count"), fmt: (v) => `玩過 ${Math.round(v)} 隻英雄` },
 ]
 
 type Title = { name: string; kind: "title" | "milestone"; tier: TitleTier; icon: LucideIcon; tip: string }
 
-/** 稱號榜的一格：這個稱號頒給誰、多少、第二名是誰 */
+/** 一個稱號：頒給誰、多少、第二名是誰 */
 type BoardEntry = {
   name: string
   icon: LucideIcon
@@ -1081,7 +1148,7 @@ const DUO_NEUTRAL_PP = 2
 
 const nameOf = (p: Player) => splitRiotId(p.riot_id, p.puuid).name
 
-/** 稱號榜（每個稱號一格）。rows 是 TITLE_MEASURES 以 participants.puuid 分組的結果 */
+/** 每個稱號頒給誰、多少、第二名是誰（畫面上不另外列成一張榜，只拿來替每個人掛徽章）。rows 是 TITLE_MEASURES 以 participants.puuid 分組的結果 */
 function titleBoardOf(people: Player[], rows: CubeRow[], duos: DuoPair[]): BoardEntry[] {
   const rowOf = (puuid: string) => rows.find((r) => r["participants.puuid"] === puuid)
   const board: BoardEntry[] = []
@@ -1124,7 +1191,7 @@ function titleBoardOf(people: Player[], rows: CubeRow[], duos: DuoPair[]): Board
   return board
 }
 
-/** 每個人拿到的稱號（稱號榜上有他的）與里程碑 */
+/** 每個人拿到的稱號與里程碑 */
 function titlesOf(people: Player[], rows: CubeRow[], board: BoardEntry[]): Map<string, Title[]> {
   const out = new Map<string, Title[]>(people.map((p) => [p.puuid, []]))
   const names = (ps: Player[]) => ps.map(nameOf).join("＋")
@@ -1158,49 +1225,6 @@ function titlesOf(people: Player[], rows: CubeRow[], board: BoardEntry[]): Map<s
   return out
 }
 
-/** 稱號榜：每個稱號一張小卡，誰拿到、多少；滑過看第二名 */
-function TitleBoard({ board, onPick }: { board: BoardEntry[]; onPick: (puuid: string) => void }) {
-  if (!board.length) return null
-  return (
-    <div className="grid gap-2 sm:grid-cols-[repeat(auto-fill,minmax(13rem,1fr))]" data-testid="crew-title-board">
-      {board.map((b, i) => {
-        const tier = TIER_CLASS[b.tier]
-        const Icon = b.icon
-        return (
-          <div
-            key={b.name}
-            data-testid="crew-board-entry"
-            data-title={b.name}
-            title={`${b.hint}${b.runnerUp ? `\n第二：${b.runnerUp.players.map(nameOf).join("＋")}，${b.runnerUp.text}` : ""}`}
-            style={{ "--stagger": `${i * 40}ms` } as CSSProperties}
-            className={cn("rise flex items-center gap-2.5 rounded-lg border px-2.5 py-2", tier.badge)}
-          >
-            <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-full", tier.icon)}>
-              <Icon className="size-4" strokeWidth={2.5} />
-            </span>
-            <span className="min-w-0">
-              <span className="block text-[11px] font-semibold opacity-90">{b.name}</span>
-              <span className="flex flex-wrap gap-x-1 text-sm font-semibold text-foreground" data-testid="crew-board-holder">
-                {b.winners.players.map((p, k) => (
-                  <Fragment key={p.puuid}>
-                    {k > 0 && <span className="text-muted-foreground">＋</span>}
-                    <button type="button" className="truncate hover:underline" onClick={() => onPick(p.puuid)}>
-                      {nameOf(p)}
-                    </button>
-                  </Fragment>
-                ))}
-              </span>
-              <span className="block font-mono text-[11px] tabular-nums text-muted-foreground" data-testid="crew-board-value">
-                {b.winners.text}
-              </span>
-            </span>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
 /** 搭檔矩陣：兩人同隊的場次與勝率。顏色依勝率和 50% 的差（勝／敗兩色），區間整段在一邊才加粗外框；
  *  少於 DUO_MIN_GAMES 場只寫場次。點一格列出那幾場 */
 function DuoMatrix({ people, pairs, onOpen }: { people: Player[]; pairs: DuoPair[]; onOpen: (d: DuoPair) => void }) {
@@ -1212,13 +1236,13 @@ function DuoMatrix({ people, pairs, onOpen }: { people: Player[]; pairs: DuoPair
       <div className="grid gap-1 text-[11px]" style={cols}>
         <span />
         {people.map((p) => (
-          <span key={p.puuid} className="truncate px-1 text-center font-medium" title={p.riot_id ?? undefined}>
+          <span key={p.puuid} className="truncate px-1 text-center font-medium" data-tip={p.riot_id ?? undefined}>
             {nameOf(p)}
           </span>
         ))}
         {people.map((a) => (
           <Fragment key={a.puuid}>
-            <span className="truncate pr-1 text-right font-medium leading-9" title={a.riot_id ?? undefined}>
+            <span className="truncate pr-1 text-right font-medium leading-9" data-tip={a.riot_id ?? undefined}>
               {nameOf(a)}
             </span>
             {people.map((b) => {
@@ -1240,7 +1264,7 @@ function DuoMatrix({ people, pairs, onOpen }: { people: Player[]; pairs: DuoPair
                   data-testid="crew-duo-cell"
                   data-pair={`${nameOf(a)}|${nameOf(b)}`}
                   onClick={() => onOpen(d)}
-                  title={`${nameOf(a)}＋${nameOf(b)} 同隊 ${d.games} 場、${d.wins} 勝 ${d.games - d.wins} 敗（${wr.toFixed(1)}%）\n95% 區間 ${lo.toFixed(0)}～${hi.toFixed(0)}%${enough ? (clear ? "，看得出和 50% 不同" : "，還在誤差內") : `；不到 ${DUO_MIN_GAMES} 場，不上色`}\n點一下看這幾場`}
+                  data-tip={`${nameOf(a)}＋${nameOf(b)} 同隊 ${d.games} 場、${d.wins} 勝 ${d.games - d.wins} 敗（${wr.toFixed(1)}%）\n95% 區間 ${lo.toFixed(0)}～${hi.toFixed(0)}%${enough ? (clear ? "，看得出和 50% 不同" : "，還在誤差內") : `；不到 ${DUO_MIN_GAMES} 場，不上色`}\n點一下看這幾場`}
                   style={enough ? { background: `color-mix(in oklab, ${tone} ${Math.round(14 + strength * 40)}%, transparent)` } : undefined}
                   className={cn(
                     "flex h-9 flex-col items-center justify-center rounded-md border leading-tight transition hover:brightness-125",
@@ -1291,7 +1315,7 @@ function TitleBadges({ titles, className, size = "sm" }: { titles: Title[] | und
         return (
           <span
             key={t.name}
-            title={t.tip}
+            data-tip={t.tip}
             data-testid={t.kind === "title" ? "crew-title" : "crew-milestone"}
             data-tier={t.tier}
             style={{ "--stagger": `${i * 120}ms` } as CSSProperties}
@@ -1358,7 +1382,7 @@ function StyleCard({ style, scored }: { style: PlayStyle; scored: number }) {
                   </span>
                 ))
               : "五項都和同類型的中位數差不多"}
-          <span className="block text-muted-foreground">打法看的是舊的當局表現分各項：和同類型、同時長帶的人比，50＝中位數，所以是「同樣的位置裡他哪裡做得多」；治療護盾只有部分場次有量，不算進來</span>
+          <Hint className="ml-1" text="打法看的是舊的當局表現分各項：和同類型、同時長帶的人比，50＝中位數，所以是「同樣的位置裡他哪裡做得多」；治療護盾只有部分場次有量，不算進來" />
         </dd>
       </dl>
     </div>
@@ -1407,7 +1431,7 @@ function Highlights({
               <button
                 key={j.key}
                 type="button"
-                title={tipOf(j, ownWr)}
+                data-tip={tipOf(j, ownWr)}
                 onClick={() => onRole(j.label)}
                 className={cn("rounded border px-1.5 py-0.5 text-[11px]", STRENGTH_CLASS[j.strength])}
               >
@@ -1471,7 +1495,7 @@ function RoleForest({ profile, selected, onPick }: { profile: Profile; selected:
             data-strength={j.strength}
             disabled={!j.games}
             onClick={() => onPick(j.label)}
-            title={j.games ? tipOf(j, ownWr) : `${j.label}：沒有對局`}
+            data-tip={j.games ? tipOf(j, ownWr) : `${j.label}：沒有對局`}
             className={cn(
               "grid w-full items-center gap-x-2 border-b border-border/50 text-left transition last:border-b-0 enabled:hover:bg-accent/60",
               cols,
@@ -1671,11 +1695,9 @@ function PlayerDrawerBody({
         <StyleCard style={profile.style} scored={ov.scored} />
         <div className="grid gap-4 rounded-lg border p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <div>
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-sm font-semibold">各出裝</div>
-            </div>
-            <div className="text-[11px] text-muted-foreground">
-              形狀是各出裝佔他場次的比例；顏色和一覽表一樣是本場貢獻的判定，標籤下是本場貢獻・場次與勝率。點一種出裝看他用它玩過的英雄
+            <div className="flex items-center gap-1 text-sm font-semibold">
+              各出裝
+              <Hint text="形狀是各出裝佔他場次的比例；顏色和一覽表一樣是本場貢獻的判定，標籤下是本場貢獻・場次與勝率。點一種出裝看他用它玩過的英雄" />
             </div>
             <RoleHex roles={profile.roles} total={ov.games} selected={role} onPick={(r) => pickRole(r)} />
           </div>
@@ -1691,10 +1713,9 @@ function PlayerDrawerBody({
             本場貢獻 <ContribScore dev={dev(contrib.rows[0])} gap={WORK_GAP} className="text-base font-semibold" />
           </div>
         </div>
-        <div className="mb-2 text-[11px] text-muted-foreground">
-          每一項都是每分鐘的量，和同一場另外九個人比：參考量是其他九人的量依裝備職責分到他的份，等於參考量是 50、兩倍約 67，雷達裡的虛線圈與橫條中間的刻度就是 50。
-          權重看終場裝備的連續比例（輸出裝重輸出、坦裝重承傷、輔助裝重治療護盾，控場每種都有一點），不用英雄名稱（只有射手英雄依 AD 裝比例另加最多約 2.5 分，補控場少、站後排的落差）；權重低的工作做到超過參考量另有加分，清兵、推塔另有最多 6 分。
-          死亡不扣分。治療護盾隊友的量只有賽後統計有，沒有的場次改用含自補的治療量（暫估）
+        <div className="mb-2 flex items-center gap-1 text-[11px] text-muted-foreground">
+          每一項和同一場另外九個人比，50＝參考量
+          <Hint text={"每一項都是每分鐘的量，和同一場另外九個人比：參考量是其他九人的量依裝備職責分到他的份，等於參考量是 50、兩倍約 67，雷達裡的虛線圈與橫條中間的刻度就是 50。\n權重看終場裝備的連續比例（輸出裝重輸出、坦裝重承傷、輔助裝重治療護盾，控場每種都有一點），不用英雄名稱（只有射手英雄依 AD 裝比例另加最多約 2.5 分，補控場少、站後排的落差）；權重低的工作做到超過參考量另有加分，清兵、推塔另有最多 6 分。\n死亡不扣分。治療護盾隊友的量只有賽後統計有，沒有的場次改用含自補的治療量（暫估）"} />
         </div>
         {!settled || contrib.loading ? (
           <Skeleton className="h-[300px] w-full" />
@@ -1733,9 +1754,11 @@ function PlayerDrawerBody({
           </div>
         )}
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-[11px] text-muted-foreground">
-            依{sortBy === "score" ? "本場貢獻（往他自己的平均收縮過，一兩場的不會排到最前面）" : "場次"}排；
-            判定的區間依同時比了 {champJudged.k} 隻（{MIN_N} 場以上）放寬，所以單隻英雄很難看得出差別
+          <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+            依{sortBy === "score" ? "本場貢獻" : "場次"}排
+            <Hint
+              text={`${sortBy === "score" ? "本場貢獻往他自己的平均收縮過，一兩場的不會排到最前面。" : ""}判定的區間依同時比了 ${champJudged.k} 隻（${MIN_N} 場以上）放寬，所以單隻英雄很難看得出差別`}
+            />
           </div>
           <div className="flex items-center gap-2">
             <ToggleGroup type="single" size="sm" variant="outline" value={sortBy} onValueChange={(v) => {
@@ -1790,7 +1813,7 @@ function PlayerDrawerBody({
                     <span className="text-right font-mono text-[11px] font-bold tabular-nums text-muted-foreground" data-testid="pick-rank">
                       {i + 1}
                     </span>
-                    <span className="flex min-w-0 items-center gap-2.5" title={tipOf(j, ownWr)}>
+                    <span className="flex min-w-0 items-center gap-2.5" data-tip={tipOf(j, ownWr)}>
                       <ChevronDown className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", !open && "-rotate-90")} />
                       <img src={iconUrl(j.icon)} alt="" className="size-8 shrink-0 rounded-md bg-icon-tile" />
                       <span className="truncate text-[13px] font-medium">{j.label}</span>
@@ -1896,6 +1919,8 @@ function LookupPicker({
 /** 「查英雄」「查增幅裝置」的差別：查哪個維度、用什麼量詞與動詞。其餘完全一樣。 */
 type LookupKind = {
   title: string
+  /** Panel 下面那一句；完整說明（caption）收進 ⓘ */
+  short: string
   caption: string
   noun: string
   counter: string
@@ -1967,7 +1992,7 @@ function LookupPanel({
   const wins = played.reduce((a, r) => a + r.wins, 0)
 
   return (
-    <Panel title={kind.title} caption={kind.caption}>
+    <Panel title={kind.title} caption={kind.short} hint={kind.caption}>
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <LookupPicker options={options} value={value} onChange={setPicked} kind={kind} />
         {value && (
@@ -2031,7 +2056,7 @@ function LookupPanel({
                 key={r.player.puuid}
                 type="button"
                 data-testid="lookup-row"
-                title={`看${name}${kind.verb}${value}的每一場`}
+                data-tip={`看${name}${kind.verb}${value}的每一場`}
                 style={style}
                 onClick={() =>
                   onOpen({
@@ -2055,6 +2080,7 @@ function LookupPanel({
 
 const CHAMPION_LOOKUP: LookupKind = {
   title: "查英雄",
+  short: "選一隻英雄，看每個人玩它的戰績",
   caption:
     "選一隻英雄，看每個人玩它的戰績；點一列開抽屜看他玩這隻英雄的每一場。「勝率」是和他自己整體勝率的差距（依場次收縮後），戰績條的刻度也是他自己的整體勝率；「貢獻」是這幾場的本場貢獻平均（50＝所有人的平均）",
   noun: "英雄",
@@ -2066,6 +2092,7 @@ const CHAMPION_LOOKUP: LookupKind = {
 
 const AUGMENT_LOOKUP: LookupKind = {
   title: "查增幅裝置",
+  short: "選一個增幅裝置，看每個人拿它的戰績",
   caption:
     "選一個增幅裝置，看每個人拿它的戰績；點一列開抽屜看他拿到它的每一場。欄位的意思和「查英雄」一樣。一場會拿好幾個增幅，同一場會同時出現在它拿到的每個增幅底下，所以各增幅的場次不能加總",
   noun: "增幅",
@@ -2257,12 +2284,14 @@ function StatsPanel({
   return (
     <Panel
       title="數據總表"
-      caption="每個人的各項平均（每場先算再平均），另有單場巔峰紀錄。切換上方的分組看不同面向；點欄位標題換排序，點數字開抽屜看算進去的每一場；平均表現的最佳值標綠，單場紀錄維持中性。比人時記得出裝不同：射手天生打塔快、坦克天生承傷多，可以對照「出裝比例」"
+      caption="每個人的各項平均與單場巔峰；點數字看算進去的每一場"
+      hint={"每個人的各項平均（每場先算再平均），另有單場巔峰紀錄。切換上方的分組看不同面向；點欄位標題換排序，點數字開抽屜看算進去的每一場；平均表現的最佳值標綠，單場紀錄維持中性。\n比人時記得出裝不同：射手天生打塔快、坦克天生承傷多，可以對照「出裝比例」"}
     >
       {loading ? (
         <Skeleton className="h-[300px] w-full" />
       ) : (
         <div className="reveal space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
           <ToggleGroup type="single" size="sm" variant="outline" value={setId} onValueChange={(v) => v && setSetId(v)} className="flex-wrap">
             {STAT_SETS.map((g) => (
               <Fragment key={g.id}>
@@ -2273,9 +2302,8 @@ function StatsPanel({
             ))}
             <ToggleGroupItem value="mix">出裝比例</ToggleGroupItem>
           </ToggleGroup>
-          <p className="text-[11px] text-muted-foreground">
-            {isMix ? "六種出裝各占他場次的幾成。不是好壞，是拿來對照其他數字的；點數字開抽屜看那種出裝的每一場" : set?.caption}
-          </p>
+          <Hint text={isMix ? "六種出裝各占他場次的幾成。不是好壞，是拿來對照其他數字的；點數字開抽屜看那種出裝的每一場" : (set?.caption ?? "")} />
+          </div>
           {isTop ? (
             <PeakTop scoped={scoped} cols={cols} centers={centers} onOpen={onOpen} />
           ) : (
@@ -2286,7 +2314,7 @@ function StatsPanel({
                     <th className="px-2 py-1.5 text-left font-medium">玩家</th>
                     <th className="px-2 py-1.5 text-right font-medium">場次</th>
                     {cols.map((c) => (
-                      <th key={c.key} className="px-2 py-1.5 text-right font-medium" title={c.hint}>
+                      <th key={c.key} className="px-2 py-1.5 text-right font-medium" data-tip={c.hint}>
                         <button
                           type="button"
                           onClick={() => setSortKey(c.key)}
@@ -2325,7 +2353,7 @@ function StatsPanel({
                               ) : (
                                 <button
                                   type="button"
-                                  title={c.record ? `看${name}創下「${c.label}」的那一場` : `看${name}算進「${c.label}」的每一場`}
+                                  data-tip={c.record ? `看${name}創下「${c.label}」的那一場` : `看${name}算進「${c.label}」的每一場`}
                                   onClick={() =>
                                     onOpen({
                                       title: `${name}・${c.label}${c.record ? "的紀錄場" : "的每一場"}`,
@@ -2468,7 +2496,7 @@ function PeakTop({
               <li key={id} data-testid="minute-record-game" className="slide-in" style={{ "--stagger": `${Math.min(i * 30, 400)}ms` } as CSSProperties}>
                 <button
                   type="button"
-                  title="點一下看這一場"
+                  data-tip="點一下看這一場"
                   onClick={() =>
                     onOpen({
                       title: `${name}・${metricName}・第 ${i + 1} 名`,
@@ -2645,6 +2673,10 @@ export function Crew() {
   const stats = useCube(q({ measures: STAT_MEASURES_ALL, dimensions: ["participants.puuid"], limit: NO_LIMIT }))
   // 稱號用的幾項數據（每人一列）
   const titleStats = useCube(q({ measures: TITLE_MEASURES, dimensions: ["participants.puuid"], limit: NO_LIMIT }))
+  const lossStats = useCube(q({ measures: [WORK, WORK_GAMES], dimensions: ["participants.puuid"], segments: ["participants.losses_only"], limit: NO_LIMIT }))
+  const nightStats = useCube(
+    q({ measures: ["participants.games"], dimensions: ["participants.puuid"], filters: [{ member: "matches.hour_of_day", operator: "lt", values: ["6"] }], limit: NO_LIMIT }),
+  )
   // 搭檔：兩人同隊的場次與勝場。teammates 和 participants 沒有 join 路徑，不能走 apply()——
   // 模式、版本、期間照全域條件自己帶（都是 matches 的欄位），「中心」不套用（中心是 participants 那邊的條件）
   const duoQuery = useMemo<CubeQuery | null>(() => {
@@ -2671,7 +2703,7 @@ export function Crew() {
   // 參照列：所有參賽者的出裝比例（不鎖玩家，也不受上方「拿掉誰」影響）
   const everyone = useCube(centerFilters === null ? null : apply({ measures: ["participants.games", "participants.winrate", "participants.kda"], filters: centerFilters }, "all"))
   const everyoneRoles = useCube(centerFilters === null ? null : apply({ measures: ["participants.games"], dimensions: ["builds.build_role"], filters: centerFilters, limit: NO_LIMIT }, "all"))
-  const error = summary.error ?? roles.error ?? champs.error ?? augments.error ?? everyone.error ?? everyoneRoles.error ?? stats.error ?? dmgTypes.error ?? titleStats.error ?? duo.error ?? together.error
+  const error = summary.error ?? roles.error ?? champs.error ?? augments.error ?? everyone.error ?? everyoneRoles.error ?? stats.error ?? dmgTypes.error ?? titleStats.error ?? lossStats.error ?? nightStats.error ?? duo.error ?? together.error
   const loading = summary.loading || roles.loading || champs.loading || augments.loading || everyone.loading || everyoneRoles.loading
 
   const sumOf = (puuid: string) => summary.rows.find((r) => r["participants.puuid"] === puuid)
@@ -2721,16 +2753,32 @@ export function Crew() {
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [puuids.join(), duo.rows])
+  // 稱號那一列，併上敗場貢獻、深夜場次、最常玩英雄的場次（後兩個沒有就是 0）
+  const titleRows = useMemo<CubeRow[]>(() => {
+    const by = (rows: CubeRow[], puuid: string) => rows.find((r) => r["participants.puuid"] === puuid)
+    return titleStats.rows.map((r) => {
+      const puuid = String(r["participants.puuid"])
+      const loss = by(lossStats.rows, puuid)
+      const champGames = champs.rows.filter((c) => c["participants.puuid"] === puuid).map((c) => n0(c, "participants.games"))
+      return {
+        ...r,
+        [X_LOSS_WORK]: loss?.[WORK] ?? null,
+        [X_LOSS_GAMES]: loss?.[WORK_GAMES] ?? 0,
+        [X_NIGHT_GAMES]: by(nightStats.rows, puuid)?.["participants.games"] ?? 0,
+        [X_TOP_CHAMP]: champGames.length ? Math.max(...champGames) : 0,
+      } as CubeRow
+    })
+  }, [titleStats.rows, lossStats.rows, nightStats.rows, champs.rows])
   // 稱號只在目前的比較對象之間比：拿掉一個人，第一名可能換人
   const board = useMemo(
-    () => titleBoardOf(ordered, titleStats.rows, duoPairs),
+    () => titleBoardOf(ordered, titleRows, duoPairs),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [puuids.join(), titleStats.rows, duoPairs],
+    [puuids.join(), titleRows, duoPairs],
   )
   const titles = useMemo(
-    () => titlesOf(ordered, titleStats.rows, board),
+    () => titlesOf(ordered, titleRows, board),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [puuids.join(), titleStats.rows, board],
+    [puuids.join(), titleRows, board],
   )
   // D：全員一覽的排序。預設依場次（場次多的判斷比較可信）
   const [rowSort, setRowSort] = useState<RowSort>("games")
@@ -2784,7 +2832,8 @@ export function Crew() {
 
       <Panel
         title="比較對象"
-        caption="你和追蹤中的好友。點名字可以拿掉或加回來；點 ★ 設為中心，整頁只看中心都在場的場次。模式、期間與上方的篩選照常套用。大部分場次是一起打的，勝率會互相牽動，差距要搭配場次看"
+        caption="點名字拿掉或加回來；★ 設為中心"
+        hint="你和追蹤中的好友。點名字可以拿掉或加回來；點 ★ 設為中心，整頁只看中心都在場的場次。模式、期間與上方的篩選照常套用。大部分場次是一起打的，勝率會互相牽動，差距要搭配場次看"
       >
         <div className="flex flex-wrap gap-2">
           {crew.map((p) => {
@@ -2803,7 +2852,7 @@ export function Crew() {
                 <button
                   type="button"
                   onClick={() => toggleIncluded(p.puuid)}
-                  title={on ? `拿掉 ${name}（不納入比較）` : `加回 ${name}`}
+                  data-tip={on ? `拿掉 ${name}（不納入比較）` : `加回 ${name}`}
                   className="flex min-w-0 items-center gap-1.5 py-1 pl-3 pr-2"
                 >
                   <Check className={cn("size-3.5 shrink-0", on ? "text-primary" : "opacity-0")} />
@@ -2815,7 +2864,8 @@ export function Crew() {
                   aria-pressed={isCenter}
                   disabled={!on}
                   onClick={() => toggleCenter(p.puuid)}
-                  title={!on ? "先加回來才能設為中心" : isCenter ? `取消中心：${name}` : `設為中心：只看 ${name} 也在場的場次`}
+                  data-tip={!on ? "先加回來才能設為中心" : isCenter ? `取消中心：${name}` : `設為中心：只看 ${name} 也在場的場次`}
+                  aria-label={isCenter ? `取消中心：${name}` : `設為中心：${name}`}
                   className="flex h-full items-center rounded-r-full border-l border-border px-2 py-1 transition hover:bg-accent disabled:cursor-not-allowed disabled:hover:bg-transparent"
                 >
                   <Star className={cn("size-3.5", isCenter ? "fill-primary text-primary" : "text-muted-foreground")} />
@@ -2874,18 +2924,13 @@ export function Crew() {
                 <ToggleGroupItem value="titles" className="h-7 px-2 text-xs">依稱號數</ToggleGroupItem>
               </ToggleGroup>
             }
-            caption="判定看本場貢獻（每場只和同一場的人比，50＝所有人的平均）的誤差範圍：整段高於 50 是招牌／拿手、整段低於 50 是潛力股，還在誤差內的寫上手／順手、磨合中／摸索中（虛線框）。雷達是各出裝佔他場次的比例；出裝欄每種出裝一條，所有人同一把尺，點是本場貢獻和 50 的差、橫線是誤差範圍（實心＝看得出）。英雄的數字是名次，看得出的排前面；滑過看數字，點一列開抽屜看完整分析"
+            caption="每人一列；滑過看數字，點一列看完整分析"
+            hint={"判定看本場貢獻（每場只和同一場的人比，50＝所有人的平均）的誤差範圍：整段高於 50 是招牌／拿手、整段低於 50 是潛力股，還在誤差內的寫上手／順手、磨合中／摸索中（虛線框）。\n雷達是各出裝佔他場次的比例；出裝欄每種出裝一條，所有人同一把尺，點是本場貢獻和 50 的差、橫線是誤差範圍（實心＝看得出）。\n英雄的數字是名次，看得出的排前面。"}
           >
             {loading ? (
               <Skeleton className="h-[640px] w-full" />
             ) : (
               <div className="space-y-3">
-                {board.length > 0 && (
-                  <div className="space-y-1.5">
-                    <div className="text-xs font-semibold">稱號榜<span className="ml-2 font-normal text-muted-foreground">比較對象之間的第一名（至少 {TITLE_MIN_GAMES} 場）；滑過看第二名，點名字開他的分析</span></div>
-                    <TitleBoard board={board} onPick={(puuid) => open(puuid, null, "overview")} />
-                  </div>
-                )}
                 <p className="text-sm" data-testid="crew-matrix-summary">
                   各出裝裡 {counts.judged} 格有 {MIN_N} 場以上，看得出強弱的有 {counts.strong + counts.weak} 格（招牌／拿手 {counts.strong}、潛力股 {counts.weak}），其餘差距都還在誤差內。
                 </p>
@@ -2934,7 +2979,7 @@ export function Crew() {
                       />
                       <span
                         className="col-span-2 truncate text-[11px] text-muted-foreground"
-                        title="把資料庫裡每場十位參賽者都算進來：雷達是一般玩家各出裝佔多少，拿來和下面每個人的形狀對照他偏好什麼；本場貢獻在 v2.1 定版時（2026-10-17）的平均是 50，之後的場次不一定剛好 50；勝率每場兩隊都算，必然是 50%。"
+                        data-tip="把資料庫裡每場十位參賽者都算進來：雷達是一般玩家各出裝佔多少，拿來和下面每個人的形狀對照他偏好什麼；本場貢獻在 v2.1 定版時（2026-10-17）的平均是 50，之後的場次不一定剛好 50；勝率每場兩隊都算，必然是 50%。"
                       >
                         雷達是一般玩家的出裝比例，拿來對照每個人偏好什麼（滑過看說明）
                       </span>
@@ -2962,7 +3007,7 @@ export function Crew() {
                             <span className="mt-0.5 block font-mono text-[11px] tabular-nums text-muted-foreground">
                               {ov.games} 場・{ownWr?.toFixed(1) ?? "—"}%・KDA {opt(sumOf(p.puuid), "participants.kda")?.toFixed(2) ?? "—"}
                             </span>
-                            <span className="block text-[11px] text-muted-foreground" title={tipOf(ov, null)} data-testid="crew-overall" data-strength={ov.strength}>
+                            <span className="block text-[11px] text-muted-foreground" data-tip={tipOf(ov, null)} data-testid="crew-overall" data-strength={ov.strength}>
                               本場貢獻{" "}
                               <span className={cn("font-mono font-semibold", ov.g?.interval ? NUM_CLASS[ov.strength] : "text-muted-foreground")}>
                                 {ov.score === null ? "—" : Math.round(ov.score)}
@@ -2971,7 +3016,7 @@ export function Crew() {
                                 <span className={cn("ml-1 rounded border px-1 text-[10px]", STRENGTH_CLASS[ov.strength])}>{labelOf(ov)}</span>
                               )}
                             </span>
-                            <span className="block truncate text-[11px]" title={prof.style.archetypeNote ?? undefined} data-testid="crew-style-line">
+                            <span className="block truncate text-[11px]" data-tip={prof.style.archetypeNote ?? undefined} data-testid="crew-style-line">
                               {styleLine(prof.style)}
                             </span>
                             <TitleBadges titles={titles.get(p.puuid)} className="mt-1" />
@@ -3017,7 +3062,8 @@ export function Crew() {
           <Panel
             className="mt-4"
             title="搭檔"
-            caption={`兩人同隊的場次與勝率（同一場、同一隊）。顏色是勝率比 50% 高（${"勝"}色）或低，越深差越多；外框加粗的是誤差範圍整段在一邊、看得出差別的。不到 ${DUO_MIN_GAMES} 場只寫場次。好友多半一起打，勝率互相牽動，當作描述看。模式、版本、期間照上方篩選，「中心」不套用。點一格看那幾場`}
+            caption="兩人同隊時的勝率；點一格看那幾場"
+            hint={`兩人同隊的場次與勝率（同一場、同一隊）。顏色是勝率比 50% 高或低，越深差越多；外框加粗的是誤差範圍整段在一邊、看得出差別的。不到 ${DUO_MIN_GAMES} 場只寫場次。\n好友多半一起打，勝率互相牽動，當作描述看。模式、版本、期間照上方篩選，「中心」不套用。`}
           >
             {duo.loading ? (
               <Skeleton className="h-[360px] w-full" />

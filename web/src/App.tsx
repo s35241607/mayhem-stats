@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState, type ComponentType } from "react"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { TipLayer } from "@/components/TipLayer"
 import { AppShell, type PageId } from "@/components/AppShell"
 import { Skeleton } from "@/components/ui/skeleton"
 import { FilterProvider, useFilters } from "@/lib/filters"
@@ -129,6 +130,7 @@ export default function App() {
   return (
     <ThemeProvider>
     <TooltipProvider delayDuration={200}>
+      <TipLayer />
       <FilterProvider>
         <NavContext.Provider value={setPage}>
         <BreadcrumbProvider>

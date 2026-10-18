@@ -103,6 +103,7 @@ views:
           - ally_heal_games
           - champion_count
           - mvp_games
+          - ace_games
           - total_turret_kills
           - avg_inhibitor_kills
           - objective_damage_share

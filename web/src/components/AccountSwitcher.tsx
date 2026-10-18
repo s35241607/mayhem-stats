@@ -93,7 +93,8 @@ export function AccountSwitcher() {
       <button
         onClick={() => setOpen(true)}
         className="flex h-8 min-w-0 items-center gap-2 rounded-md border bg-secondary/50 px-2.5 text-sm transition hover:bg-accent"
-        title="切換帳號（Ctrl/⌘ + K）"
+        data-tip="切換帳號（Ctrl/⌘ + K）"
+        aria-label="切換帳號"
       >
         <User className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="max-w-[150px] truncate font-medium">

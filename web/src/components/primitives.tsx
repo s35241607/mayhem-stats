@@ -3,6 +3,7 @@ import { CountUp } from "@/components/CountUp"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
+import { Hint } from "@/components/TipLayer"
 
 
 /** 卡片上緣一道由中間往兩側淡出的主題色細光，科技感的點綴。不裁切內容（不設 overflow-hidden），
@@ -65,6 +66,7 @@ export function Kpi({
 export function Panel({
   title,
   caption,
+  hint,
   action,
   className,
   children,
@@ -72,6 +74,8 @@ export function Panel({
 }: {
   title?: string
   caption?: string
+  /** 標題旁的 ⓘ：版面只留一句 caption，細節收進這裡（components/TipLayer） */
+  hint?: string
   action?: ReactNode
   className?: string
   children: ReactNode
@@ -85,7 +89,10 @@ export function Panel({
           <CardHeader className="pb-0">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <CardTitle className="text-sm font-semibold">{title}</CardTitle>
+                <CardTitle className="flex items-center gap-1 text-sm font-semibold">
+                  {title}
+                  {hint && <Hint text={hint} />}
+                </CardTitle>
                 {caption && (
                   <p className="mt-0.5 text-xs font-normal text-muted-foreground">{caption}</p>
                 )}
