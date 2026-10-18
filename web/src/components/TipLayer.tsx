@@ -81,9 +81,9 @@ export function TipLayer() {
         transform: `translate(-50%, ${tip.below ? "8px" : "calc(-100% - 8px)"})`,
       }}
     >
-      {/* 第一行當標題（粗體），之後每行一段，段落之間留一點距離；只有一行時就是一般字 */}
+      {/* 第一行夠短（像「鬥士・179 場」）就當標題（粗體）；之後每行一段，段落之間留一點距離 */}
       {tip.text.split("\n").map((line, i, all) => (
-        <p key={i} className={cn(all.length > 1 && i === 0 ? "mb-1 font-semibold" : "text-popover-foreground/85", i > 1 && "mt-1")}>
+        <p key={i} className={cn(all.length > 1 && i === 0 && line.length <= 24 ? "mb-1 font-semibold" : "text-popover-foreground/90", i > 0 && "mt-1")}>
           {line}
         </p>
       ))}

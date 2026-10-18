@@ -544,10 +544,10 @@ function RowLegend() {
         </span>
       </span>
       <span>
-        <span className="cursor-help rounded-sm bg-win/15 px-1 text-[10px] text-win" data-tip={`${WR_NOTES.unlucky}：貢獻高、勝率還沒跟上（比他平常低 ${WR_LUCK}pp 以上）`}>{WR_NOTES.unlucky}</span>
+        <span className={cn(CHIP, "cursor-help border-win/50 bg-win/15 text-foreground")} data-tip={`${WR_NOTES.unlucky}：貢獻高、勝率還沒跟上（比他平常低 ${WR_LUCK}pp 以上）`}>{WR_NOTES.unlucky}</span>
       </span>
       <span>
-        <span className="cursor-help rounded-sm bg-muted px-1 text-[10px] text-muted-foreground" data-tip={`${WR_NOTES.carried}：貢獻還在追，但和隊友配合常贏（勝率比他平常高 ${WR_LUCK}pp 以上）`}>{WR_NOTES.carried}</span>
+        <span className={cn(CHIP, "cursor-help border-foreground/25 bg-muted text-foreground")} data-tip={`${WR_NOTES.carried}：貢獻還在追，但和隊友配合常贏（勝率比他平常高 ${WR_LUCK}pp 以上）`}>{WR_NOTES.carried}</span>
       </span>
     </div>
   )
