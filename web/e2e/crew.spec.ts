@@ -256,7 +256,7 @@ test.describe("好友比較頁：全員一覽", () => {
     await expect(box.getByText(/舊版的「適合／不適合」用固定門檻/)).toBeVisible()
   })
 
-  test("英雄頭像：每人比平均強／弱的英雄各最多 5 隻，數量和獨立計算一致", async ({ page }) => {
+  test("英雄頭像：每人比平均強／培養中的英雄上下兩條、各最多 12 隻，數量和獨立計算一致", async ({ page }) => {
     for (const row of await matrixRows(page).all()) {
       const m = await memberOf(row)
       const champs = sql(
@@ -268,9 +268,8 @@ test.describe("好友比較頁：全員一覽", () => {
       const st = champs.map((r) => strengthOf(Number(r.score), Number(r.scored), z))
       const pos = st.filter((x) => x === "強勢" || x === "偏強").length
       const neg = st.filter((x) => x === "不強勢" || x === "偏弱").length
-      const sides = row.locator("> span").nth(3).locator("> span")
-      await expect(sides.nth(0).getByTestId("crew-champ")).toHaveCount(Math.min(5, pos))
-      await expect(sides.nth(1).getByTestId("crew-champ")).toHaveCount(Math.min(5, neg))
+      await expect(row.getByTestId("crew-champ-pos").getByTestId("crew-champ")).toHaveCount(Math.min(12, pos))
+      await expect(row.getByTestId("crew-champ-neg").getByTestId("crew-champ")).toHaveCount(Math.min(12, neg))
     }
   })
 })

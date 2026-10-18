@@ -72,7 +72,8 @@ export function TipLayer() {
       role="tooltip"
       data-testid="tip-layer"
       className={cn(
-        "reveal pointer-events-none fixed z-[100] max-w-sm rounded-md bg-foreground px-3 py-2 text-xs leading-relaxed whitespace-pre-line text-background shadow-lg",
+        // 用彈出層的底色（深色主題是深底淺字），不用反白：大段說明在反白底上很刺眼、難讀
+        "reveal pointer-events-none fixed z-[100] w-max max-w-[22rem] rounded-lg border border-border bg-popover px-3.5 py-2.5 text-[13px] leading-6 text-popover-foreground shadow-xl shadow-black/30",
       )}
       style={{
         left: tip.x + shift,
@@ -80,10 +81,15 @@ export function TipLayer() {
         transform: `translate(-50%, ${tip.below ? "8px" : "calc(-100% - 8px)"})`,
       }}
     >
-      {tip.text}
+      {/* 第一行當標題（粗體），之後每行一段，段落之間留一點距離；只有一行時就是一般字 */}
+      {tip.text.split("\n").map((line, i, all) => (
+        <p key={i} className={cn(all.length > 1 && i === 0 ? "mb-1 font-semibold" : "text-popover-foreground/85", i > 1 && "mt-1")}>
+          {line}
+        </p>
+      ))}
       <span
-        className="absolute size-2 rotate-45 bg-foreground"
-        style={{ left: `calc(50% - ${shift}px)`, [tip.below ? "top" : "bottom"]: -4, marginLeft: -4 }}
+        className={cn("absolute size-2.5 rotate-45 border-border bg-popover", tip.below ? "border-t border-l" : "border-r border-b")}
+        style={{ left: `calc(50% - ${shift}px)`, [tip.below ? "top" : "bottom"]: -5.5, marginLeft: -5 }}
       />
     </div>
   )

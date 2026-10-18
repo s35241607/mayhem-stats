@@ -60,8 +60,10 @@ import { BUILD_ROLES, BUILD_SHORT, NO_LIMIT, round0, splitRiotId } from "./share
 //   而且幾乎全部跟著這個人的整體水準走（整體強的人每個出裝都「適合」）。改成區間之後，看得出的只剩真的看得出的。
 //   依據見 analysis/crew_verdicts.py。
 
-/** 一覽表「英雄」分頁每邊最多放幾隻頭像；其餘寫「還有 N 隻」，完整排名在點開的抽屜裡 */
+/** 抽屜「看得出的強項」等處每邊最多放幾隻頭像；其餘寫「還有 N 隻」 */
 const CHAMPS_SHOWN = 5
+/** 全員一覽的英雄欄：上下兩條各最多放幾隻（一條一整行，寬度夠） */
+const MATRIX_CHAMPS = 12
 /** 場次、勝負、本場貢獻，以及算區間要用的「有本場貢獻的場次」（重開局沒有分數） */
 const STAT_MEASURES = [
   "participants.games",
@@ -204,28 +206,28 @@ const WR_SHOWN: Record<Strength, string> = { 強勢: WR_NOTES.clearUp, 偏強: W
  *  切點看 2026-10-18 好友 9 人（16.17 之後）的實際差距分布，讓每一級都有人：英雄偏強 50 項大約四等分（4～6、6～8、8～12、12 以上），
  *  偏弱 32 項同理；看得出的英雄只有 9 項，所以頂端兩級（傳奇、璞玉）各只有幾項。
  *  顏色是一條由強到弱的連續色帶：稜鏡色 → 金 → 勝方色由實心漸淡 → 灰 → 敗方色由淡漸實心，全部是主題變數（亮色主題有各自的版本）；
- *  框線實心＝看得出、虛線＝還在誤差內。 */
+ *  每一級都有底色與實線框，才看得出是標籤；字用前景色（淡底上的勝敗色字太淡）。看得出的實心填滿，還在誤差內的只是淡底。 */
 const TRIAL_MAX = 2
 const LEVELS = [
   { label: "傳奇", strength: "強勢", min: 20, note: "比平均高 20 分以上（看得出）", cls: "border-prismatic bg-prismatic text-background font-semibold" },
   { label: "招牌", strength: "強勢", min: 12, note: "比平均高 12 分以上（看得出）", cls: "border-gold bg-gold text-background font-semibold" },
   { label: "拿手", strength: "強勢", min: 8, note: "比平均高 8 分以上（看得出）", cls: "border-win bg-win text-background font-semibold" },
-  { label: "得心應手", strength: "強勢", min: -Infinity, note: "比平均高（看得出）", cls: "border-win bg-win/30 text-win font-semibold" },
-  { label: "嶄露頭角", strength: "偏強", min: 12, note: "高 12 分以上，還在誤差內", cls: "border-dashed border-win/80 bg-win/25 text-win" },
-  { label: "上手", strength: "偏強", min: 8, note: "高 8 分以上，還在誤差內", cls: "border-dashed border-win/60 bg-win/15 text-win" },
-  { label: "漸入佳境", strength: "偏強", min: 6, note: "高 6 分以上，還在誤差內", cls: "border-dashed border-win/45 bg-win/8 text-win" },
-  { label: "順手", strength: "偏強", min: -Infinity, note: `高 ${WORK_GAP} 分以上，還在誤差內`, cls: "border-dashed border-win/35 text-win/85" },
-  { label: "小有心得", strength: "看不出", min: 2, note: `高 2～${WORK_GAP} 分，和平均差不多`, cls: "border-dashed border-border bg-win/5 text-foreground/85" },
-  { label: "標準發揮", strength: "看不出", min: -2, note: "和平均差不多", cls: "border-dashed border-border text-muted-foreground" },
-  { label: "暖機中", strength: "看不出", min: -Infinity, note: `低 2～${WORK_GAP} 分，和平均差不多`, cls: "border-dashed border-border bg-loss/5 text-foreground/85" },
-  { label: "磨合中", strength: "偏弱", min: -6, note: `低 ${WORK_GAP} 分以上，還在誤差內`, cls: "border-dashed border-loss/35 text-loss/85" },
-  { label: "調整中", strength: "偏弱", min: -8, note: "低 6 分以上，還在誤差內", cls: "border-dashed border-loss/45 bg-loss/8 text-loss" },
-  { label: "摸索中", strength: "偏弱", min: -12, note: "低 8 分以上，還在誤差內", cls: "border-dashed border-loss/60 bg-loss/15 text-loss" },
-  { label: "練功中", strength: "偏弱", min: -Infinity, note: "低 12 分以上，還在誤差內", cls: "border-dashed border-loss/80 bg-loss/25 text-loss" },
-  { label: "潛力股", strength: "不強勢", min: -15, note: "低於平均（看得出）", cls: "border-loss bg-loss/30 text-loss font-semibold" },
+  { label: "得心應手", strength: "強勢", min: -Infinity, note: "比平均高（看得出）", cls: "border-win bg-win/40 text-foreground font-semibold" },
+  { label: "嶄露頭角", strength: "偏強", min: 12, note: "高 12 分以上，還在誤差內", cls: "border-win/70 bg-win/30 text-foreground" },
+  { label: "上手", strength: "偏強", min: 8, note: "高 8 分以上，還在誤差內", cls: "border-win/60 bg-win/22 text-foreground" },
+  { label: "漸入佳境", strength: "偏強", min: 6, note: "高 6 分以上，還在誤差內", cls: "border-win/50 bg-win/15 text-foreground" },
+  { label: "順手", strength: "偏強", min: -Infinity, note: `高 ${WORK_GAP} 分以上，還在誤差內`, cls: "border-win/40 bg-win/10 text-foreground" },
+  { label: "小有心得", strength: "看不出", min: 2, note: `高 2～${WORK_GAP} 分，和平均差不多`, cls: "border-foreground/25 bg-muted text-foreground" },
+  { label: "標準發揮", strength: "看不出", min: -2, note: "和平均差不多", cls: "border-foreground/20 bg-muted text-foreground/85" },
+  { label: "暖機中", strength: "看不出", min: -Infinity, note: `低 2～${WORK_GAP} 分，和平均差不多`, cls: "border-foreground/25 bg-muted text-foreground" },
+  { label: "磨合中", strength: "偏弱", min: -6, note: `低 ${WORK_GAP} 分以上，還在誤差內`, cls: "border-loss/40 bg-loss/10 text-foreground" },
+  { label: "調整中", strength: "偏弱", min: -8, note: "低 6 分以上，還在誤差內", cls: "border-loss/50 bg-loss/15 text-foreground" },
+  { label: "摸索中", strength: "偏弱", min: -12, note: "低 8 分以上，還在誤差內", cls: "border-loss/60 bg-loss/22 text-foreground" },
+  { label: "練功中", strength: "偏弱", min: -Infinity, note: "低 12 分以上，還在誤差內", cls: "border-loss/70 bg-loss/30 text-foreground" },
+  { label: "潛力股", strength: "不強勢", min: -15, note: "低於平均（看得出）", cls: "border-loss bg-loss/40 text-foreground font-semibold" },
   { label: "璞玉", strength: "不強勢", min: -Infinity, note: "低於平均 15 分以上（看得出）", cls: "border-loss bg-loss text-background font-semibold" },
-  { label: "熱身中", strength: null, min: -Infinity, note: `${TRIAL_MAX + 1}～${MIN_N - 1} 場，還不下判斷`, cls: "border-dashed text-muted-foreground" },
-  { label: "初體驗", strength: null, min: -Infinity, note: `${TRIAL_MAX} 場以下`, cls: "border-dashed border-border/60 text-muted-foreground/70" },
+  { label: "熱身中", strength: null, min: -Infinity, note: `${TRIAL_MAX + 1}～${MIN_N - 1} 場，還不下判斷`, cls: "border-foreground/15 bg-muted/60 text-muted-foreground" },
+  { label: "初體驗", strength: null, min: -Infinity, note: `${TRIAL_MAX} 場以下`, cls: "border-foreground/10 bg-muted/40 text-muted-foreground/80" },
 ] as const satisfies readonly { label: string; strength: Strength | null; min: number; note: string; cls: string }[]
 type Level = (typeof LEVELS)[number]["label"]
 const LEVEL_OF = new Map(LEVELS.map((l) => [l.label as Level, l]))
@@ -238,6 +240,8 @@ function labelOf(j: Pick<Judged, "g" | "strength" | "scored">): Level {
 }
 /** 這一級的框線與底色 */
 const levelClass = (j: Pick<Judged, "g" | "strength" | "scored">) => LEVEL_OF.get(labelOf(j))!.cls
+/** 等級標籤的外型（大小、圓角、留白），顏色另外由 levelClass／LEVELS.cls 給 */
+const CHIP = "inline-flex items-center rounded-md border px-1.5 text-[11px] leading-[18px] whitespace-nowrap shadow-xs"
 
 const isPos = (s: Strength) => s === "強勢" || s === "偏強"
 const isNeg = (s: Strength) => s === "不強勢" || s === "偏弱"
@@ -278,7 +282,7 @@ function StrengthChip({ j }: { j: Judged }) {
   if (!j.g?.interval && !x) return <span className="text-[11px] text-muted-foreground/80">{labelOf(j)}</span>
   return (
     <span className="inline-flex items-center gap-1 whitespace-nowrap">
-      <span data-testid="strength-chip" className={cn("rounded border px-1.5 text-[11px]", levelClass(j))}>
+      <span data-testid="strength-chip" className={cn(CHIP, levelClass(j))}>
         {labelOf(j)}
       </span>
       {x && (
@@ -448,7 +452,7 @@ function RoleHex({ roles, total, selected, onPick }: { roles: Judged[]; total: n
 function RoleStrip({ roles, reach, ownWr }: { roles: Judged[]; reach: number; ownWr: number | null }) {
   const at = (d: number) => `${50 + (Math.max(-reach, Math.min(reach, d)) / reach) * 50}%`
   return (
-    <span className="grid gap-y-0.5" data-testid="crew-role-strip">
+    <span className="grid gap-y-1" data-testid="crew-role-strip">
       {BUILD_ROLES.map((label) => {
         const j = roles.find((r) => r.label === label)
         const d = j?.g ? j.g.mean - 50 : null
@@ -461,7 +465,7 @@ function RoleStrip({ roles, reach, ownWr }: { roles: Judged[]; reach: number; ow
             data-testid="crew-role-chip"
             data-label={label}
             data-strength={j?.strength}
-            className="grid grid-cols-[1.75rem_minmax(0,1fr)_6.5rem] items-center gap-1.5 text-[11px]"
+            className="grid grid-cols-[1.75rem_minmax(0,1fr)_7rem] items-center gap-1.5 text-[11px]"
           >
             <span className="text-muted-foreground">{label}</span>
             <span className="relative h-3">
@@ -488,7 +492,7 @@ function RoleStrip({ roles, reach, ownWr }: { roles: Judged[]; reach: number; ow
             </span>
             <span className="flex items-center justify-end whitespace-nowrap">
               {j && j.games ? (
-                <span className={cn("rounded border px-1 text-[10px] leading-4", levelClass(j))}>{labelOf(j)}</span>
+                <span className={cn(CHIP, levelClass(j))}>{labelOf(j)}</span>
               ) : (
                 <span className="text-muted-foreground/60">—</span>
               )}
@@ -524,7 +528,7 @@ function RowLegend() {
             key={l.label}
             data-testid="crew-level-legend"
             data-tip={`${l.label}：${l.note}`}
-            className={cn("cursor-help rounded border px-1 text-[10px]", l.cls)}
+            className={cn(CHIP, "cursor-help", l.cls)}
           >
             {l.label}
           </span>
@@ -663,18 +667,20 @@ function ChampSide({
   tone,
   onMore,
   onPick,
+  max = CHAMPS_SHOWN,
 }: {
   items: Judged[]
   ownWr: number | null
   tone?: "pos" | "neg"
   onMore?: () => void
   onPick?: (label: string) => void
+  max?: number
 }) {
   if (!items.length) return <span className="text-[11px] text-muted-foreground">—</span>
-  const rest = items.length - CHAMPS_SHOWN
+  const rest = items.length - max
   return (
     <span className={cn("flex flex-wrap items-center gap-1.5 gap-y-3", tone && "border-l-2 pl-2", tone === "pos" && "border-win/60", tone === "neg" && "border-loss/60")}>
-      {items.slice(0, CHAMPS_SHOWN).map((j, i) => (
+      {items.slice(0, max).map((j, i) => (
         <ChampBadge key={j.key} j={j} rank={i + 1} ownWr={ownWr} onClick={onPick ? () => onPick(j.label) : undefined} />
       ))}
       {rest > 0 &&
@@ -829,7 +835,7 @@ function SummaryCard({ title, main, sub, strength, label, note, cls }: { title: 
           {title}
           <Hint text={note} />
         </span>
-        <span className={cn("rounded border px-1.5 text-[11px]", cls ?? STRENGTH_CLASS[strength])}>{label}</span>
+        <span className={cn(CHIP, cls ?? STRENGTH_CLASS[strength])}>{label}</span>
       </div>
       <div className="mt-1 font-mono text-2xl font-bold tabular-nums">{main}</div>
       <div className="font-mono text-[11px] tabular-nums text-muted-foreground">{sub}</div>
@@ -2953,7 +2959,7 @@ export function Crew() {
                     <div className={cn("hidden items-end border-b px-2 pb-1.5 text-[11px] text-muted-foreground @[1000px]:grid", ROW_COLS)}>
                       <span>玩家</span>
                       <span className="text-center">出裝定位</span>
-                      <span className="grid grid-cols-[1.75rem_minmax(0,1fr)_6.5rem] gap-1.5">
+                      <span className="grid grid-cols-[1.75rem_minmax(0,1fr)_7rem] gap-1.5">
                         <span />
                         <span className="flex justify-between font-mono tabular-nums">
                           <span>−{roleReach}</span>
@@ -2962,11 +2968,7 @@ export function Crew() {
                         </span>
                         <span className="text-right">各出裝</span>
                       </span>
-                      <span className="flex gap-3">
-                        <span className="text-win">英雄：比平均強</span>
-                        <span>｜</span>
-                        <span className="text-loss">英雄：培養中</span>
-                      </span>
+                      <span>英雄（上：比平均強、下：培養中）</span>
                     </div>
                     <div
                       data-testid="crew-reference-row"
@@ -3026,7 +3028,7 @@ export function Crew() {
                                 {ov.score === null ? "—" : Math.round(ov.score)}
                               </span>
                               {ov.g?.interval && (
-                                <span className={cn("ml-1 rounded border px-1 text-[10px]", levelClass(ov))}>{labelOf(ov)}</span>
+                                <span className={cn(CHIP, "ml-1", levelClass(ov))}>{labelOf(ov)}</span>
                               )}
                             </span>
                             <span className="block truncate text-[11px]" data-tip={prof.style.archetypeNote ?? undefined} data-testid="crew-style-line">
@@ -3038,9 +3040,15 @@ export function Crew() {
                           <span className={SECTION_SPAN}>
                             <RoleStrip roles={prof.roles} reach={roleReach} ownWr={ownWr} />
                           </span>
-                          <span className={cn("flex flex-wrap items-start gap-x-4 gap-y-2", SECTION_SPAN)}>
-                            <ChampSide items={sideOf(prof.champs, "pos")} ownWr={ownWr} tone="pos" onPick={(label) => open(p.puuid, null, "picks", label)} />
-                            <ChampSide items={sideOf(prof.champs, "neg")} ownWr={ownWr} tone="neg" onPick={(label) => open(p.puuid, null, "picks", label)} />
+                          <span className={cn("grid content-center gap-2.5", SECTION_SPAN)}>
+                            {(["pos", "neg"] as const).map((side) => (
+                              <span key={side} className="grid grid-cols-[3.25rem_minmax(0,1fr)] items-center gap-2" data-testid={`crew-champ-${side}`}>
+                                <span className={cn(CHIP, "justify-center", side === "pos" ? "border-win/50 bg-win/15 text-foreground" : "border-loss/50 bg-loss/15 text-foreground")}>
+                                  {side === "pos" ? "比平均強" : "培養中"}
+                                </span>
+                                <ChampSide items={sideOf(prof.champs, side)} ownWr={ownWr} max={MATRIX_CHAMPS} onPick={(label) => open(p.puuid, null, "picks", label)} />
+                              </span>
+                            ))}
                           </span>
                         </button>
                       )
