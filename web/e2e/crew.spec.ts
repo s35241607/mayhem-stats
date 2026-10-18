@@ -230,7 +230,7 @@ test.describe("好友比較頁：全員一覽", () => {
       }
     }
     await expect(page.getByTestId("crew-matrix-summary")).toHaveText(
-      `各出裝裡 ${judged} 格有 5 場以上，看得出強弱的有 ${strong + weak} 格（拿手 ${strong}、待加強 ${weak}），其餘差距都還在誤差內。`,
+      `各出裝裡 ${judged} 格有 5 場以上，看得出強弱的有 ${strong + weak} 格（招牌／拿手 ${strong}、潛力股 ${weak}），其餘差距都還在誤差內。`,
     )
   })
 
@@ -299,14 +299,14 @@ test.describe("好友比較頁：抽屜（兩個分頁）", () => {
     await expect(drawer).toBeHidden()
   })
 
-  test("總覽：隊內貢獻與勝率兩張卡（含 95% 區間）、出裝雷達、看得出的強項／進步空間、貢獻分解", async ({ page }) => {
+  test("總覽：隊內貢獻與勝率兩張卡（含 95% 區間）、出裝雷達、看得出的強項／潛力、貢獻分解", async ({ page }) => {
     await nameButton(matrixRows(page).first()).click()
     const drawer = page.getByRole("dialog")
     await expect(drawer.getByText("隊內貢獻", { exact: true })).toBeVisible()
     await expect(drawer.getByText("勝率", { exact: true })).toBeVisible()
     await expect(drawer.getByText(/95% 區間 \d+～\d+・\d+ 場/)).toBeVisible()
     await expect(drawer.getByText("看得出的強項")).toBeVisible()
-    await expect(drawer.getByText("看得出的進步空間")).toBeVisible()
+    await expect(drawer.getByText("看得出的潛力")).toBeVisible()
     await ready(page)
     // 出裝雷達是 SVG（和一覽表同一套判定），ECharts 只剩貢獻分解那一張
     await expect(charts(drawer)).toHaveCount(1)

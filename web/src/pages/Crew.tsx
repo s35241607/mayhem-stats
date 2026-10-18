@@ -48,11 +48,12 @@ import { BUILD_ROLES, BUILD_SHORT, NO_LIMIT, round0, splitRiotId } from "./share
 //   它量到的是「這群朋友之間誰分到比較多工作」——和強的朋友同隊的人一定被壓低（同隊時 64.7 對 31.1）。
 //   原本不用本場貢獻是因為它和勝負有關（個人相關 0.19），但五排的朋友共享輸贏，這個顧慮在這頁不成立。
 //   和 50 比，95% 區間（標準誤＝單場標準差 WORK_SD 18.5 ÷ √有分數的場數）整段高於 50 是「強勢」、整段低於 50 是「不強勢」；
-//   差 WORK_GAP（4）分以上但區間還跨過 50 是「偏強／偏弱」；不到 MIN_N 場寫「場次不夠」。
-//   畫面上的字換成比較好聽的說法（SHOWN）：拿手／順手／持平／還在練／待加強；內部值（data-strength、e2e）和陣容頁共用，不動。
+//   差 WORK_GAP（4）分以上但區間還跨過 50 是「偏強／偏弱」；不到 MIN_N 場不下判斷（畫面寫熱身中／初體驗）。
+//   畫面上的字（labelOf）再依差距與場次細分成十級、全部用正面的說法：招牌／拿手／上手／順手／標準發揮／磨合中／摸索中／潛力股，
+//   場次不到 MIN_N 的是熱身中／初體驗。內部值（data-strength、e2e）仍是五級，和陣容頁共用，不動。
 //   同一個人同時比好幾種出裝（或好幾隻英雄）時用 zFor(k) 放寬區間——一次比二十隻，總會有一兩隻只是運氣。
-// 勝率只當補充：和他自己的整體勝率比，區間（同樣放寬）整段在一邊才標 ▲▼，以及「非戰之罪」（表現好但勝率比他平常低 WR_LUCK 以上）、
-//   「隊友給力」（貢獻不強勢但勝率明顯高）。好友多半一起打、勝率互相牽動，2026-10 實測每個人的整體勝率都和 50% 分不出差別。
+// 勝率只當補充：和他自己的整體勝率比，區間（同樣放寬）整段在一邊才標 ▲▼，以及「雖敗猶榮」（表現好但勝率比他平常低 WR_LUCK 以上）、
+//   「默契加分」（貢獻不強勢但勝率明顯高）。好友多半一起打、勝率互相牽動，2026-10 實測每個人的整體勝率都和 50% 分不出差別。
 // 舊版用固定門檻（貢獻差 6 分、勝率差 3／5pp），不管場次：89% 的出裝、82% 的英雄都被貼上「適合／不適合」，
 //   而且幾乎全部跟著這個人的整體水準走（整體強的人每個出裝都「適合」）。改成區間之後，看得出的只剩真的看得出的。
 //   依據見 analysis/crew_verdicts.py。
@@ -106,7 +107,7 @@ type Judged = Stat & {
   /** 本場貢獻和 50 比（區間已依同時比幾組放寬）；沒有分數是 null */
   g: ScoreGap | null
   strength: Strength
-  /** 勝率和他自己的整體勝率比（區間同樣放寬）；只用來標 ▲▼ 與「非戰之罪／隊友給力」 */
+  /** 勝率和他自己的整體勝率比（區間同樣放寬）；只用來標 ▲▼ 與「雖敗猶榮／默契加分」 */
   wr: Gap | null
   /** 排序用：本場貢獻往他自己的平均收縮（SHRINK_K 場虛擬場次），一兩場的不會排到最前面 */
   est: number | null
@@ -151,35 +152,82 @@ function judgeAll(stats: Stat[], own: Own) {
 
 const wrFlag = (j: Judged) => (j.wr?.clear ? (j.wr.diff > 0 ? "up" : "down") : null)
 
-/** 勝率和他自己的平均差這麼多（百分點）以上、但還在誤差內時，補一句「勝率偏高／偏低」 */
+/** 勝率和他自己的平均差這麼多（百分點）以上、但還在誤差內時，補一句「勝率不錯／手氣待回溫」 */
 const WR_LEAN = 15
-/** 表現和勝率走反方向（打得好卻常輸、打得差卻常贏）要差這麼多百分點、至少 LUCK_MIN 場，才標「非戰之罪／隊友給力」 */
+/** 表現和勝率走反方向（打得好卻常輸、打得差卻常贏）要差這麼多百分點、至少 LUCK_MIN 場，才標「雖敗猶榮／默契加分」 */
 const WR_LUCK = 10
 const LUCK_MIN = 10
 
 /** 勝率的補充說明：
- *  - 貢獻比平均高（強勢／偏強），勝率卻比他自己的平均低 WR_LUCK 以上 →「非戰之罪」：輸多半不是他的問題
- *  - 貢獻比平均低（不強勢／偏弱），勝率卻高 WR_LUCK 以上 →「隊友給力」
+ *  - 貢獻比平均高（強勢／偏強），勝率卻比他自己的平均低 WR_LUCK 以上 →「雖敗猶榮」：輸多半不是他的問題
+ *  - 貢獻比平均低（不強勢／偏弱），勝率卻高 WR_LUCK 以上 →「默契加分」
  *    這兩個不要求勝率的區間整段在一邊：勝率每項只有幾十場，區間幾乎都寬到 ±20pp，那樣幾乎永遠不會出現；
  *    本場貢獻本身已經是看得出（或偏）的才標，誤差另外寫在滑過的說明裡
- *  - 其餘：勝率區間整段在一邊是「明顯高／低」，差 WR_LEAN 以上但還在誤差內是「偏高／偏低」 */
+ *  - 其餘：勝率區間整段在一邊是「勝率亮眼／蓄勢待發」，差 WR_LEAN 以上但還在誤差內是「勝率不錯／手氣待回溫」 */
 function extraOf(j: Judged) {
   const d = j.wr?.interval ? j.wr.diff : null
   if (d !== null && j.games >= LUCK_MIN) {
-    if (isPos(j.strength) && d <= -WR_LUCK) return "非戰之罪"
-    if (isNeg(j.strength) && d >= WR_LUCK) return "隊友給力"
+    if (isPos(j.strength) && d <= -WR_LUCK) return WR_NOTES.unlucky
+    if (isNeg(j.strength) && d >= WR_LUCK) return WR_NOTES.carried
   }
   const f = wrFlag(j)
-  if (f) return f === "up" ? "勝率明顯高" : "勝率明顯低"
-  if (d !== null && Math.abs(d) >= WR_LEAN) return d > 0 ? "勝率偏高" : "勝率偏低"
+  if (f) return f === "up" ? WR_NOTES.clearUp : WR_NOTES.clearDown
+  if (d !== null && Math.abs(d) >= WR_LEAN) return d > 0 ? WR_NOTES.leanUp : WR_NOTES.leanDown
   return null
 }
 
-/** 畫面上的字：五級的內部值和陣容頁共用，好友比較換成比較好聽的說法（2026-10 好友的 PR 5）。由強到弱：拿手、順手、持平、還在練、待加強——
- *  「還在練」是還在誤差內的偏弱，「待加強」是看得出的弱，字面上也要讀得出誰比較弱。
- *  場次夠、但本場貢獻和 50 差不多的是「持平」（不是「看不出」——那會被讀成場次不夠；也不用「穩定」——那會被讀成起伏小） */
-const SHOWN: Record<Strength, string> = { 強勢: "拿手", 偏強: "順手", 看不出: "持平", 偏弱: "還在練", 不強勢: "待加強" }
-const shownOf = (s: Strength) => SHOWN[s]
+/** 勝率補充的六個說法。全部用正面的字：勝率低寫成「還沒兌現」而不是「差」 */
+const WR_NOTES = {
+  /** 貢獻高，勝率卻比他平常低 WR_LUCK 以上 */
+  unlucky: "雖敗猶榮",
+  /** 貢獻還在追平均，勝率卻比他平常高 WR_LUCK 以上 */
+  carried: "默契加分",
+  clearUp: "勝率亮眼",
+  leanUp: "勝率不錯",
+  /** 勝率區間整段低於他自己的平均 */
+  clearDown: "蓄勢待發",
+  leanDown: "手氣待回溫",
+} as const
+const isLuck = (x: string | null) => x === WR_NOTES.unlucky || x === WR_NOTES.carried
+/** 勝率卡（整體勝率和 50% 比）用的字，和勝率補充同一套說法 */
+const WR_SHOWN: Record<Strength, string> = { 強勢: WR_NOTES.clearUp, 偏強: WR_NOTES.leanUp, 看不出: "五五波", 偏弱: WR_NOTES.leanDown, 不強勢: WR_NOTES.clearDown }
+
+/** 畫面上的十級標籤，全部是正面的說法，由強到弱。內部五級（強勢…不強勢）和陣容頁共用，這裡再依差距與場次細分：
+ *  - 看得出高（區間整段高於 50）：差 SIGNATURE_GAP 以上是「招牌」，其餘「拿手」
+ *  - 偏強（差 WORK_GAP 以上、還在誤差內）：差 RISING_GAP 以上是「上手」，其餘「順手」
+ *  - 和平均差不多：「標準發揮」（不用「穩定」——會被讀成起伏小；不用「看不出」——會被讀成場次不夠）
+ *  - 偏弱：差 RISING_GAP 以上是「摸索中」，其餘「磨合中」；看得出低是「潛力股」
+ *  - 有分數的場次不到 MIN_N：TRIAL_MAX 場以下「初體驗」，其餘「熱身中」
+ *  2026-10-18 用好友 9 人的資料試算：英雄 668 項裡初體驗 392、熱身中 136，有判斷的 140 項裡招牌 6、上手 30、順手 20、標準發揮 45、
+ *  磨合中 16、摸索中 19、潛力股 4；出裝 52 項裡招牌 1、拿手 3、順手 3、標準發揮 19、磨合中 7、摸索中 4、潛力股 8 */
+const SIGNATURE_GAP = 12
+const RISING_GAP = 8
+const TRIAL_MAX = 2
+const LEVELS = [
+  { label: "招牌", strength: "強勢", note: `比平均高 ${SIGNATURE_GAP} 分以上（看得出）` },
+  { label: "拿手", strength: "強勢", note: "比平均高（看得出）" },
+  { label: "上手", strength: "偏強", note: `高 ${RISING_GAP} 分以上，還在誤差內` },
+  { label: "順手", strength: "偏強", note: `高 ${WORK_GAP} 分以上，還在誤差內` },
+  { label: "標準發揮", strength: "看不出", note: "和平均差不多" },
+  { label: "磨合中", strength: "偏弱", note: `低 ${WORK_GAP} 分以上，還在誤差內` },
+  { label: "摸索中", strength: "偏弱", note: `低 ${RISING_GAP} 分以上，還在誤差內` },
+  { label: "潛力股", strength: "不強勢", note: "低於平均（看得出）" },
+  { label: "熱身中", strength: null, note: `${TRIAL_MAX + 1}～${MIN_N - 1} 場，還不下判斷` },
+  { label: "初體驗", strength: null, note: `${TRIAL_MAX} 場以下` },
+] as const satisfies readonly { label: string; strength: Strength | null; note: string }[]
+type Level = (typeof LEVELS)[number]["label"]
+
+function labelOf(j: Pick<Judged, "g" | "strength" | "scored">): Level {
+  if (!j.g?.interval) return j.scored <= TRIAL_MAX ? "初體驗" : "熱身中"
+  const d = j.g.mean - 50
+  switch (j.strength) {
+    case "強勢": return d >= SIGNATURE_GAP ? "招牌" : "拿手"
+    case "偏強": return d >= RISING_GAP ? "上手" : "順手"
+    case "偏弱": return d <= -RISING_GAP ? "摸索中" : "磨合中"
+    case "不強勢": return "潛力股"
+    default: return "標準發揮"
+  }
+}
 
 const isPos = (s: Strength) => s === "強勢" || s === "偏強"
 const isNeg = (s: Strength) => s === "不強勢" || s === "偏弱"
@@ -191,7 +239,7 @@ function tipOf(j: Judged, ownWr: number | null) {
     lines.push(
       `本場貢獻 ${Math.round(j.g.mean)}（50＝所有人的平均）` +
         (j.g.interval
-          ? `，區間 ${Math.round(50 + j.g.interval[0])}～${Math.round(50 + j.g.interval[1])} → ${shownOf(j.strength)}`
+          ? `，區間 ${Math.round(50 + j.g.interval[0])}～${Math.round(50 + j.g.interval[1])} → ${labelOf(j)}`
           : `；不到 ${MIN_N} 場，不下判斷`),
     )
   }
@@ -205,10 +253,10 @@ function tipOf(j: Judged, ownWr: number | null) {
     )
   }
   const x = extraOf(j)
-  if (x === "非戰之罪")
-    lines.push(`非戰之罪：貢獻比平均高，勝率卻比他平常低 ${WR_LUCK} 個百分點以上，輸多半不是他的問題${j.wr?.clear ? "" : "（勝率差距還在誤差內）"}`)
-  if (x === "隊友給力")
-    lines.push(`隊友給力：貢獻低於平均，勝率卻比他平常高 ${WR_LUCK} 個百分點以上，團隊配合撐起了勝場${j.wr?.clear ? "" : "（勝率差距還在誤差內）"}`)
+  if (x === WR_NOTES.unlucky)
+    lines.push(`${WR_NOTES.unlucky}：貢獻比平均高，勝率卻比他平常低 ${WR_LUCK} 個百分點以上，輸多半不是他的問題${j.wr?.clear ? "" : "（勝率差距還在誤差內）"}`)
+  if (x === WR_NOTES.carried)
+    lines.push(`${WR_NOTES.carried}：貢獻還在追平均，勝率卻比他平常高 ${WR_LUCK} 個百分點以上，和隊友配合得好${j.wr?.clear ? "" : "（勝率差距還在誤差內）"}`)
   return lines.join("\n")
 }
 
@@ -216,12 +264,12 @@ function tipOf(j: Judged, ownWr: number | null) {
 function StrengthChip({ j }: { j: Judged }) {
   const x = extraOf(j)
   const up = (j.wr?.diff ?? 0) > 0
-  // 不到 MIN_N 場沒有區間：和「場次夠、和 50 差不多」的持平分開講
-  if (!j.g?.interval && !x) return <span className="text-[11px] text-muted-foreground/80">場次不夠</span>
+  // 不到 MIN_N 場沒有區間：和「場次夠、和 50 差不多」的標準發揮分開講
+  if (!j.g?.interval && !x) return <span className="text-[11px] text-muted-foreground/80">{labelOf(j)}</span>
   return (
     <span className="inline-flex items-center gap-1 whitespace-nowrap">
       <span data-testid="strength-chip" className={cn("rounded border px-1.5 text-[11px]", STRENGTH_CLASS[j.strength])}>
-        {j.g?.interval ? shownOf(j.strength) : "場次不夠"}
+        {labelOf(j)}
       </span>
       {x && (
         <span className={cn("text-[11px]", wrFlag(j) ? "text-foreground" : "text-muted-foreground")}>
@@ -384,7 +432,7 @@ function RoleHex({ roles, total, selected, onPick }: { roles: Judged[]; total: n
   )
 }
 
-/** 出裝定位的判定標籤：「1 拿手 射手」，實心是看得出的、虛線框是還在誤差內 */
+/** 出裝定位的判定標籤：「1 招牌 射手」，實心是看得出的、虛線框是還在誤差內 */
 function RoleChips({ items, ownWr, tone }: { items: Judged[]; ownWr: number | null; tone?: "pos" | "neg" }) {
   if (!items.length) return <span className="text-[11px] text-muted-foreground">—</span>
   return (
@@ -399,7 +447,7 @@ function RoleChips({ items, ownWr, tone }: { items: Judged[]; ownWr: number | nu
           className={cn("rounded border px-1.5 py-0.5 text-[11px]", STRENGTH_CLASS[j.strength])}
         >
           <span className="mr-1 font-mono font-bold">{n + 1}</span>
-          <span className="opacity-80">{shownOf(j.strength)}</span> {j.label}
+          <span className="opacity-80">{labelOf(j)}</span> {j.label}
           {j.winrate !== null && (
             <span className={cn("ml-1 font-mono", wrFlag(j) === "up" ? "text-win" : wrFlag(j) === "down" ? "text-loss" : "opacity-70")}>
               {Math.round(j.winrate)}%{wrFlag(j) === "up" ? "▲" : wrFlag(j) === "down" ? "▼" : ""}
@@ -412,14 +460,14 @@ function RoleChips({ items, ownWr, tone }: { items: Judged[]; ownWr: number | nu
   )
 }
 
-/** 表現和勝率走反方向時的小標：「非戰之罪」「隊友給力」 */
+/** 表現和勝率走反方向時的小標：「雖敗猶榮」「默契加分」 */
 function LuckTag({ j }: { j: Judged }) {
   const x = extraOf(j)
-  if (x !== "非戰之罪" && x !== "隊友給力") return null
+  if (!isLuck(x)) return null
   return (
     <span
       data-testid="crew-luck"
-      className={cn("ml-1 rounded-sm px-1 text-[10px]", x === "非戰之罪" ? "bg-win/15 text-win" : "bg-muted text-muted-foreground")}
+      className={cn("ml-1 rounded-sm px-1 text-[10px]", x === WR_NOTES.unlucky ? "bg-win/15 text-win" : "bg-muted text-muted-foreground")}
     >
       {x}
     </span>
@@ -427,28 +475,23 @@ function LuckTag({ j }: { j: Judged }) {
 }
 
 function RowLegend() {
-  const chip = (s: Strength, text: string) => (
-    <span className="flex items-center gap-1.5">
-      <span className={cn("rounded border px-1 text-[10px]", STRENGTH_CLASS[s])}>{shownOf(s)}</span>
-      {text}
-    </span>
-  )
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-      {chip("強勢", "比平均強（看得出）")}
-      {chip("偏強", `高 ${WORK_GAP} 分以上，還在誤差內`)}
-      {chip("看不出", "和平均差不多")}
-      {chip("偏弱", `低 ${WORK_GAP} 分以上，還在誤差內`)}
-      {chip("不強勢", "低於平均（看得出）")}
+      {LEVELS.map((l) => (
+        <span key={l.label} className="flex items-center gap-1.5" data-testid="crew-level-legend">
+          <span className={cn("rounded border px-1 text-[10px]", l.strength ? STRENGTH_CLASS[l.strength] : "border-dashed text-muted-foreground")}>{l.label}</span>
+          {l.note}
+        </span>
+      ))}
       <span>
         <span className="text-win">▲</span>
         <span className="text-loss">▼</span> 後面的 % 是勝率，▲▼＝比他自己的平均明顯高／低
       </span>
       <span>
-        <span className="rounded-sm bg-win/15 px-1 text-[10px] text-win">非戰之罪</span> 貢獻高但常輸（勝率低 {WR_LUCK}pp 以上）
+        <span className="rounded-sm bg-win/15 px-1 text-[10px] text-win">{WR_NOTES.unlucky}</span> 貢獻高、勝率還沒跟上（低 {WR_LUCK}pp 以上）
       </span>
       <span>
-        <span className="rounded-sm bg-muted px-1 text-[10px] text-muted-foreground">隊友給力</span> 貢獻還在追，但常贏
+        <span className="rounded-sm bg-muted px-1 text-[10px] text-muted-foreground">{WR_NOTES.carried}</span> 貢獻還在追，但和隊友配合常贏
       </span>
     </div>
   )
@@ -500,15 +543,15 @@ function ChampBadge({ j, rank, ownWr, onClick }: { j: Judged; rank: number; ownW
       >
         {Math.round(j.score ?? 50)}
       </span>
-      {(extraOf(j) === "非戰之罪" || extraOf(j) === "隊友給力") && (
+      {isLuck(extraOf(j)) && (
         <span
           data-testid="crew-champ-luck"
           className={cn(
             "absolute -right-1 -top-1 z-10 rounded-sm px-0.5 text-[8px] leading-tight ring-1 ring-background",
-            extraOf(j) === "非戰之罪" ? "bg-win text-background" : "bg-muted-foreground text-background",
+            extraOf(j) === WR_NOTES.unlucky ? "bg-win text-background" : "bg-muted-foreground text-background",
           )}
         >
-          {extraOf(j) === "非戰之罪" ? "非戰" : "給力"}
+          {extraOf(j) === WR_NOTES.unlucky ? "猶榮" : "默契"}
         </span>
       )}
     </span>
@@ -884,6 +927,153 @@ const styleLine = (s: PlayStyle) => {
   return top.length ? `${s.position}・${top.join('、')}` : s.position
 }
 
+// ── 稱號：比較對象裡某一項數據第一名的人，以及每個人自己達到的里程碑 ─────────────────────
+// 稱號是「這群朋友之間」的第一名：比的是目前畫面上的比較對象（拿掉誰、篩選照套），所以換了篩選可能換人。
+// 值全部來自語意層（participants 的指標，和數據總表同一份定義），這裡只決定「誰最多」。同分的都拿。
+// 場次不到 TITLE_MIN_GAMES 的人不參加；要賽後統計的兩項（守護天使、不死之身）另外要求那種場次至少 TITLE_MIN_EOG 場；
+// 合格的人不到 2 位就不頒——一個人自己跟自己比沒有意義。
+
+const TITLE_MIN_GAMES = 20
+const TITLE_MIN_EOG = 10
+/** 里程碑：場次的門檻，由高到低找第一個達到的 */
+const GAME_MILESTONES = [
+  { games: 500, name: "五百場老將" },
+  { games: 300, name: "三百場老將" },
+  { games: 100, name: "百場老將" },
+] as const
+
+const TITLE_MEASURES = [
+  "participants.games",
+  "participants.pentas",
+  "participants.dpm",
+  "participants.taken_per_min",
+  "participants.mitigated_per_min",
+  "participants.cc_time_per_min",
+  "participants.objective_damage_per_min",
+  "participants.ally_heal_shield_per_min",
+  "participants.ally_heal_games",
+  "participants.mvp_games",
+  "participants.time_dead_share",
+  "participants.time_dead_games",
+  "participants.champion_count",
+]
+
+type TitleDef = {
+  name: string
+  /** 滑過時的說明：比的是什麼 */
+  hint: string
+  value: (r: CubeRow) => number | null
+  fmt: (v: number) => string
+  /** 除了場次以外的參加條件（例如要有賽後統計） */
+  eligible?: (r: CubeRow) => boolean
+  /** 越低越好（死亡時間） */
+  lower?: boolean
+}
+
+const TITLES: TitleDef[] = [
+  { name: "五殺之王", hint: "五殺次數最多", value: (r) => n0(r, "participants.pentas") || null, fmt: (v) => `${v} 次五殺` },
+  { name: "輸出擔當", hint: "每分鐘對英雄傷害最高", value: (r) => opt(r, "participants.dpm"), fmt: (v) => `每分鐘 ${Math.round(v).toLocaleString()} 傷害` },
+  {
+    name: "鋼鐵前排",
+    hint: "每分鐘承受＋減免的傷害最多",
+    value: (r) => {
+      const a = opt(r, "participants.taken_per_min")
+      const b = opt(r, "participants.mitigated_per_min")
+      return a === null || b === null ? null : a + b
+    },
+    fmt: (v) => `每分鐘扛 ${Math.round(v).toLocaleString()}`,
+  },
+  { name: "控場大師", hint: "每分鐘控制敵人的時間最長", value: (r) => opt(r, "participants.cc_time_per_min"), fmt: (v) => `每分鐘控場 ${v.toFixed(1)} 秒` },
+  { name: "拆遷大隊", hint: "每分鐘對建築與中立目標的傷害最多", value: (r) => opt(r, "participants.objective_damage_per_min"), fmt: (v) => `每分鐘拆 ${Math.round(v).toLocaleString()}` },
+  {
+    name: "守護天使",
+    hint: `每分鐘治療＋護盾隊友最多（不含自補；只算有賽後統計的場次，至少 ${TITLE_MIN_EOG} 場）`,
+    value: (r) => opt(r, "participants.ally_heal_shield_per_min"),
+    eligible: (r) => n0(r, "participants.ally_heal_games") >= TITLE_MIN_EOG,
+    fmt: (v) => `每分鐘補 ${Math.round(v).toLocaleString()}`,
+  },
+  {
+    name: "MVP 常客",
+    hint: "拿到 MVP（贏的一隊裡本場貢獻最高）的場次比例最高",
+    value: (r) => {
+      const g = n0(r, "participants.games")
+      return g ? (100 * n0(r, "participants.mvp_games")) / g : null
+    },
+    fmt: (v) => `MVP 率 ${v.toFixed(1)}%`,
+  },
+  {
+    name: "不死之身",
+    hint: `死亡時間占全場的比例最低（只算有賽後統計的場次，至少 ${TITLE_MIN_EOG} 場）`,
+    value: (r) => opt(r, "participants.time_dead_share"),
+    eligible: (r) => n0(r, "participants.time_dead_games") >= TITLE_MIN_EOG,
+    lower: true,
+    fmt: (v) => `死亡時間只占 ${v.toFixed(1)}%`,
+  },
+  { name: "英雄百科", hint: "玩過的英雄最多", value: (r) => opt(r, "participants.champion_count"), fmt: (v) => `玩過 ${Math.round(v)} 隻英雄` },
+]
+
+type Title = { name: string; kind: "title" | "milestone"; tip: string }
+
+/** 每個人拿到的稱號與里程碑。rows 是 TITLE_MEASURES 以 participants.puuid 分組的結果 */
+function titlesOf(people: Player[], rows: CubeRow[]): Map<string, Title[]> {
+  const out = new Map<string, Title[]>(people.map((p) => [p.puuid, []]))
+  const rowOf = (puuid: string) => rows.find((r) => r["participants.puuid"] === puuid)
+  const nameOf = (p: Player) => splitRiotId(p.riot_id, p.puuid).name
+  for (const t of TITLES) {
+    const entries = people
+      .map((p) => ({ p, r: rowOf(p.puuid) }))
+      .filter((e): e is { p: Player; r: CubeRow } => !!e.r && n0(e.r, "participants.games") >= TITLE_MIN_GAMES && (t.eligible?.(e.r) ?? true))
+      .map((e) => ({ p: e.p, v: t.value(e.r) }))
+      .filter((e): e is { p: Player; v: number } => e.v !== null)
+      .sort((a, b) => (t.lower ? a.v - b.v : b.v - a.v))
+    if (entries.length < 2) continue
+    const best = entries[0].v
+    const winners = entries.filter((e) => e.v === best)
+    const runnerUp = entries.find((e) => e.v !== best)
+    for (const w of winners) {
+      out.get(w.p.puuid)!.push({
+        name: t.name,
+        kind: "title",
+        tip: `${t.name}：${t.hint}\n${t.fmt(w.v)}，比較的 ${entries.length} 人裡第一${runnerUp ? `（第二是 ${nameOf(runnerUp.p)}，${t.fmt(runnerUp.v)}）` : ""}`,
+      })
+    }
+  }
+  for (const p of people) {
+    const r = rowOf(p.puuid)
+    if (!r) continue
+    const mine = out.get(p.puuid)!
+    const pentas = n0(r, "participants.pentas")
+    // 已經是五殺之王就不再重複寫五殺達成
+    if (pentas > 0 && !mine.some((t) => t.name === "五殺之王")) mine.push({ name: "五殺達成", kind: "milestone", tip: `里程碑：拿過五殺（${pentas} 次）` })
+    const games = n0(r, "participants.games")
+    const m = GAME_MILESTONES.find((x) => games >= x.games)
+    if (m) mine.push({ name: m.name, kind: "milestone", tip: `里程碑：大亂鬥 ${m.games} 場以上（目前 ${games} 場）` })
+  }
+  return out
+}
+
+/** 稱號（實心，強調色）與里程碑（虛線框）。一個都沒有就不畫 */
+function TitleBadges({ titles, className }: { titles: Title[] | undefined; className?: string }) {
+  if (!titles?.length) return null
+  return (
+    <span className={cn("flex flex-wrap gap-1", className)} data-testid="crew-titles">
+      {titles.map((t) => (
+        <span
+          key={t.name}
+          title={t.tip}
+          data-testid={t.kind === "title" ? "crew-title" : "crew-milestone"}
+          className={cn(
+            "rounded border px-1.5 text-[10px] leading-4",
+            t.kind === "title" ? "border-primary/50 bg-primary/10 text-primary" : "border-dashed text-muted-foreground",
+          )}
+        >
+          {t.name}
+        </span>
+      ))}
+    </span>
+  )
+}
+
 /** 總覽分頁的「玩家類型」卡片 */
 function StyleCard({ style, scored }: { style: PlayStyle; scored: number }) {
   const notable = style.axes
@@ -942,14 +1132,16 @@ function readingOf(p: Profile) {
   const w = p.overallWr ? strengthOf(p.overallWr) : "看不出"
   if (s === "強勢")
     return w === "強勢"
-      ? "貢獻比平均高，勝率也明顯高於 50%。"
-      : "貢獻比平均高，但勝率和 50% 分不出差別：輸贏很大一部分取決於隊友與隨機拿到的陣容。"
+      ? "貢獻比平均高，勝率也明顯高於 50%：打得好也贏得多。"
+      : "貢獻比平均高，勝率則和 50% 分不出差別：輸贏很大一部分取決於隊友與隨機拿到的陣容，表現已經到位。"
   if (s === "不強勢")
-    return w === "不強勢" ? "貢獻低於平均，勝率也明顯低於 50%，還有不少進步空間。" : "貢獻還在追趕平均，但勝率沒有受影響：和隊友配合得不錯。"
-  return "本場貢獻和平均差不多（差距還在誤差內）。"
+    return w === "不強勢"
+      ? "貢獻還在追趕平均，勝率也還在累積：每一項都還有成長的餘地，是潛力最大的階段。"
+      : "貢獻還在追趕平均，勝率卻沒有受影響：和隊友配合得很好。"
+  return "本場貢獻和平均差不多，發揮很標準（差距還在誤差內）。"
 }
 
-/** 總覽分頁的「看得出的強項／進步空間」：只列區間整段在一邊的，其餘只講有幾項 */
+/** 總覽分頁的「看得出的強項／潛力」：只列區間整段在一邊的，其餘只講有幾項 */
 function Highlights({
   profile,
   onRole,
@@ -1002,9 +1194,9 @@ function Highlights({
   return (
     <div className="grid content-start gap-3">
       {block("看得出的強項", "強勢", "text-win")}
-      {block("看得出的進步空間", "不強勢", "text-loss")}
+      {block("看得出的潛力", "不強勢", "text-loss")}
       <p className="text-[11px] text-muted-foreground">
-        另有 {leanUp} 項順手、{leanDown} 項還在練，差距還在誤差內；「出裝與英雄」分頁看得到全部。
+        另有 {leanUp} 項上手／順手、{leanDown} 項磨合中／摸索中，差距還在誤差內；「出裝與英雄」分頁看得到全部。
       </p>
     </div>
   )
@@ -1086,9 +1278,12 @@ function PlayerDrawerBody({
   onTab,
   crewFilter,
   jumpChamp,
+  titles,
 }: {
   player: Player
   profile: Profile
+  /** 這個人在目前比較對象裡拿到的稱號與里程碑 */
+  titles?: Title[]
   role: string | null
   onRole: (role: string | null) => void
   tab: DrawerTab
@@ -1208,7 +1403,7 @@ function PlayerDrawerBody({
                 : `${ov.scored} 場`
             }
             strength={ov.strength}
-            label={ov.g?.interval ? shownOf(ov.strength) : "場次不夠"}
+            label={labelOf(ov)}
             note="每場只和同一場另外九個人比工作量（輸出、承傷、控場、治療護盾，權重依終場裝備），50＝所有人的平均；死亡不扣分。標 * 的暫估場次（沒有賽後統計）也算在內"
           />
           <SummaryCard
@@ -1220,13 +1415,20 @@ function PlayerDrawerBody({
                 : `${ov.wins} 勝 ${ov.games - ov.wins} 敗`
             }
             strength={wrAll ? strengthOf(wrAll) : "看不出"}
-            label={shownOf(wrAll ? strengthOf(wrAll) : "看不出")}
+            label={WR_SHOWN[wrAll ? strengthOf(wrAll) : "看不出"]}
             note="和 50% 比。好友多半一起打、勝率會互相牽動，用來比人不太準"
           />
         </div>
         <p className="text-sm" data-testid="crew-reading">
           {readingOf(profile)}
         </p>
+        {!!titles?.length && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border p-3">
+            <span className="text-[11px] text-muted-foreground">稱號</span>
+            <TitleBadges titles={titles} />
+            <span className="text-[11px] text-muted-foreground">滑過看數字；稱號是目前比較對象之間的第一名</span>
+          </div>
+        )}
         <StyleCard style={profile.style} scored={ov.scored} />
         <div className="grid gap-4 rounded-lg border p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <div>
@@ -1288,7 +1490,7 @@ function PlayerDrawerBody({
         {!(role && (!settled || champs.loading)) && (
           <div className="grid gap-2">
             <ChampStrip title="比平均強的英雄" tone="pos" items={sideOf(champJudged.items, "pos")} ownWr={ownWr} onPick={jumpToChamp} />
-            <ChampStrip title="還有進步空間的英雄" tone="neg" items={sideOf(champJudged.items, "neg")} ownWr={ownWr} onPick={jumpToChamp} />
+            <ChampStrip title="還在培養的英雄" tone="neg" items={sideOf(champJudged.items, "neg")} ownWr={ownWr} onPick={jumpToChamp} />
           </div>
         )}
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2200,12 +2402,14 @@ export function Crew() {
     }),
   )
   const stats = useCube(q({ measures: STAT_MEASURES_ALL, dimensions: ["participants.puuid"], limit: NO_LIMIT }))
+  // 稱號用的幾項數據（每人一列）
+  const titleStats = useCube(q({ measures: TITLE_MEASURES, dimensions: ["participants.puuid"], limit: NO_LIMIT }))
   // 出裝的傷害類型（AD／AP）：玩家類型與數據總表的出裝比例用
   const dmgTypes = useCube(q({ measures: ["participants.games"], dimensions: ["participants.puuid", "builds.damage_type"], limit: NO_LIMIT }))
   // 參照列：所有參賽者的出裝比例（不鎖玩家，也不受上方「拿掉誰」影響）
   const everyone = useCube(centerFilters === null ? null : apply({ measures: ["participants.games", "participants.winrate", "participants.kda"], filters: centerFilters }, "all"))
   const everyoneRoles = useCube(centerFilters === null ? null : apply({ measures: ["participants.games"], dimensions: ["builds.build_role"], filters: centerFilters, limit: NO_LIMIT }, "all"))
-  const error = summary.error ?? roles.error ?? champs.error ?? augments.error ?? everyone.error ?? everyoneRoles.error ?? stats.error ?? dmgTypes.error ?? together.error
+  const error = summary.error ?? roles.error ?? champs.error ?? augments.error ?? everyone.error ?? everyoneRoles.error ?? stats.error ?? dmgTypes.error ?? titleStats.error ?? together.error
   const loading = summary.loading || roles.loading || champs.loading || augments.loading || everyone.loading || everyoneRoles.loading
 
   const sumOf = (puuid: string) => summary.rows.find((r) => r["participants.puuid"] === puuid)
@@ -2243,6 +2447,12 @@ export function Crew() {
   // 依場次排：場次多的人判斷比較可信，放前面
   const ordered = [...chosen].sort((a, b) => gamesOf(b.puuid) - gamesOf(a.puuid))
   const everyoneTotal = n0(everyone.rows[0], "participants.games")
+  // 稱號只在目前的比較對象之間比：拿掉一個人，第一名可能換人
+  const titles = useMemo(
+    () => titlesOf(ordered, titleStats.rows),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [puuids.join(), titleStats.rows],
+  )
 
   // 矩陣上方那句話：同時看得出的有幾格
   const counts = useMemo(() => {
@@ -2358,14 +2568,14 @@ export function Crew() {
           {/* ── 全員一覽：每人一列，迷你雷達 + 出裝與英雄的判定 ── */}
           <Panel
             title="全員一覽"
-            caption="判定看本場貢獻（每場只和同一場的人比，50＝所有人的平均）的誤差範圍：整段高於 50 是拿手、整段低於 50 是待加強，還在誤差內的寫順手／還在練（虛線框）。雷達是各出裝佔他場次的比例。前面的數字是名次，看得出的排前面；滑過看數字，點一列開抽屜看完整分析"
+            caption="判定看本場貢獻（每場只和同一場的人比，50＝所有人的平均）的誤差範圍：整段高於 50 是招牌／拿手、整段低於 50 是潛力股，還在誤差內的寫上手／順手、磨合中／摸索中（虛線框）。雷達是各出裝佔他場次的比例。前面的數字是名次，看得出的排前面；滑過看數字，點一列開抽屜看完整分析"
           >
             {loading ? (
               <Skeleton className="h-[640px] w-full" />
             ) : (
               <div className="space-y-3">
                 <p className="text-sm" data-testid="crew-matrix-summary">
-                  各出裝裡 {counts.judged} 格有 {MIN_N} 場以上，看得出強弱的有 {counts.strong + counts.weak} 格（拿手 {counts.strong}、待加強 {counts.weak}），其餘差距都還在誤差內。
+                  各出裝裡 {counts.judged} 格有 {MIN_N} 場以上，看得出強弱的有 {counts.strong + counts.weak} 格（招牌／拿手 {counts.strong}、潛力股 {counts.weak}），其餘差距都還在誤差內。
                 </p>
                 <RowLegend />
                 <div className="@container">
@@ -2375,11 +2585,11 @@ export function Crew() {
                       <span className="text-center">出裝定位</span>
                       <span className="grid grid-cols-2 gap-3">
                         <span className="text-win">出裝：比平均強</span>
-                        <span className="text-loss">出裝：進步空間</span>
+                        <span className="text-loss">出裝：培養中</span>
                       </span>
                       <span className="grid grid-cols-2 gap-3">
                         <span className="text-win">英雄：比平均強</span>
-                        <span className="text-loss">英雄：進步空間</span>
+                        <span className="text-loss">英雄：培養中</span>
                       </span>
                     </div>
                     <div
@@ -2438,12 +2648,13 @@ export function Crew() {
                                 {ov.score === null ? "—" : Math.round(ov.score)}
                               </span>
                               {ov.g?.interval && (
-                                <span className={cn("ml-1 rounded border px-1 text-[10px]", STRENGTH_CLASS[ov.strength])}>{shownOf(ov.strength)}</span>
+                                <span className={cn("ml-1 rounded border px-1 text-[10px]", STRENGTH_CLASS[ov.strength])}>{labelOf(ov)}</span>
                               )}
                             </span>
                             <span className="block truncate text-[11px]" title={prof.style.archetypeNote ?? undefined} data-testid="crew-style-line">
                               {styleLine(prof.style)}
                             </span>
+                            <TitleBadges titles={titles.get(p.puuid)} className="mt-1" />
                           </span>
                           <MiniHex data={prof.roles.map((j) => ({ label: j.label, games: j.games, strength: j.strength }))} total={ov.games} />
                           <span className={cn("grid grid-cols-2 items-start gap-3", SECTION_SPAN)}>
@@ -2467,12 +2678,13 @@ export function Crew() {
                     沒有賽後統計的場次（治療護盾隊友的量改用含自補的治療量）是暫估，也算進平均。
                   </p>
                   <p>
-                    每一項都算誤差範圍（95%；單場的分數起伏大，標準差約 18.5，場次越多範圍越窄）。範圍整段高於 50 才寫「拿手」、整段低於 50 才寫「待加強」；
-                    差 {WORK_GAP} 分以上但範圍還跨過 50 寫「順手／還在練」；其餘是「持平」（和平均差不多）；不到 {MIN_N} 場寫「場次不夠」。同一個人同時比好幾種出裝或好幾隻英雄，範圍會再放寬——
+                    每一項都算誤差範圍（95%；單場的分數起伏大，標準差約 18.5，場次越多範圍越窄）。範圍整段高於 50 才寫「拿手」（高 {SIGNATURE_GAP} 分以上是「招牌」）、整段低於 50 寫「潛力股」；
+                    差 {WORK_GAP} 分以上但範圍還跨過 50 寫「順手／磨合中」（差 {RISING_GAP} 分以上是「上手／摸索中」）；其餘是「標準發揮」（和平均差不多）；
+                    不到 {MIN_N} 場不下判斷，寫「熱身中」（{TRIAL_MAX} 場以下是「初體驗」）。同一個人同時比好幾種出裝或好幾隻英雄，範圍會再放寬——
                     一次比二十隻，總有一兩隻看起來特別好或特別差只是運氣。
                   </p>
                   <p>
-                    勝率只當補充：和他自己的整體勝率比，範圍也整段在一邊寫「勝率明顯高／低」，差 15 個百分點以上但還在誤差內寫「勝率偏高／偏低」；貢獻比平均高（拿手或順手）、勝率卻比他平常低 {WR_LUCK} 個百分點以上（至少 {LUCK_MIN} 場）是「非戰之罪」：輸多半不是他的問題；反過來貢獻低、勝率卻高是「隊友給力」。
+                    勝率只當補充：和他自己的整體勝率比，範圍也整段在一邊寫「勝率亮眼／蓄勢待發」，差 {WR_LEAN} 個百分點以上但還在誤差內寫「勝率不錯／手氣待回溫」；貢獻比平均高（招牌到順手）、勝率卻比他平常低 {WR_LUCK} 個百分點以上（至少 {LUCK_MIN} 場）是「雖敗猶榮」：輸多半不是他的問題；反過來貢獻還在追、勝率卻高是「默契加分」。
                     好友多半一起打、勝率互相牽動，每個人的整體勝率目前都和 50% 分不出差別，所以不拿勝率判斷。
                   </p>
                   <p>
@@ -2549,6 +2761,7 @@ export function Crew() {
             onTab={(tab) => setFocus((f) => (f?.kind === "player" ? { ...f, tab } : f))}
             jumpChamp={focus.champ}
             crewFilter={crewFilter}
+            titles={titles.get(focusPlayer.puuid)}
           />
         )}
       </DetailDrawer>

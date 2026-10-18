@@ -3,9 +3,10 @@ cubes:
     title: 對局表現
     # 重開局（matches.is_remake）的參賽紀錄不算。rowid 要原樣帶出來：主鍵與衍生表（mat_*）的 participant_rowid 都是它
     # time_spent_dead（死亡總時間）對局明細沒有，只有賽後統計有（eog_player_stats，主鍵 game_id＋puuid，所以一對一不會多列）；
-    # 開始擷取賽後統計之前的場次是空值
+    # 開始擷取賽後統計之前的場次是空值（治療護盾隊友的量 ally_heal_shield 同理）
     sql: >
-      SELECT mp.rowid AS rowid, mp.*, e.time_spent_dead AS time_spent_dead
+      SELECT mp.rowid AS rowid, mp.*, e.time_spent_dead AS time_spent_dead,
+             e.heal_on_teammates + e.shield_on_teammates AS ally_heal_shield
       FROM match_participants mp
       LEFT JOIN eog_player_stats e ON e.game_id = mp.game_id AND e.puuid = mp.puuid
       WHERE NOT EXISTS (
@@ -764,6 +765,46 @@ cubes:
         type: count_distinct
         meta:
           group: 戰鬥
+
+      - name: ally_heal_shield_per_min
+        title: 每分鐘治療護盾隊友
+        description: "每場治療隊友加護盾隊友的量除以對局分鐘數後取平均，不含自補。只有賽後統計有（eog_player_stats），只算有賽後統計的場次（ally_heal_games）。"
+        sql: "{CUBE}.ally_heal_shield * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: avg
+        meta:
+          group: 生存
+          decimals: 0
+
+      - name: ally_heal_games
+        title: 有治療護盾隊友統計的場次
+        description: "有賽後統計（治療護盾隊友的量）的場次數，每分鐘治療護盾隊友只算這些場次。"
+        sql: "CASE WHEN {CUBE}.ally_heal_shield IS NOT NULL THEN {CUBE}.rowid END"
+        type: count_distinct
+        meta:
+          group: 生存
+
+      - name: champion_count
+        title: 玩過的英雄數
+        description: "範圍內玩過幾隻不同的英雄。"
+        sql: champion_id
+        type: count_distinct
+        meta:
+          group: 基本
+          decimals: 0
+
+      - name: mvp_games
+        title: MVP 場次
+        description: "拿到 MVP 的場次：贏的那一隊裡本場貢獻 v2 最高（同分都算），和計分板、對局卡片的 MVP 同一個定義。沒有 v2 分數的場次（重開、不足 6 分鐘）不算。"
+        sql: >
+          CASE WHEN {CUBE}.win = 1
+           AND (SELECT v.work_score_v2 FROM mat_contribution_v2 v WHERE v.participant_rowid = {CUBE}.rowid)
+             = (SELECT MAX(o.work_score_v2) FROM match_participants t JOIN mat_contribution_v2 o ON o.participant_rowid = t.rowid
+                WHERE t.platform_id = {CUBE}.platform_id AND t.game_id = {CUBE}.game_id AND t.team_id = {CUBE}.team_id)
+          THEN {CUBE}.rowid END
+        type: count_distinct
+        meta:
+          group: 貢獻
+          decimals: 0
 
       - name: avg_assists
         title: 平均助攻

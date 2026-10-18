@@ -99,6 +99,10 @@ views:
           - avg_time_dead
           - time_dead_share
           - time_dead_games
+          - ally_heal_shield_per_min
+          - ally_heal_games
+          - champion_count
+          - mvp_games
           - total_turret_kills
           - avg_inhibitor_kills
           - objective_damage_share
