@@ -1,5 +1,5 @@
 import { Fragment, createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react"
-import { ArrowRight, Check, ChevronDown, ChevronRight, ChevronsUpDown, Search, Star } from "lucide-react"
+import { ArrowRight, BookOpen, Check, ChevronDown, ChevronRight, ChevronsUpDown, Crown, Flame, Hammer, HeartHandshake, Infinity as InfinityIcon, Medal, Search, Shield, Snowflake, Sparkles, Star, Trophy, type LucideIcon } from "lucide-react"
 import { RecordCell } from "@/components/cells"
 import { ContribBars, ContribScore } from "@/components/Contribution"
 import { PERF_PARTS, WORK, WORK_GAMES, WORK_GAP, WORK_MEASURES, WORK_PARTS } from "@/hooks/useContribution"
@@ -958,8 +958,14 @@ const TITLE_MEASURES = [
   "participants.champion_count",
 ]
 
+/** 徽章的等級：傳說（五殺之王、MVP 常客，最難拿的兩個）用增幅稜鏡色，其餘稱號用金色，里程碑用銀色。
+ *  顏色都是主題變數（--prismatic／--gold／--silver），亮色主題有各自加深的版本 */
+type TitleTier = "legend" | "gold" | "silver"
+
 type TitleDef = {
   name: string
+  icon: LucideIcon
+  tier: TitleTier
   /** 滑過時的說明：比的是什麼 */
   hint: string
   value: (r: CubeRow) => number | null
@@ -971,10 +977,12 @@ type TitleDef = {
 }
 
 const TITLES: TitleDef[] = [
-  { name: "五殺之王", hint: "五殺次數最多", value: (r) => n0(r, "participants.pentas") || null, fmt: (v) => `${v} 次五殺` },
-  { name: "輸出擔當", hint: "每分鐘對英雄傷害最高", value: (r) => opt(r, "participants.dpm"), fmt: (v) => `每分鐘 ${Math.round(v).toLocaleString()} 傷害` },
+  { name: "五殺之王", icon: Crown, tier: "legend", hint: "五殺次數最多", value: (r) => n0(r, "participants.pentas") || null, fmt: (v) => `${v} 次五殺` },
+  { name: "輸出擔當", icon: Flame, tier: "gold", hint: "每分鐘對英雄傷害最高", value: (r) => opt(r, "participants.dpm"), fmt: (v) => `每分鐘 ${Math.round(v).toLocaleString()} 傷害` },
   {
     name: "鋼鐵前排",
+    icon: Shield,
+    tier: "gold",
     hint: "每分鐘承受＋減免的傷害最多",
     value: (r) => {
       const a = opt(r, "participants.taken_per_min")
@@ -983,10 +991,12 @@ const TITLES: TitleDef[] = [
     },
     fmt: (v) => `每分鐘扛 ${Math.round(v).toLocaleString()}`,
   },
-  { name: "控場大師", hint: "每分鐘控制敵人的時間最長", value: (r) => opt(r, "participants.cc_time_per_min"), fmt: (v) => `每分鐘控場 ${v.toFixed(1)} 秒` },
-  { name: "拆遷大隊", hint: "每分鐘對建築與中立目標的傷害最多", value: (r) => opt(r, "participants.objective_damage_per_min"), fmt: (v) => `每分鐘拆 ${Math.round(v).toLocaleString()}` },
+  { name: "控場大師", icon: Snowflake, tier: "gold", hint: "每分鐘控制敵人的時間最長", value: (r) => opt(r, "participants.cc_time_per_min"), fmt: (v) => `每分鐘控場 ${v.toFixed(1)} 秒` },
+  { name: "拆遷大隊", icon: Hammer, tier: "gold", hint: "每分鐘對建築與中立目標的傷害最多", value: (r) => opt(r, "participants.objective_damage_per_min"), fmt: (v) => `每分鐘拆 ${Math.round(v).toLocaleString()}` },
   {
     name: "守護天使",
+    icon: HeartHandshake,
+    tier: "gold",
     hint: `每分鐘治療＋護盾隊友最多（不含自補；只算有賽後統計的場次，至少 ${TITLE_MIN_EOG} 場）`,
     value: (r) => opt(r, "participants.ally_heal_shield_per_min"),
     eligible: (r) => n0(r, "participants.ally_heal_games") >= TITLE_MIN_EOG,
@@ -994,6 +1004,8 @@ const TITLES: TitleDef[] = [
   },
   {
     name: "MVP 常客",
+    icon: Trophy,
+    tier: "legend",
     hint: "拿到 MVP（贏的一隊裡本場貢獻最高）的場次比例最高",
     value: (r) => {
       const g = n0(r, "participants.games")
@@ -1003,16 +1015,18 @@ const TITLES: TitleDef[] = [
   },
   {
     name: "不死之身",
+    icon: InfinityIcon,
+    tier: "gold",
     hint: `死亡時間占全場的比例最低（只算有賽後統計的場次，至少 ${TITLE_MIN_EOG} 場）`,
     value: (r) => opt(r, "participants.time_dead_share"),
     eligible: (r) => n0(r, "participants.time_dead_games") >= TITLE_MIN_EOG,
     lower: true,
     fmt: (v) => `死亡時間只占 ${v.toFixed(1)}%`,
   },
-  { name: "英雄百科", hint: "玩過的英雄最多", value: (r) => opt(r, "participants.champion_count"), fmt: (v) => `玩過 ${Math.round(v)} 隻英雄` },
+  { name: "英雄百科", icon: BookOpen, tier: "gold", hint: "玩過的英雄最多", value: (r) => opt(r, "participants.champion_count"), fmt: (v) => `玩過 ${Math.round(v)} 隻英雄` },
 ]
 
-type Title = { name: string; kind: "title" | "milestone"; tip: string }
+type Title = { name: string; kind: "title" | "milestone"; tier: TitleTier; icon: LucideIcon; tip: string }
 
 /** 每個人拿到的稱號與里程碑。rows 是 TITLE_MEASURES 以 participants.puuid 分組的結果 */
 function titlesOf(people: Player[], rows: CubeRow[]): Map<string, Title[]> {
@@ -1034,6 +1048,8 @@ function titlesOf(people: Player[], rows: CubeRow[]): Map<string, Title[]> {
       out.get(w.p.puuid)!.push({
         name: t.name,
         kind: "title",
+        tier: t.tier,
+        icon: t.icon,
         tip: `${t.name}：${t.hint}\n${t.fmt(w.v)}，比較的 ${entries.length} 人裡第一${runnerUp ? `（第二是 ${nameOf(runnerUp.p)}，${t.fmt(runnerUp.v)}）` : ""}`,
       })
     }
@@ -1044,32 +1060,63 @@ function titlesOf(people: Player[], rows: CubeRow[]): Map<string, Title[]> {
     const mine = out.get(p.puuid)!
     const pentas = n0(r, "participants.pentas")
     // 已經是五殺之王就不再重複寫五殺達成
-    if (pentas > 0 && !mine.some((t) => t.name === "五殺之王")) mine.push({ name: "五殺達成", kind: "milestone", tip: `里程碑：拿過五殺（${pentas} 次）` })
+    if (pentas > 0 && !mine.some((t) => t.name === "五殺之王")) mine.push({ name: "五殺達成", kind: "milestone", tier: "silver", icon: Sparkles, tip: `里程碑：拿過五殺（${pentas} 次）` })
     const games = n0(r, "participants.games")
     const m = GAME_MILESTONES.find((x) => games >= x.games)
-    if (m) mine.push({ name: m.name, kind: "milestone", tip: `里程碑：大亂鬥 ${m.games} 場以上（目前 ${games} 場）` })
+    if (m) mine.push({ name: m.name, kind: "milestone", tier: "silver", icon: Medal, tip: `里程碑：大亂鬥 ${m.games} 場以上（目前 ${games} 場）` })
   }
   return out
 }
 
-/** 稱號（實心，強調色）與里程碑（虛線框）。一個都沒有就不畫 */
-function TitleBadges({ titles, className }: { titles: Title[] | undefined; className?: string }) {
+/** 各等級的徽章樣式：底色是同色系的斜向漸層、外圍一圈同色的光，圖示放在一顆實心的小圓裡 */
+const TIER_CLASS: Record<TitleTier, { badge: string; icon: string }> = {
+  legend: {
+    badge: "border-prismatic/70 bg-linear-135 from-prismatic/30 via-prismatic/10 to-gold/15 text-prismatic shadow-[0_0_12px_-3px] shadow-prismatic/70",
+    icon: "bg-prismatic text-background",
+  },
+  gold: {
+    badge: "border-gold/60 bg-linear-135 from-gold/25 to-gold/5 text-gold shadow-[0_0_10px_-4px] shadow-gold/70",
+    icon: "bg-gold text-background",
+  },
+  silver: {
+    badge: "border-silver/45 bg-silver/10 text-silver",
+    icon: "bg-silver/80 text-background",
+  },
+}
+/** 傳說 → 金 → 銀，同一級照原本的順序 */
+const TIER_ORDER: Record<TitleTier, number> = { legend: 0, gold: 1, silver: 2 }
+
+/** 稱號（傳說／金）與里程碑（銀）。一個都沒有就不畫。size="lg" 給抽屜用 */
+function TitleBadges({ titles, className, size = "sm" }: { titles: Title[] | undefined; className?: string; size?: "sm" | "lg" }) {
   if (!titles?.length) return null
+  const sorted = [...titles].sort((a, b) => TIER_ORDER[a.tier] - TIER_ORDER[b.tier])
+  const lg = size === "lg"
   return (
-    <span className={cn("flex flex-wrap gap-1", className)} data-testid="crew-titles">
-      {titles.map((t) => (
-        <span
-          key={t.name}
-          title={t.tip}
-          data-testid={t.kind === "title" ? "crew-title" : "crew-milestone"}
-          className={cn(
-            "rounded border px-1.5 text-[10px] leading-4",
-            t.kind === "title" ? "border-primary/50 bg-primary/10 text-primary" : "border-dashed text-muted-foreground",
-          )}
-        >
-          {t.name}
-        </span>
-      ))}
+    <span className={cn("flex flex-wrap", lg ? "gap-2" : "gap-1.5", className)} data-testid="crew-titles">
+      {sorted.map((t, i) => {
+        const tier = TIER_CLASS[t.tier]
+        const Icon = t.icon
+        return (
+          <span
+            key={t.name}
+            title={t.tip}
+            data-testid={t.kind === "title" ? "crew-title" : "crew-milestone"}
+            data-tier={t.tier}
+            style={{ "--stagger": `${i * 120}ms` } as CSSProperties}
+            className={cn(
+              "inline-flex items-center rounded-full border font-semibold whitespace-nowrap",
+              t.kind === "title" && "title-shine",
+              lg ? "gap-1.5 py-0.5 pr-2.5 pl-0.5 text-xs" : "gap-1 py-px pr-2 pl-px text-[11px]",
+              tier.badge,
+            )}
+          >
+            <span className={cn("flex shrink-0 items-center justify-center rounded-full", lg ? "size-5" : "size-4", tier.icon)}>
+              <Icon className={lg ? "size-3" : "size-2.5"} strokeWidth={2.5} />
+            </span>
+            {t.name}
+          </span>
+        )
+      })}
     </span>
   )
 }
@@ -1425,7 +1472,7 @@ function PlayerDrawerBody({
         {!!titles?.length && (
           <div className="flex flex-wrap items-center gap-2 rounded-lg border p-3">
             <span className="text-[11px] text-muted-foreground">稱號</span>
-            <TitleBadges titles={titles} />
+            <TitleBadges titles={titles} size="lg" />
             <span className="text-[11px] text-muted-foreground">滑過看數字；稱號是目前比較對象之間的第一名</span>
           </div>
         )}
