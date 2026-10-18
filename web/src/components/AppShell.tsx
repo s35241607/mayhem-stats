@@ -21,6 +21,7 @@ import {
   Shield,
   Clapperboard,
   ChevronDown,
+  Settings,
 } from "lucide-react"
 import {
   Sidebar,
@@ -66,7 +67,7 @@ import { DATE_RANGES, comparePatch, useFilters } from "@/lib/filters"
 import { MAYHEM_QUEUE_ID } from "@/lib/cube"
 import { AccountSwitcher, ViewingOtherBanner } from "@/components/AccountSwitcher"
 import { ThemeSwitcher } from "@/components/ThemeSwitcher"
-import { SiteDefaultsDialog } from "@/components/SiteDefaultsDialog"
+import { EmptyState } from "@/components/primitives"
 import { useCrumbs } from "@/lib/breadcrumb"
 
 export type PageId =
@@ -84,8 +85,12 @@ export type PageId =
   | "tracked"
   | "recap"
   | "calc"
+  | "settings"
 
-const NAV: { group: string; items: { id: PageId; label: string; icon: typeof Zap }[] }[] = [
+/** ADMIN 分組的頁面：側欄只對管理員（filters 的 canEditDefaults）顯示，直接開網址也擋下。 */
+const ADMIN_PAGES = new Set<PageId>(["tracked", "settings"])
+
+const NAV: { group: string; admin?: boolean; items: { id: PageId; label: string; icon: typeof Zap }[] }[] = [
   {
     group: "總覽",
     items: [
@@ -112,7 +117,14 @@ const NAV: { group: string; items: { id: PageId; label: string; icon: typeof Zap
       { id: "calc", label: "出裝計算機", icon: Calculator },
       { id: "recap", label: "賽季回顧", icon: Clapperboard },
       { id: "explore", label: "自由探索", icon: Compass },
+    ],
+  },
+  {
+    group: "ADMIN",
+    admin: true,
+    items: [
       { id: "tracked", label: "追蹤對象", icon: Radar },
+      { id: "settings", label: "設定", icon: Settings },
     ],
   },
 ]
@@ -132,6 +144,7 @@ const PAGE_TITLES: Record<PageId, { title: string; caption: string }> = {
   recap: { title: "賽季回顧", caption: "把這段時間的戰績做成一支可以直接播放的短片" },
   calc: { title: "出裝計算機", caption: "依你現在的面板和對手的雙防，算每件裝備的傷害與坦度效益" },
   tracked: { title: "追蹤對象", caption: "除了自己以外，還要一併採集誰的戰績" },
+  settings: { title: "設定", caption: "全站設定，只有管理員看得到" },
 }
 
 function CollectorPill() {
@@ -375,6 +388,7 @@ function NavSections({
   onNavigate: (page: PageId) => void
 }) {
   const { isMobile, setOpenMobile } = useSidebar()
+  const { canEditDefaults } = useFilters()
 
   const go = (id: PageId) => {
     onNavigate(id)
@@ -384,7 +398,7 @@ function NavSections({
 
   return (
     <>
-      {NAV.map((section) => (
+      {NAV.filter((section) => !section.admin || canEditDefaults).map((section) => (
         <SidebarGroup key={section.group}>
           <SidebarGroupLabel>{section.group}</SidebarGroupLabel>
           <SidebarGroupContent>
@@ -419,6 +433,14 @@ export function AppShell({
   children: ReactNode
 }) {
   const meta = PAGE_TITLES[page]
+  const { ready, canEditDefaults } = useFilters()
+  // 權限要等 /api/config 回來才知道（ready 包含它）；在那之前不掛 ADMIN 頁，免得非管理員先看到一閃、頁面先打了 API
+  const adminPage = ADMIN_PAGES.has(page)
+  const content = !adminPage || canEditDefaults
+    ? children
+    : ready
+      ? <EmptyState>這一頁只有管理員看得到。</EmptyState>
+      : null
 
   return (
     <SidebarProvider>
@@ -454,14 +476,13 @@ export function AppShell({
             <Separator orientation="vertical" className="!h-5" />
             <Breadcrumb title={meta.title} caption={meta.caption} />
             <GlobalFilters />
-            <SiteDefaultsDialog />
             <ThemeSwitcher />
           </div>
         </header>
 
         <main className="min-w-0 flex-1 p-5">
           <ViewingOtherBanner />
-          {children}
+          {content}
         </main>
       </SidebarInset>
     </SidebarProvider>

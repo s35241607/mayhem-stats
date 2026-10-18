@@ -28,6 +28,7 @@ const LOADERS = {
   recap: () => import("@/pages/Recap").then((m) => m.Recap),
   tracked: () => import("@/pages/Tracked").then((m) => m.Tracked),
   calc: () => import("@/pages/Calculator").then((m) => m.Calculator),
+  settings: () => import("@/pages/Settings").then((m) => m.Settings),
 } satisfies Record<PageId, () => Promise<ComponentType>>
 
 // 已經載入完成的頁面元件。有的話直接渲染，不經過 lazy()。

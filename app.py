@@ -775,7 +775,7 @@ def root_icon(request: Request):
 @app.get("/{page}")
 def page_index(page: str):
     if page not in {"dashboard", "matches", "champions", "augments", "lineups", "players", "crew",
-                    "time", "tilt", "losses", "explore", "recap", "tracked", "calc"}:
+                    "time", "tilt", "losses", "explore", "recap", "tracked", "calc", "settings"}:
         return Response(status_code=404)
     return index()
 
