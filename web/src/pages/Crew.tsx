@@ -194,42 +194,50 @@ const isLuck = (x: string | null) => x === WR_NOTES.unlucky || x === WR_NOTES.ca
 /** 勝率卡（整體勝率和 50% 比）用的字，和勝率補充同一套說法 */
 const WR_SHOWN: Record<Strength, string> = { 強勢: WR_NOTES.clearUp, 偏強: WR_NOTES.leanUp, 看不出: "五五波", 偏弱: WR_NOTES.leanDown, 不強勢: WR_NOTES.clearDown }
 
-/** 畫面上的十級標籤，全部是正面的說法，由強到弱。內部五級（強勢…不強勢）和陣容頁共用，這裡再依差距與場次細分：
- *  - 看得出高（區間整段高於 50）：差 SIGNATURE_GAP 以上是「招牌」，其餘「拿手」
- *  - 偏強（差 WORK_GAP 以上、還在誤差內）：差 RISING_GAP 以上是「上手」，其餘「順手」
- *  - 和平均差不多：「標準發揮」（不用「穩定」——會被讀成起伏小；不用「看不出」——會被讀成場次不夠）
- *  - 偏弱：差 RISING_GAP 以上是「摸索中」，其餘「磨合中」；看得出低是「潛力股」
+/** 畫面上的標籤，全部是正面的說法，由強到弱共十九級。內部五級（強勢…不強勢）和陣容頁共用，這裡再依「和 50 差幾分」細分：
+ *  - 看得出高（區間整段高於 50）：傳奇 ≥20、招牌 ≥12、拿手 ≥8，其餘得心應手
+ *  - 偏強（差 WORK_GAP 以上、還在誤差內）：嶄露頭角 ≥12、上手 ≥8、漸入佳境 ≥6，其餘順手
+ *  - 和平均差不多（差不到 WORK_GAP）：小有心得 ≥+2、標準發揮、暖機中 ≤−2
+ *  - 偏弱：磨合中、調整中 ≤−6、摸索中 ≤−8、練功中 ≤−12
+ *  - 看得出低：潛力股，差 15 以上是璞玉
  *  - 有分數的場次不到 MIN_N：TRIAL_MAX 場以下「初體驗」，其餘「熱身中」
- *  2026-10-18 用好友 9 人的資料試算：英雄 668 項裡初體驗 392、熱身中 136，有判斷的 140 項裡招牌 6、上手 30、順手 20、標準發揮 45、
- *  磨合中 16、摸索中 19、潛力股 4；出裝 52 項裡招牌 1、拿手 3、順手 3、標準發揮 19、磨合中 7、摸索中 4、潛力股 8 */
-const SIGNATURE_GAP = 12
-const RISING_GAP = 8
+ *  切點看 2026-10-18 好友 9 人（16.17 之後）的實際差距分布，讓每一級都有人：英雄偏強 50 項大約四等分（4～6、6～8、8～12、12 以上），
+ *  偏弱 32 項同理；看得出的英雄只有 9 項，所以頂端兩級（傳奇、璞玉）各只有幾項。
+ *  顏色是一條由強到弱的連續色帶：稜鏡色 → 金 → 勝方色由實心漸淡 → 灰 → 敗方色由淡漸實心，全部是主題變數（亮色主題有各自的版本）；
+ *  框線實心＝看得出、虛線＝還在誤差內。 */
 const TRIAL_MAX = 2
 const LEVELS = [
-  { label: "招牌", strength: "強勢", note: `比平均高 ${SIGNATURE_GAP} 分以上（看得出）` },
-  { label: "拿手", strength: "強勢", note: "比平均高（看得出）" },
-  { label: "上手", strength: "偏強", note: `高 ${RISING_GAP} 分以上，還在誤差內` },
-  { label: "順手", strength: "偏強", note: `高 ${WORK_GAP} 分以上，還在誤差內` },
-  { label: "標準發揮", strength: "看不出", note: "和平均差不多" },
-  { label: "磨合中", strength: "偏弱", note: `低 ${WORK_GAP} 分以上，還在誤差內` },
-  { label: "摸索中", strength: "偏弱", note: `低 ${RISING_GAP} 分以上，還在誤差內` },
-  { label: "潛力股", strength: "不強勢", note: "低於平均（看得出）" },
-  { label: "熱身中", strength: null, note: `${TRIAL_MAX + 1}～${MIN_N - 1} 場，還不下判斷` },
-  { label: "初體驗", strength: null, note: `${TRIAL_MAX} 場以下` },
-] as const satisfies readonly { label: string; strength: Strength | null; note: string }[]
+  { label: "傳奇", strength: "強勢", min: 20, note: "比平均高 20 分以上（看得出）", cls: "border-prismatic bg-prismatic text-background font-semibold" },
+  { label: "招牌", strength: "強勢", min: 12, note: "比平均高 12 分以上（看得出）", cls: "border-gold bg-gold text-background font-semibold" },
+  { label: "拿手", strength: "強勢", min: 8, note: "比平均高 8 分以上（看得出）", cls: "border-win bg-win text-background font-semibold" },
+  { label: "得心應手", strength: "強勢", min: -Infinity, note: "比平均高（看得出）", cls: "border-win bg-win/30 text-win font-semibold" },
+  { label: "嶄露頭角", strength: "偏強", min: 12, note: "高 12 分以上，還在誤差內", cls: "border-dashed border-win/80 bg-win/25 text-win" },
+  { label: "上手", strength: "偏強", min: 8, note: "高 8 分以上，還在誤差內", cls: "border-dashed border-win/60 bg-win/15 text-win" },
+  { label: "漸入佳境", strength: "偏強", min: 6, note: "高 6 分以上，還在誤差內", cls: "border-dashed border-win/45 bg-win/8 text-win" },
+  { label: "順手", strength: "偏強", min: -Infinity, note: `高 ${WORK_GAP} 分以上，還在誤差內`, cls: "border-dashed border-win/35 text-win/85" },
+  { label: "小有心得", strength: "看不出", min: 2, note: `高 2～${WORK_GAP} 分，和平均差不多`, cls: "border-dashed border-border bg-win/5 text-foreground/85" },
+  { label: "標準發揮", strength: "看不出", min: -2, note: "和平均差不多", cls: "border-dashed border-border text-muted-foreground" },
+  { label: "暖機中", strength: "看不出", min: -Infinity, note: `低 2～${WORK_GAP} 分，和平均差不多`, cls: "border-dashed border-border bg-loss/5 text-foreground/85" },
+  { label: "磨合中", strength: "偏弱", min: -6, note: `低 ${WORK_GAP} 分以上，還在誤差內`, cls: "border-dashed border-loss/35 text-loss/85" },
+  { label: "調整中", strength: "偏弱", min: -8, note: "低 6 分以上，還在誤差內", cls: "border-dashed border-loss/45 bg-loss/8 text-loss" },
+  { label: "摸索中", strength: "偏弱", min: -12, note: "低 8 分以上，還在誤差內", cls: "border-dashed border-loss/60 bg-loss/15 text-loss" },
+  { label: "練功中", strength: "偏弱", min: -Infinity, note: "低 12 分以上，還在誤差內", cls: "border-dashed border-loss/80 bg-loss/25 text-loss" },
+  { label: "潛力股", strength: "不強勢", min: -15, note: "低於平均（看得出）", cls: "border-loss bg-loss/30 text-loss font-semibold" },
+  { label: "璞玉", strength: "不強勢", min: -Infinity, note: "低於平均 15 分以上（看得出）", cls: "border-loss bg-loss text-background font-semibold" },
+  { label: "熱身中", strength: null, min: -Infinity, note: `${TRIAL_MAX + 1}～${MIN_N - 1} 場，還不下判斷`, cls: "border-dashed text-muted-foreground" },
+  { label: "初體驗", strength: null, min: -Infinity, note: `${TRIAL_MAX} 場以下`, cls: "border-dashed border-border/60 text-muted-foreground/70" },
+] as const satisfies readonly { label: string; strength: Strength | null; min: number; note: string; cls: string }[]
 type Level = (typeof LEVELS)[number]["label"]
+const LEVEL_OF = new Map(LEVELS.map((l) => [l.label as Level, l]))
 
+/** 同一個內部五級裡，照差距由高往低找第一個 d ≥ min 的那一級（每一組最後一級的 min 是 −∞，一定找得到） */
 function labelOf(j: Pick<Judged, "g" | "strength" | "scored">): Level {
   if (!j.g?.interval) return j.scored <= TRIAL_MAX ? "初體驗" : "熱身中"
   const d = j.g.mean - 50
-  switch (j.strength) {
-    case "強勢": return d >= SIGNATURE_GAP ? "招牌" : "拿手"
-    case "偏強": return d >= RISING_GAP ? "上手" : "順手"
-    case "偏弱": return d <= -RISING_GAP ? "摸索中" : "磨合中"
-    case "不強勢": return "潛力股"
-    default: return "標準發揮"
-  }
+  return LEVELS.find((l) => l.strength === j.strength && d >= l.min)!.label
 }
+/** 這一級的框線與底色 */
+const levelClass = (j: Pick<Judged, "g" | "strength" | "scored">) => LEVEL_OF.get(labelOf(j))!.cls
 
 const isPos = (s: Strength) => s === "強勢" || s === "偏強"
 const isNeg = (s: Strength) => s === "不強勢" || s === "偏弱"
@@ -270,7 +278,7 @@ function StrengthChip({ j }: { j: Judged }) {
   if (!j.g?.interval && !x) return <span className="text-[11px] text-muted-foreground/80">{labelOf(j)}</span>
   return (
     <span className="inline-flex items-center gap-1 whitespace-nowrap">
-      <span data-testid="strength-chip" className={cn("rounded border px-1.5 text-[11px]", STRENGTH_CLASS[j.strength])}>
+      <span data-testid="strength-chip" className={cn("rounded border px-1.5 text-[11px]", levelClass(j))}>
         {labelOf(j)}
       </span>
       {x && (
@@ -478,8 +486,12 @@ function RoleStrip({ roles, reach, ownWr }: { roles: Judged[]; reach: number; ow
                 />
               )}
             </span>
-            <span className={cn("flex items-center justify-end whitespace-nowrap", j?.g?.interval ? NUM_CLASS[j.strength] : "text-muted-foreground/70")}>
-              {j && j.games ? labelOf(j) : "—"}
+            <span className="flex items-center justify-end whitespace-nowrap">
+              {j && j.games ? (
+                <span className={cn("rounded border px-1 text-[10px] leading-4", levelClass(j))}>{labelOf(j)}</span>
+              ) : (
+                <span className="text-muted-foreground/60">—</span>
+              )}
               {j && <LuckTag j={j} />}
             </span>
           </span>
@@ -512,7 +524,7 @@ function RowLegend() {
             key={l.label}
             data-testid="crew-level-legend"
             data-tip={`${l.label}：${l.note}`}
-            className={cn("cursor-help rounded border px-1 text-[10px]", l.strength ? STRENGTH_CLASS[l.strength] : "border-dashed text-muted-foreground")}
+            className={cn("cursor-help rounded border px-1 text-[10px]", l.cls)}
           >
             {l.label}
           </span>
@@ -809,7 +821,7 @@ type GamesFocus = { title: string; note: string; cell?: { puuid: string; key: st
 type Focus = { kind: "player"; puuid: string; role: string | null; tab: DrawerTab; champ?: string } | ({ kind: "games" } & GamesFocus)
 
 /** 總覽分頁上的一張數字卡：主數字、區間、判定與一句說明 */
-function SummaryCard({ title, main, sub, strength, label, note }: { title: string; main: string; sub: string; strength: Strength; label: string; note: string }) {
+function SummaryCard({ title, main, sub, strength, label, note, cls }: { title: string; main: string; sub: string; strength: Strength; label: string; note: string; cls?: string }) {
   return (
     <div className="rounded-lg border p-3">
       <div className="flex items-center justify-between gap-2">
@@ -817,7 +829,7 @@ function SummaryCard({ title, main, sub, strength, label, note }: { title: strin
           {title}
           <Hint text={note} />
         </span>
-        <span className={cn("rounded border px-1.5 text-[11px]", STRENGTH_CLASS[strength])}>{label}</span>
+        <span className={cn("rounded border px-1.5 text-[11px]", cls ?? STRENGTH_CLASS[strength])}>{label}</span>
       </div>
       <div className="mt-1 font-mono text-2xl font-bold tabular-nums">{main}</div>
       <div className="font-mono text-[11px] tabular-nums text-muted-foreground">{sub}</div>
@@ -1667,6 +1679,7 @@ function PlayerDrawerBody({
             }
             strength={ov.strength}
             label={labelOf(ov)}
+            cls={levelClass(ov)}
             note="每場只和同一場另外九個人比工作量（輸出、承傷、控場、治療護盾，權重依終場裝備），50＝所有人的平均；死亡不扣分。標 * 的暫估場次（沒有賽後統計）也算在內"
           />
           <SummaryCard
@@ -2925,14 +2938,14 @@ export function Crew() {
               </ToggleGroup>
             }
             caption="每人一列；滑過看數字，點一列看完整分析"
-            hint={"判定看本場貢獻（每場只和同一場的人比，50＝所有人的平均）的誤差範圍：整段高於 50 是招牌／拿手、整段低於 50 是潛力股，還在誤差內的寫上手／順手、磨合中／摸索中（虛線框）。\n雷達是各出裝佔他場次的比例；出裝欄每種出裝一條，所有人同一把尺，點是本場貢獻和 50 的差、橫線是誤差範圍（實心＝看得出）。\n英雄的數字是名次，看得出的排前面。"}
+            hint={"判定看本場貢獻（每場只和同一場的人比，50＝所有人的平均）的誤差範圍：整段高於 50 是得心應手以上（拿手、招牌、傳奇）、整段低於 50 是潛力股或璞玉，還在誤差內的依差距細分（虛線框）；滑過圖例看每一級的切點。\n雷達是各出裝佔他場次的比例；出裝欄每種出裝一條，所有人同一把尺，點是本場貢獻和 50 的差、橫線是誤差範圍（實心＝看得出）。\n英雄的數字是名次，看得出的排前面。"}
           >
             {loading ? (
               <Skeleton className="h-[640px] w-full" />
             ) : (
               <div className="space-y-3">
                 <p className="text-sm" data-testid="crew-matrix-summary">
-                  各出裝裡 {counts.judged} 格有 {MIN_N} 場以上，看得出強弱的有 {counts.strong + counts.weak} 格（招牌／拿手 {counts.strong}、潛力股 {counts.weak}），其餘差距都還在誤差內。
+                  各出裝裡 {counts.judged} 格有 {MIN_N} 場以上，看得出強弱的有 {counts.strong + counts.weak} 格（看得出高 {counts.strong}、看得出低 {counts.weak}），其餘差距都還在誤差內。
                 </p>
                 <RowLegend />
                 <div className="@container">
@@ -3013,7 +3026,7 @@ export function Crew() {
                                 {ov.score === null ? "—" : Math.round(ov.score)}
                               </span>
                               {ov.g?.interval && (
-                                <span className={cn("ml-1 rounded border px-1 text-[10px]", STRENGTH_CLASS[ov.strength])}>{labelOf(ov)}</span>
+                                <span className={cn("ml-1 rounded border px-1 text-[10px]", levelClass(ov))}>{labelOf(ov)}</span>
                               )}
                             </span>
                             <span className="block truncate text-[11px]" data-tip={prof.style.archetypeNote ?? undefined} data-testid="crew-style-line">
@@ -3042,13 +3055,13 @@ export function Crew() {
                     沒有賽後統計的場次（治療護盾隊友的量改用含自補的治療量）是暫估，也算進平均。
                   </p>
                   <p>
-                    每一項都算誤差範圍（95%；單場的分數起伏大，標準差約 18.5，場次越多範圍越窄）。範圍整段高於 50 才寫「拿手」（高 {SIGNATURE_GAP} 分以上是「招牌」）、整段低於 50 寫「潛力股」；
-                    差 {WORK_GAP} 分以上但範圍還跨過 50 寫「順手／磨合中」（差 {RISING_GAP} 分以上是「上手／摸索中」）；其餘是「標準發揮」（和平均差不多）；
+                    每一項都算誤差範圍（95%；單場的分數起伏大，標準差約 18.5，場次越多範圍越窄）。範圍整段高於 50 是「得心應手」以上（高 8／12／20 分以上是拿手／招牌／傳奇）、整段低於 50 是「潛力股」（低 15 分以上是璞玉）；
+                    差 {WORK_GAP} 分以上但範圍還跨過 50，依差距寫「順手／漸入佳境／上手／嶄露頭角」或「磨合中／調整中／摸索中／練功中」；差不到 {WORK_GAP} 分是「小有心得／標準發揮／暖機中」；
                     不到 {MIN_N} 場不下判斷，寫「熱身中」（{TRIAL_MAX} 場以下是「初體驗」）。同一個人同時比好幾種出裝或好幾隻英雄，範圍會再放寬——
                     一次比二十隻，總有一兩隻看起來特別好或特別差只是運氣。
                   </p>
                   <p>
-                    勝率只當補充：和他自己的整體勝率比，範圍也整段在一邊寫「勝率亮眼／蓄勢待發」，差 {WR_LEAN} 個百分點以上但還在誤差內寫「勝率不錯／手氣待回溫」；貢獻比平均高（招牌到順手）、勝率卻比他平常低 {WR_LUCK} 個百分點以上（至少 {LUCK_MIN} 場）是「雖敗猶榮」：輸多半不是他的問題；反過來貢獻還在追、勝率卻高是「默契加分」。
+                    勝率只當補充：和他自己的整體勝率比，範圍也整段在一邊寫「勝率亮眼／蓄勢待發」，差 {WR_LEAN} 個百分點以上但還在誤差內寫「勝率不錯／手氣待回溫」；貢獻比平均高（傳奇到順手）、勝率卻比他平常低 {WR_LUCK} 個百分點以上（至少 {LUCK_MIN} 場）是「雖敗猶榮」：輸多半不是他的問題；反過來貢獻還在追、勝率卻高是「默契加分」。
                     好友多半一起打、勝率互相牽動，每個人的整體勝率目前都和 50% 分不出差別，所以不拿勝率判斷。
                   </p>
                   <p>

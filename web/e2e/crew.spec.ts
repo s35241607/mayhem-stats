@@ -233,7 +233,7 @@ test.describe("好友比較頁：全員一覽", () => {
       }
     }
     await expect(page.getByTestId("crew-matrix-summary")).toHaveText(
-      `各出裝裡 ${judged} 格有 5 場以上，看得出強弱的有 ${strong + weak} 格（招牌／拿手 ${strong}、潛力股 ${weak}），其餘差距都還在誤差內。`,
+      `各出裝裡 ${judged} 格有 5 場以上，看得出強弱的有 ${strong + weak} 格（看得出高 ${strong}、看得出低 ${weak}），其餘差距都還在誤差內。`,
     )
   })
 
@@ -244,10 +244,13 @@ test.describe("好友比較頁：全員一覽", () => {
     }
   })
 
-  test("圖例與「怎麼判斷的」：五級判定、▲▼ 勝率補充、為什麼不再用適合／不適合", async ({ page }) => {
+  test("圖例與「怎麼判斷的」：十九級標籤（意思在提示裡）、為什麼不再用適合／不適合", async ({ page }) => {
     const box = panel(page, "全員一覽")
-    for (const t of [/比平均強（看得出）/, /高 4 分以上，還在誤差內/, /低於平均（看得出）/, /實心＝看得出、空心＝還在誤差內/]) {
-      await expect(box.getByText(t)).toBeVisible()
+    // 十九級圖例只留標籤，意思放在滑過的提示（data-tip）
+    const legend = box.getByTestId("crew-level-legend")
+    await expect(legend).toHaveCount(19)
+    for (const [label, note] of [["傳奇", "20 分以上"], ["順手", "高 4 分以上，還在誤差內"], ["潛力股", "低於平均（看得出）"], ["初體驗", "2 場以下"]]) {
+      await expect(legend.filter({ hasText: label }).first()).toHaveAttribute("data-tip", new RegExp(note))
     }
     await box.getByText(/怎麼判斷的/).click()
     await expect(box.getByText(/舊版的「適合／不適合」用固定門檻/)).toBeVisible()
