@@ -1326,8 +1326,10 @@ export function DailyChart({
     // 累積勝率大多落在 45~55，用 0~100 畫會變成一條平線，所以座標軸貼著資料縮放；
     // 但一定包含 50%，才看得出「在一半以上還是以下」
     // 前幾天只打了一兩場，累積勝率會是 0% 或 100%，把它們算進範圍會讓後面的走勢扁成一條線；
-    // 範圍只看累積到 10 場以上的日子，更早的那一小段會被圖框切掉（tooltip 仍然寫得出）
+    // 範圍只看累積到 10 場以上的日子，更早的那一小段乾脆不畫（tooltip 仍然寫得出）。
+    // 只排除在範圍外、卻照樣畫的話，超出上緣的點會被圖框切掉，折線和底下的填色整段貼在圖頂。
     const settled = cumulative.filter((c) => c.rate !== null && c.games >= MIN_CUMULATIVE_GAMES)
+    const drawn = (c: (typeof cumulative)[number]) => c.rate !== null && (!settled.length || c.games >= MIN_CUMULATIVE_GAMES)
     const rates = (settled.length ? settled : cumulative).map((c) => c.rate ?? 50)
     const lo = Math.min(...rates, 48)
     const hi = Math.max(...rates, 52)
@@ -1428,8 +1430,8 @@ export function DailyChart({
           name: "累積勝率",
           yAxisIndex: 0,
           data: cumulative.map((c, i) => ({
-            // 低於座標範圍的（前幾天場次太少的 0%、100%）不畫，免得折線一頭鑽進下面長條的區域
-            value: c.rate !== null && c.rate >= rateMin ? c.rate : null,
+            // 累積不到 10 場的（前幾天的 0%、100%）不畫：座標範圍沒有算進它們，畫了不是鑽進下面的長條就是被上緣切掉
+            value: drawn(c) ? c.rate : null,
             // 只有最新一天標出數字：那就是「目前整體勝率」
             label: {
               show: i === cumulative.length - 1 && c.rate !== null,
