@@ -322,10 +322,10 @@ const NUM_CLASS: Record<Strength, string> = {
 }
 
 /** 一人一列的格線，class 寫成完整字串（Tailwind 掃不到拼出來的） */
-/** 寬的時候四欄（名字、雷達、出裝、英雄）；窄的時候兩欄：名字與雷達在上，出裝、英雄各佔整行堆疊。
+/** 寬的時候五欄（名字、雷達、出裝、貢獻分解、英雄）；窄的時候兩欄：名字與雷達在上，出裝、英雄各佔整行堆疊。
  *  用容器查詢（@container）而不是視窗寬度，側欄展開或收合時排版跟著實際可用的寬度走。 */
 const ROW_COLS =
-  "grid-cols-[minmax(0,1fr)_6rem] gap-3 @[1000px]:grid-cols-[14rem_6rem_minmax(14rem,0.8fr)_minmax(0,1.2fr)] @[1000px]:gap-4 @[1400px]:grid-cols-[18rem_6rem_minmax(16rem,0.7fr)_minmax(0,1.3fr)]"
+  "grid-cols-[minmax(0,1fr)_6rem] gap-3 @[1000px]:grid-cols-[14rem_6rem_minmax(14rem,0.8fr)_11rem_minmax(0,1.2fr)] @[1000px]:gap-4 @[1400px]:grid-cols-[18rem_6rem_minmax(16rem,0.7fr)_12rem_minmax(0,1.3fr)]"
 /** 全員一覽載入中的佔位：每人一列，欄位和真正的列（ROW_COLS）一樣——名字與稱號、雷達、出裝橫條、英雄頭像——
  *  換上內容時版面不會跳。上面一行是轉圈圈與說明，讓人知道不是壞了；列本身是呼吸的淡色塊（只動 opacity）。 */
 function MatrixSkeleton({ rows, label }: { rows: number; label: string }) {
@@ -356,6 +356,11 @@ function MatrixSkeleton({ rows, label }: { rows: number; label: string }) {
           <span className={cn("grid gap-2", SECTION_SPAN)}>
             {[0, 1, 2, 3, 4, 5].map((k) => (
               <span key={k} className={cn(bar, "h-3")} style={{ width: `${55 + ((i * 7 + k * 13) % 40)}%` }} />
+            ))}
+          </span>
+          <span className={cn("grid gap-1.5", SECTION_SPAN)}>
+            {Array.from({ length: 8 }, (_, k) => (
+              <span key={k} className={cn(bar, "h-2")} />
             ))}
           </span>
           <span className={cn("grid gap-3", SECTION_SPAN)}>
@@ -3418,7 +3423,7 @@ export function Crew() {
     puuids.length && centerFilters ? apply({ ...query, filters: [crewFilter(puuids), ...centerFilters, ...(query.filters ?? [])] }, "all") : null
 
   const summary = useCube(
-    q({ measures: [...STAT_MEASURES, "participants.kda", ...AXES.map((c) => c.key)], dimensions: ["participants.puuid"], limit: NO_LIMIT }),
+    q({ measures: [...STAT_MEASURES, "participants.kda", ...AXES.map((c) => c.key), ...WORK_PARTS.map((c) => c.pts)], dimensions: ["participants.puuid"], limit: NO_LIMIT }),
   )
   const roles = useCube(q({ measures: STAT_MEASURES, dimensions: ["participants.puuid", "builds.build_role"], limit: NO_LIMIT }))
   const champs = useCube(
@@ -3716,6 +3721,7 @@ export function Crew() {
                         </span>
                         <span className="text-right">各出裝</span>
                       </span>
+                      <span data-tip="本場貢獻的八個基因（這段期間的平均）：橫條中線 50＝同出裝定位的平均，右邊是這一項平均讓總分加減幾分。多場平均都貼近 50，橫條放大 3 倍">貢獻分解</span>
                       <span>英雄（上：比平均強、下：培養中）</span>
                     </div>
                     <div
@@ -3741,7 +3747,7 @@ export function Crew() {
                         total={everyoneTotal}
                       />
                       <span
-                        className="col-span-2 truncate text-[11px] text-muted-foreground"
+                        className="col-span-3 truncate text-[11px] text-muted-foreground"
                         data-tip="把資料庫裡每場十位參賽者都算進來：雷達是一般玩家各出裝佔多少，拿來和下面每個人的形狀對照他偏好什麼；本場貢獻在 v2.1 定版時（2026-10-17）的平均是 50，之後的場次不一定剛好 50；勝率每場兩隊都算，必然是 50%。"
                       >
                         雷達是一般玩家的出裝比例，拿來對照每個人偏好什麼（滑過看說明）
@@ -3787,6 +3793,9 @@ export function Crew() {
                           <MiniHex data={prof.roles.map((j) => ({ label: j.label, games: j.games, strength: j.strength }))} total={ov.games} />
                           <span className={SECTION_SPAN}>
                             <RoleStrip roles={prof.roles} reach={roleReach} ownWr={ownWr} />
+                          </span>
+                          <span className={SECTION_SPAN} data-testid="crew-genes">
+                            <ContribBars row={sumOf(p.puuid)} compact />
                           </span>
                           <span className={cn("grid content-center gap-2.5", SECTION_SPAN)}>
                             {(["pos", "neg"] as const).map((side) => (

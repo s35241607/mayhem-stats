@@ -21,15 +21,16 @@ export function ContribScore({ dev: d, className, gap = WORK_GAP }: { dev: numbe
   )
 }
 
-/** 以 50 為中線的橫條：往右是比同出裝定位的平均高，往左是比較低 */
-function DivergingBar({ v, className }: { v: number | null; className?: string }) {
-  const d = v === null ? null : v - 50
+/** 以 50 為中線的橫條：往右是比同出裝定位的平均高，往左是比較低。
+ *  scale：放大倍數（多場平均都貼近 50，原尺寸幾乎看不見），超過的部分截在兩端 */
+function DivergingBar({ v, className, scale = 1 }: { v: number | null; className?: string; scale?: number }) {
+  const d = v === null ? null : Math.max(-50, Math.min(50, (v - 50) * scale))
   return (
     <span className={cn("relative block rounded-full bg-muted/50", className)}>
       {v !== null && d !== null && (
         <span
           className={cn("absolute inset-y-0 rounded-full", d >= 0 ? "bg-win/70" : "bg-loss/70")}
-          style={d >= 0 ? { left: "50%", width: `${d}%` } : { left: `${v}%`, width: `${50 - v}%` }}
+          style={d >= 0 ? { left: "50%", width: `${d}%` } : { left: `${50 + d}%`, width: `${-d}%` }}
         />
       )}
       <span className="absolute inset-y-[-2px] left-1/2 w-px bg-muted-foreground/60" />
@@ -37,12 +38,13 @@ function DivergingBar({ v, className }: { v: number | null; className?: string }
   )
 }
 
-const signed = (v: number) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(1)}`
+const signed = (v: number) => (Math.abs(v) < 0.05 ? "0.0" : `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(1)}`)
 
-/** 八個基因的橫條：中間的刻度是 50（同出裝定位的平均），右邊的數字是這一項讓總分加減幾分；沒有值的項目顯示「—」 */
-export function ContribBars({ row, className }: { row: CubeRow | undefined; className?: string }) {
+/** 八個基因的橫條：中間的刻度是 50（同出裝定位的平均），右邊的數字是這一項讓總分加減幾分；沒有值的項目顯示「—」。
+ *  compact：好友比較全員一覽每人一欄用的小尺寸；放的是多場平均，橫條放大 3 倍 */
+export function ContribBars({ row, className, compact }: { row: CubeRow | undefined; className?: string; compact?: boolean }) {
   return (
-    <div className={className ?? "space-y-1.5"}>
+    <div className={className ?? (compact ? "space-y-[3px]" : "space-y-1.5")}>
       {WORK_PARTS.map((c) => {
         const v = row ? num(row[c.key]) : null
         const pts = row ? num(row[c.pts]) : null
@@ -50,12 +52,17 @@ export function ContribBars({ row, className }: { row: CubeRow | undefined; clas
           `{{lab|${c.label}}}{{big|${v === null ? "—" : Math.round(v)}}} 50＝同出裝定位的平均\n> ${c.hint}` +
           (pts === null ? "" : `\n{{lab|總分}}{{${pts >= 0 ? "win" : "loss"}|${signed(pts)}}} 分（這一項占 ${c.weight}%）`)
         return (
-          <div key={c.key} className="grid grid-cols-[3.5rem_minmax(0,1fr)_2.75rem] items-center gap-2" data-tip={tip}>
-            <span className="text-[12px]">{c.label}</span>
-            <DivergingBar v={v} className="h-2" />
+          <div
+            key={c.key}
+            className={cn("grid items-center", compact ? "grid-cols-[3rem_minmax(0,1fr)_2.25rem] gap-1.5" : "grid-cols-[3.5rem_minmax(0,1fr)_2.75rem] gap-2")}
+            data-tip={tip}
+          >
+            <span className={compact ? "text-[10px] leading-[13px] text-muted-foreground" : "text-[12px]"}>{c.label}</span>
+            <DivergingBar v={v} className={compact ? "h-1.5" : "h-2"} scale={compact ? 3 : 1} />
             <span
               className={cn(
-                "text-right font-mono text-[12px] tabular-nums",
+                "text-right font-mono tabular-nums",
+                compact ? "text-[10px] leading-[13px]" : "text-[12px]",
                 pts === null || Math.abs(pts) < 1 ? "text-muted-foreground" : pts > 0 ? "text-win" : "text-loss",
               )}
             >
