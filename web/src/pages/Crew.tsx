@@ -1,5 +1,5 @@
 import { Fragment, createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react"
-import { ArrowRight, LoaderCircle, BookOpen, Check, ChevronDown, ChevronRight, ChevronsUpDown, Crown, Flame, Hammer, HeartHandshake, Infinity as InfinityIcon, Medal, Search, Shield, Handshake, Snowflake, Sparkles, Star, Trophy, Zap, Users, Skull, Award, Mountain, Heart, Moon, type LucideIcon } from "lucide-react"
+import { ArrowRight, Lock, LoaderCircle, BookOpen, Check, ChevronDown, ChevronRight, ChevronsUpDown, Crown, Flame, Hammer, HeartHandshake, Infinity as InfinityIcon, Medal, Search, Shield, Handshake, Snowflake, Sparkles, Star, Trophy, Zap, Users, Skull, Award, Mountain, Heart, Moon, type LucideIcon } from "lucide-react"
 import { RecordCell } from "@/components/cells"
 import { ContribBars, ContribScore } from "@/components/Contribution"
 import { PERF_PARTS, WORK, WORK_GAMES, WORK_GAP, WORK_MEASURES, WORK_PARTS } from "@/hooks/useContribution"
@@ -870,7 +870,7 @@ function ExpandRow({
 type DrawerTab = "overview" | "picks"
 
 /** 頂層分頁：全員一覽、數據總表、查英雄、查增幅裝置。一次只看一段，分頁列貼在頁首下面。 */
-type Section = "matrix" | "stats" | "champ" | "augment"
+type Section = "matrix" | "stats" | "champ" | "augment" | "badges"
 
 /** 抽屜裡的一串對局：範圍條件交給 Cube 找出是哪幾場（PlayerMatches），或現成的列表參數（單場紀錄） */
 type GamesSource = { puuid: string; filters: CubeFilter[]; recordMetric?: string } | { params: Record<string, string> }
@@ -1121,21 +1121,28 @@ type TitleDef = {
   /** 門檻；lower 的是「不超過」，其餘是「至少」 */
   threshold: number
   fmt: (v: number) => string
-  /** 除了場次以外的參加條件（例如要有賽後統計） */
-  eligible?: (r: CubeRow) => boolean
+  /** 「還差多少」的寫法（d 一定是正的） */
+  gap: (d: number) => string
+  /** 除了場次以外的參加條件（例如要有賽後統計）：還不能算時回傳一句「還缺什麼」，可以算是 null */
+  locked?: (r: CubeRow) => string | null
   /** 越低越好（死亡時間） */
   lower?: boolean
 }
 
+/** 百分比類的「還差」 */
+const PP = (d: number) => `${d.toFixed(1)} 個百分點`
+/** 某一種場次要至少 need 場才開始算 */
+const needGames = (have: number, need: number, what: string) => (have >= need ? null : `${what}還差 ${need - have} 場才開始計算（目前 ${have} 場）`)
+
 const TITLES: TitleDef[] = [
-  { name: "五殺之王", icon: Crown, tier: "legend", hint: `累積 ${T.pentas} 次五殺`, threshold: T.pentas, value: (r) => n0(r, "participants.pentas") || null, fmt: (v) => `${v} 次五殺` },
-  { name: "輸出擔當", icon: Flame, tier: "gold", hint: `每分鐘對英雄傷害 ${T.dpm.toLocaleString()} 以上`, threshold: T.dpm, value: (r) => opt(r, "participants.dpm"), fmt: (v) => `每分鐘 ${Math.round(v).toLocaleString()} 傷害` },
+  { name: "五殺之王", icon: Crown, tier: "legend", hint: `累積 ${T.pentas} 次五殺`, threshold: T.pentas, gap: (d) => `${Math.ceil(d)} 次五殺`, value: (r) => n0(r, "participants.pentas") || null, fmt: (v) => `${v} 次五殺` },
+  { name: "輸出擔當", icon: Flame, tier: "gold", hint: `每分鐘對英雄傷害 ${T.dpm.toLocaleString()} 以上`, threshold: T.dpm, gap: (d) => `每分鐘 ${Math.ceil(d).toLocaleString()} 傷害`, value: (r) => opt(r, "participants.dpm"), fmt: (v) => `每分鐘 ${Math.round(v).toLocaleString()} 傷害` },
   {
     name: "鋼鐵前排",
     icon: Shield,
     tier: "gold",
     hint: `每分鐘承受＋減免的傷害 ${T.soak.toLocaleString()} 以上`,
-    threshold: T.soak,
+    threshold: T.soak, gap: (d) => `每分鐘 ${Math.ceil(d).toLocaleString()} 承傷`,
     value: (r) => {
       const a = opt(r, "participants.taken_per_min")
       const b = opt(r, "participants.mitigated_per_min")
@@ -1143,16 +1150,16 @@ const TITLES: TitleDef[] = [
     },
     fmt: (v) => `每分鐘扛 ${Math.round(v).toLocaleString()}`,
   },
-  { name: "控場大師", icon: Snowflake, tier: "gold", hint: `每分鐘控制敵人 ${T.cc} 秒以上`, threshold: T.cc, value: (r) => opt(r, "participants.cc_time_per_min"), fmt: (v) => `每分鐘控場 ${v.toFixed(1)} 秒` },
-  { name: "拆遷大隊", icon: Hammer, tier: "gold", hint: `每分鐘對建築與中立目標的傷害 ${T.obj} 以上`, threshold: T.obj, value: (r) => opt(r, "participants.objective_damage_per_min"), fmt: (v) => `每分鐘拆 ${Math.round(v).toLocaleString()}` },
+  { name: "控場大師", icon: Snowflake, tier: "gold", hint: `每分鐘控制敵人 ${T.cc} 秒以上`, threshold: T.cc, gap: (d) => `每分鐘 ${d.toFixed(1)} 秒控場`, value: (r) => opt(r, "participants.cc_time_per_min"), fmt: (v) => `每分鐘控場 ${v.toFixed(1)} 秒` },
+  { name: "拆遷大隊", icon: Hammer, tier: "gold", hint: `每分鐘對建築與中立目標的傷害 ${T.obj} 以上`, threshold: T.obj, gap: (d) => `每分鐘 ${Math.ceil(d)} 建築傷害`, value: (r) => opt(r, "participants.objective_damage_per_min"), fmt: (v) => `每分鐘拆 ${Math.round(v).toLocaleString()}` },
   {
     name: "守護天使",
     icon: HeartHandshake,
     tier: "gold",
     hint: `每分鐘治療＋護盾隊友 ${T.heal} 以上（不含自補；只算有賽後統計的場次，至少 ${TITLE_MIN_EOG} 場）`,
-    threshold: T.heal,
+    threshold: T.heal, gap: (d) => `每分鐘 ${Math.ceil(d)} 治療護盾`,
     value: (r) => opt(r, "participants.ally_heal_shield_per_min"),
-    eligible: (r) => n0(r, "participants.ally_heal_games") >= TITLE_MIN_EOG,
+    locked: (r) => needGames(n0(r, "participants.ally_heal_games"), TITLE_MIN_EOG, "有賽後統計的場次"),
     fmt: (v) => `每分鐘補 ${Math.round(v).toLocaleString()}`,
   },
   {
@@ -1160,7 +1167,7 @@ const TITLES: TitleDef[] = [
     icon: Trophy,
     tier: "legend",
     hint: `拿到 MVP（贏的一隊裡本場貢獻最高）的場次占 ${T.mvp}% 以上`,
-    threshold: T.mvp,
+    threshold: T.mvp, gap: PP,
     value: (r) => {
       const g = n0(r, "participants.games")
       return g ? (100 * n0(r, "participants.mvp_games")) / g : null
@@ -1172,21 +1179,21 @@ const TITLES: TitleDef[] = [
     icon: InfinityIcon,
     tier: "gold",
     hint: `死亡時間占全場 ${T.dead}% 以下（只算有賽後統計的場次，至少 ${TITLE_MIN_EOG} 場）`,
-    threshold: T.dead,
+    threshold: T.dead, gap: PP,
     value: (r) => opt(r, "participants.time_dead_share"),
-    eligible: (r) => n0(r, "participants.time_dead_games") >= TITLE_MIN_EOG,
+    locked: (r) => needGames(n0(r, "participants.time_dead_games"), TITLE_MIN_EOG, "有賽後統計的場次"),
     lower: true,
     fmt: (v) => `死亡時間只占 ${v.toFixed(1)}%`,
   },
-  { name: "先馳得點", icon: Zap, tier: "gold", hint: `親自拿到首殺的場次占 ${T.fb}% 以上`, threshold: T.fb, value: (r) => opt(r, "participants.first_blood_rate"), fmt: (v) => `首殺率 ${v.toFixed(1)}%` },
-  { name: "團戰核心", icon: Users, tier: "gold", hint: `參團率（擊殺＋助攻占全隊擊殺）${T.kp}% 以上`, threshold: T.kp, value: (r) => opt(r, "participants.kill_participation"), fmt: (v) => `參團率 ${v.toFixed(1)}%` },
-  { name: "多殺專家", icon: Skull, tier: "gold", hint: `拿到雙殺以上的場次占 ${T.multi}% 以上`, threshold: T.multi, value: (r) => opt(r, "participants.multikill_rate"), fmt: (v) => `多殺場次 ${v.toFixed(1)}%` },
+  { name: "先馳得點", icon: Zap, tier: "gold", hint: `親自拿到首殺的場次占 ${T.fb}% 以上`, threshold: T.fb, gap: PP, value: (r) => opt(r, "participants.first_blood_rate"), fmt: (v) => `首殺率 ${v.toFixed(1)}%` },
+  { name: "團戰核心", icon: Users, tier: "gold", hint: `參團率（擊殺＋助攻占全隊擊殺）${T.kp}% 以上`, threshold: T.kp, gap: PP, value: (r) => opt(r, "participants.kill_participation"), fmt: (v) => `參團率 ${v.toFixed(1)}%` },
+  { name: "多殺專家", icon: Skull, tier: "gold", hint: `拿到雙殺以上的場次占 ${T.multi}% 以上`, threshold: T.multi, gap: PP, value: (r) => opt(r, "participants.multikill_rate"), fmt: (v) => `多殺場次 ${v.toFixed(1)}%` },
   {
     name: "逆境王牌",
     icon: Award,
     tier: "legend",
     hint: `拿到 ACE（輸的一隊裡本場貢獻最高）的場次占 ${T.ace}% 以上`,
-    threshold: T.ace,
+    threshold: T.ace, gap: PP,
     value: (r) => {
       const g = n0(r, "participants.games")
       return g ? (100 * n0(r, "participants.ace_games")) / g : null
@@ -1198,25 +1205,25 @@ const TITLES: TitleDef[] = [
     icon: Mountain,
     tier: "gold",
     hint: `輸掉的場次裡平均本場貢獻 ${T.loss} 以上（至少 ${TITLE_MIN_LOSSES} 場敗場）：輸了也有扛起工作`,
-    threshold: T.loss,
+    threshold: T.loss, gap: (d) => `${d.toFixed(1)} 分`,
     value: (r) => opt(r, X_LOSS_WORK),
-    eligible: (r) => n0(r, X_LOSS_GAMES) >= TITLE_MIN_LOSSES,
+    locked: (r) => needGames(n0(r, X_LOSS_GAMES), TITLE_MIN_LOSSES, "敗場"),
     fmt: (v) => `敗場平均貢獻 ${v.toFixed(1)}`,
   },
-  { name: "本命專精", icon: Heart, tier: "gold", hint: `同一隻英雄玩了 ${T.top} 場以上`, threshold: T.top, value: (r) => n0(r, X_TOP_CHAMP) || null, fmt: (v) => `最常玩的英雄 ${v} 場` },
+  { name: "本命專精", icon: Heart, tier: "gold", hint: `同一隻英雄玩了 ${T.top} 場以上`, threshold: T.top, gap: (d) => `${Math.ceil(d)} 場`, value: (r) => n0(r, X_TOP_CHAMP) || null, fmt: (v) => `最常玩的英雄 ${v} 場` },
   {
     name: "夜貓子",
     icon: Moon,
     tier: "gold",
     hint: `0～5 點開打的場次占 ${T.night}% 以上`,
-    threshold: T.night,
+    threshold: T.night, gap: PP,
     value: (r) => {
       const g = n0(r, "participants.games")
       return g ? (100 * n0(r, X_NIGHT_GAMES)) / g : null
     },
     fmt: (v) => `深夜場 ${v.toFixed(1)}%`,
   },
-  { name: "英雄百科", icon: BookOpen, tier: "gold", hint: `玩過 ${T.champs} 隻以上的英雄`, threshold: T.champs, value: (r) => opt(r, "participants.champion_count"), fmt: (v) => `玩過 ${Math.round(v)} 隻英雄` },
+  { name: "英雄百科", icon: BookOpen, tier: "gold", hint: `玩過 ${T.champs} 隻以上的英雄`, threshold: T.champs, gap: (d) => `${Math.ceil(d)} 隻英雄`, value: (r) => opt(r, "participants.champion_count"), fmt: (v) => `玩過 ${Math.round(v)} 隻英雄` },
 ]
 
 type Title = { name: string; kind: "title" | "milestone"; tier: TitleTier; icon: LucideIcon; tip: string }
@@ -1233,6 +1240,120 @@ const DUO_NEUTRAL_PP = 2
 
 const nameOf = (p: Player) => splitRiotId(p.riot_id, p.puuid).name
 
+/** 一個人離一個徽章還有多遠。ratio 是進度條（0～1）；levels 是多段的徽章（老將）在進度條上的刻度 */
+type BadgeStatus = {
+  state: "earned" | "progress" | "locked"
+  ratio: number
+  now: string | null
+  target: string
+  note: string
+  /** 多段徽章：這個人目前到哪一級（顯示在名稱上） */
+  level?: string
+  levels?: { at: number; label: string }[]
+}
+
+/** 稱號的進度：場次不到 TITLE_MIN_GAMES 或缺賽後統計時是「還不能算」；計數類（五殺、本命）沒有紀錄就當 0 */
+function titleStatus(t: TitleDef, r: CubeRow | undefined): BadgeStatus {
+  const target = `${t.fmt(t.threshold)}${t.lower ? " 以下" : " 以上"}`
+  const games = r ? n0(r, "participants.games") : 0
+  if (!r || games < TITLE_MIN_GAMES)
+    return { state: "locked", ratio: games / TITLE_MIN_GAMES, now: null, target, note: `再打 ${TITLE_MIN_GAMES - games} 場才開始計算（目前 ${games} 場）` }
+  const lock = t.locked?.(r)
+  if (lock) return { state: "locked", ratio: 0, now: null, target, note: lock }
+  const raw = t.value(r)
+  if (raw === null && t.lower) return { state: "locked", ratio: 0, now: null, target, note: "還沒有紀錄" }
+  const v = raw ?? 0
+  const earned = t.lower ? v <= t.threshold : v >= t.threshold
+  const ratio = earned ? 1 : t.lower ? t.threshold / v : Math.max(0, v / t.threshold)
+  return { state: earned ? "earned" : "progress", ratio, now: t.fmt(v), target, note: earned ? "已獲得" : `還差 ${t.gap(t.lower ? v - t.threshold : t.threshold - v)}` }
+}
+
+/** 最佳拍檔的進度：看他和每位好友同隊的紀錄，拿最接近的那一組 */
+function duoStatus(p: Player, duos: DuoPair[]): BadgeStatus {
+  const target = `同隊 ${DUO_TITLE_MIN} 場以上、勝率 ${T.duoWr}% 以上`
+  const mine = duos.filter((d) => d.a.puuid === p.puuid || d.b.puuid === p.puuid)
+  const other = (d: DuoPair) => nameOf(d.a.puuid === p.puuid ? d.b : d.a)
+  const wr = (d: DuoPair) => (100 * d.wins) / d.games
+  const best = mine.filter((d) => d.games >= DUO_TITLE_MIN).sort((x, y) => wr(y) - wr(x))[0]
+  if (best) {
+    const earned = wr(best) >= T.duoWr
+    return {
+      state: earned ? "earned" : "progress",
+      ratio: earned ? 1 : wr(best) / T.duoWr,
+      now: `和 ${other(best)} ${wr(best).toFixed(1)}%（${best.games} 場）`,
+      target,
+      note: earned ? "已獲得" : `和 ${other(best)} 一起的勝率還差 ${PP(T.duoWr - wr(best))}`,
+    }
+  }
+  const most = [...mine].sort((x, y) => y.games - x.games)[0]
+  if (!most?.games) return { state: "locked", ratio: 0, now: null, target, note: "還沒有和比較對象裡的好友同隊過" }
+  return {
+    state: "locked",
+    ratio: most.games / DUO_TITLE_MIN,
+    now: `和 ${other(most)} 同隊 ${most.games} 場`,
+    target,
+    note: `和 ${other(most)} 同隊還差 ${DUO_TITLE_MIN - most.games} 場才開始計算`,
+  }
+}
+
+/** 老將：場次分三級（GAME_MILESTONES），進度條畫到最高一級，中間的級數是刻度 */
+function veteranStatus(r: CubeRow | undefined): BadgeStatus {
+  const games = r ? n0(r, "participants.games") : 0
+  const asc = [...GAME_MILESTONES].sort((a, b) => a.games - b.games)
+  const top = asc[asc.length - 1].games
+  const got = [...asc].reverse().find((m) => games >= m.games)
+  const next = asc.find((m) => games < m.games)
+  return {
+    state: got ? "earned" : "progress",
+    ratio: Math.min(1, games / top),
+    now: `${games} 場`,
+    target: asc.map((m) => `${m.games}`).join("／") + " 場",
+    note: next ? `再 ${next.games - games} 場升到「${next.name}」` : "已經是最高一級",
+    level: got?.name,
+    levels: asc.map((m) => ({ at: m.games / top, label: `${m.games}` })),
+  }
+}
+
+/** 徽章一覽的目錄：全部稱號＋最佳拍檔＋兩個里程碑。status 依人算 */
+type BadgeCard = { key: string; name: string; icon: LucideIcon; tier: TitleTier; kind: "title" | "milestone"; hint: string; status: (p: Player) => BadgeStatus }
+
+function badgeCatalog(rows: CubeRow[], duos: DuoPair[]): BadgeCard[] {
+  const rowOf = (puuid: string) => rows.find((r) => r["participants.puuid"] === puuid)
+  return [
+    ...TITLES.map((t): BadgeCard => ({ key: t.name, name: t.name, icon: t.icon, tier: t.tier, kind: "title", hint: t.hint, status: (p) => titleStatus(t, rowOf(p.puuid)) })),
+    {
+      key: "最佳拍檔",
+      name: "最佳拍檔",
+      icon: Handshake,
+      tier: "gold",
+      kind: "title",
+      hint: `和某位好友同隊至少 ${DUO_TITLE_MIN} 場，一起打的勝率 ${T.duoWr}% 以上`,
+      status: (p) => duoStatus(p, duos),
+    },
+    {
+      key: "五殺達成",
+      name: "五殺達成",
+      icon: Sparkles,
+      tier: "silver",
+      kind: "milestone",
+      hint: "拿過一次五殺",
+      status: (p) => {
+        const n = n0(rowOf(p.puuid), "participants.pentas")
+        return { state: n > 0 ? "earned" : "progress", ratio: n > 0 ? 1 : 0, now: `${n} 次五殺`, target: "1 次五殺", note: n > 0 ? "已獲得" : "還差 1 次五殺" }
+      },
+    },
+    {
+      key: "老將",
+      name: "老將",
+      icon: Medal,
+      tier: "silver",
+      kind: "milestone",
+      hint: [...GAME_MILESTONES].reverse().map((m) => `${m.games} 場「${m.name}」`).join(" → "),
+      status: (p) => veteranStatus(rowOf(p.puuid)),
+    },
+  ]
+}
+
 /** 每個人拿到的稱號與里程碑：達標就有，不跟別人比。rows 是 TITLE_MEASURES 以 participants.puuid 分組的結果（再併上敗場貢獻等） */
 function titlesOf(people: Player[], rows: CubeRow[], duos: DuoPair[]): Map<string, Title[]> {
   const out = new Map<string, Title[]>(people.map((p) => [p.puuid, []]))
@@ -1245,9 +1366,8 @@ function titlesOf(people: Player[], rows: CubeRow[], duos: DuoPair[]): Map<strin
     const mine = out.get(p.puuid)!
     const games = n0(r, "participants.games")
     for (const t of TITLES) {
-      if (games < TITLE_MIN_GAMES || !(t.eligible?.(r) ?? true)) continue
-      const v = t.value(r)
-      if (v === null || (t.lower ? v > t.threshold : v < t.threshold)) continue
+      if (titleStatus(t, r).state !== "earned") continue
+      const v = t.value(r)!
       mine.push({
         name: t.name,
         kind: "title",
@@ -1395,6 +1515,166 @@ function TitleBadges({ titles, className, size = "sm" }: { titles: Title[] | und
         )
       })}
     </span>
+  )
+}
+
+/** 徽章一覽：所有徽章一張一張卡片，選一個人看他拿到哪些、沒拿到的還差多少；每張卡片下面列出比較對象裡誰已經拿到。
+ *  版面參考 LoL 的挑戰：圖示＋名稱＋等級、一句條件、進度條（左邊是目前、右邊是門檻；多段的有刻度）、已獲得的人。 */
+function BadgesPanel({ people, rows, duos, loading }: { people: Player[]; rows: CubeRow[]; duos: DuoPair[]; loading: boolean }) {
+  const [who, setWho] = useState<string | null>(null)
+  const [show, setShow] = useState<"all" | "earned" | "todo">("all")
+  const sel = people.find((p) => p.puuid === who) ?? people.find((p) => p.is_me) ?? people[0]
+  const cards = useMemo(() => badgeCatalog(rows, duos), [rows, duos])
+  const view = useMemo(() => {
+    if (!sel) return []
+    const rank = { earned: 0, progress: 1, locked: 2 } as const
+    return cards
+      .map((c) => ({ c, st: c.status(sel), holders: people.filter((p) => c.status(p).state === "earned") }))
+      .sort((a, b) => rank[a.st.state] - rank[b.st.state] || (a.st.state === "earned" ? TIER_ORDER[a.c.tier] - TIER_ORDER[b.c.tier] : b.st.ratio - a.st.ratio))
+  }, [cards, sel, people])
+  const earned = view.filter((v) => v.st.state === "earned").length
+  const closest = view.find((v) => v.st.state === "progress")
+  const shown = view.filter((v) => (show === "all" ? true : show === "earned" ? v.st.state === "earned" : v.st.state !== "earned"))
+  return (
+    <Panel
+      title="徽章"
+      caption="每個徽章都是累積到門檻就有；選一個人看他拿到哪些、還差多少"
+      hint={`稱號（金、傳說）與里程碑（銀）都在這裡。數字照上面的篩選與比較範圍算；場次不到 ${TITLE_MIN_GAMES} 場的人，稱號先不算（比率太不準）。每張卡片下面列出目前比較對象裡已經拿到的人`}
+    >
+      {loading || !sel ? (
+        <LoadingBlock height={560} label="載入徽章進度…" />
+      ) : (
+        <div className="space-y-4" data-testid="crew-badges">
+          <div className="flex flex-wrap items-center gap-2">
+            {people.map((p) => (
+              <button
+                key={p.puuid}
+                type="button"
+                onClick={() => setWho(p.puuid)}
+                data-testid="badge-person"
+                className={cn(
+                  "rounded-full border px-3 py-1 text-xs transition",
+                  p.puuid === sel.puuid ? "border-primary bg-primary/15 font-semibold text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                )}
+              >
+                {nameOf(p)}
+                {!!p.is_me && <span className="ml-1 text-[10px] text-primary">我</span>}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-end justify-between gap-3 rounded-lg border bg-muted/20 px-4 py-3">
+            <div className="min-w-[14rem] flex-1">
+              <div className="text-sm">
+                <span className="font-semibold">{nameOf(sel)}</span> 已獲得{" "}
+                <span className="font-mono text-lg font-bold tabular-nums" data-testid="badge-earned-count">
+                  {earned}
+                </span>
+                <span className="text-muted-foreground"> / {view.length} 個徽章</span>
+              </div>
+              <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
+                <div key={sel.puuid} className="bar-grow h-full rounded-full bg-primary" style={{ width: `${(100 * earned) / Math.max(1, view.length)}%` }} />
+              </div>
+              {closest && (
+                <div className="mt-1.5 text-xs text-muted-foreground">
+                  最接近的是「<span className="text-foreground">{closest.c.name}</span>」：{closest.st.note}
+                </div>
+              )}
+            </div>
+            <ToggleGroup type="single" size="sm" variant="outline" value={show} onValueChange={(v) => v && setShow(v as typeof show)}>
+              <ToggleGroupItem value="all" className="h-7 px-2 text-xs">全部</ToggleGroupItem>
+              <ToggleGroupItem value="earned" className="h-7 px-2 text-xs">已獲得</ToggleGroupItem>
+              <ToggleGroupItem value="todo" className="h-7 px-2 text-xs">還沒拿到</ToggleGroupItem>
+            </ToggleGroup>
+          </div>
+          {shown.length === 0 ? (
+            <EmptyState>{show === "earned" ? `${nameOf(sel)} 目前還沒有拿到徽章。` : `${nameOf(sel)} 已經拿到全部的徽章。`}</EmptyState>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+              {shown.map(({ c, st, holders }, i) => (
+                <BadgeCardView key={`${sel.puuid}:${c.key}`} card={c} st={st} holders={holders} total={people.length} index={i} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+/** 一張徽章卡片。拿到的：等級色的框與圖示、進度條滿格；沒拿到的：灰階圖示、主題色進度條與「還差多少」；還不能算的：鎖頭與缺什麼 */
+function BadgeCardView({ card, st, holders, total, index }: { card: BadgeCard; st: BadgeStatus; holders: Player[]; total: number; index: number }) {
+  const tier = TIER_CLASS[card.tier]
+  const Icon = card.icon
+  const got = st.state === "earned"
+  const fill = got ? (card.tier === "legend" ? "bg-prismatic" : card.tier === "gold" ? "bg-gold" : "bg-silver") : st.state === "locked" ? "bg-muted-foreground/50" : "bg-primary"
+  const shownHolders = holders.slice(0, 4)
+  return (
+    <div
+      data-testid="badge-card"
+      data-state={st.state}
+      data-badge={card.key}
+      style={{ "--stagger": `${Math.min(index * 30, 360)}ms` } as CSSProperties}
+      className={cn("rise flex flex-col gap-2 rounded-lg border p-3", got ? cn(tier.badge, "text-foreground") : "bg-card")}
+    >
+      <div className="flex items-center gap-3">
+        <span className={cn("relative flex size-11 shrink-0 items-center justify-center rounded-full", got ? tier.icon : "bg-muted text-muted-foreground")}>
+          <Icon className="size-5" strokeWidth={2.25} />
+          {st.state === "locked" && (
+            <span className="absolute -right-0.5 -bottom-0.5 flex size-4 items-center justify-center rounded-full border bg-card text-muted-foreground">
+              <Lock className="size-2.5" />
+            </span>
+          )}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className={cn("truncate font-semibold", !got && "text-foreground/85")}>{st.level ?? card.name}</span>
+            {got && <Check className="size-4 shrink-0 text-win" strokeWidth={3} />}
+          </div>
+          <div className="text-[11px] text-muted-foreground">
+            {card.tier === "legend" ? "傳說稱號" : card.kind === "title" ? "稱號" : "里程碑"}・好友中 {holders.length}／{total} 人已獲得
+          </div>
+        </div>
+      </div>
+      <p className="text-xs leading-5 text-muted-foreground">{card.hint}</p>
+      <div className="mt-auto">
+        <div className="relative h-2 rounded-full bg-muted">
+          <div key={card.key} className={cn("bar-grow absolute inset-y-0 left-0 rounded-full", fill)} style={{ width: `${Math.round(Math.min(1, Math.max(0, st.ratio)) * 100)}%` }} />
+          {st.levels?.map((l) => (
+            <span key={l.label} className="absolute -top-0.5 h-3 w-0.5 rounded bg-foreground/50" style={{ left: `calc(${l.at * 100}% - 1px)` }} />
+          ))}
+        </div>
+        {st.levels && (
+          <div className="relative mt-0.5 h-3.5 font-mono text-[10px] text-muted-foreground">
+            {st.levels.map((l) => (
+              <span key={l.label} className="absolute tabular-nums" style={{ left: `${l.at * 100}%`, transform: `translateX(${l.at >= 0.99 ? "-100%" : "-50%"})` }}>
+                {l.label}
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="mt-1 flex items-baseline justify-between gap-2 text-[11px]">
+          <span className="truncate font-mono tabular-nums text-foreground/90">{st.now ?? "—"}</span>
+          {!st.levels && <span className="shrink-0 text-muted-foreground">門檻 {st.target}</span>}
+        </div>
+        <div className={cn("mt-0.5 text-xs", got ? "font-semibold text-win" : st.state === "locked" ? "text-muted-foreground" : "font-medium text-primary")} data-testid="badge-note">
+          {st.note}
+        </div>
+      </div>
+      <div className="flex min-h-5 flex-wrap items-center gap-1 border-t border-border/60 pt-2 text-[11px] text-muted-foreground">
+        {holders.length === 0 ? (
+          <span>比較對象裡還沒有人拿到</span>
+        ) : (
+          <>
+            {shownHolders.map((p) => (
+              <span key={p.puuid} className="rounded-full border px-1.5 leading-[18px] text-foreground/85">
+                {nameOf(p)}
+              </span>
+            ))}
+            {holders.length > shownHolders.length && <span>和另外 {holders.length - shownHolders.length} 人</span>}
+          </>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -2966,6 +3246,7 @@ export function Crew() {
             <TabsTrigger value="stats">數據總表</TabsTrigger>
             <TabsTrigger value="champ">查英雄</TabsTrigger>
             <TabsTrigger value="augment">查增幅裝置</TabsTrigger>
+            <TabsTrigger value="badges">徽章</TabsTrigger>
           </TabsList>
           <div className="flex w-full min-w-0 items-center justify-between gap-2 text-xs text-muted-foreground sm:w-auto sm:flex-1 sm:justify-end">
             <span className="min-w-0 truncate" data-testid="crew-scope">
@@ -3187,6 +3468,9 @@ export function Crew() {
             active={focusCell}
             onOpen={openGames}
           />
+        </TabsContent>
+        <TabsContent value="badges">
+          <BadgesPanel people={ordered} rows={titleRows} duos={duoPairs} loading={loading || duo.loading} />
         </TabsContent>
       </Tabs>
 
