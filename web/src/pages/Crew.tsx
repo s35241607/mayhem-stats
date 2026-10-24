@@ -1,5 +1,5 @@
 import { Fragment, createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react"
-import { ArrowRight, Lock, LoaderCircle, BookOpen, Check, ChevronDown, ChevronRight, ChevronsUpDown, Crown, Flame, Hammer, HeartHandshake, Infinity as InfinityIcon, Medal, Search, Shield, Handshake, Snowflake, Sparkles, Star, Trophy, Zap, Users, Skull, Award, Mountain, Heart, Moon, type LucideIcon } from "lucide-react"
+import { ArrowRight, Swords, HandHeart, Bomb, Crosshair, Castle, Orbit, Rocket, Axe, ShieldHalf, Sword, Target, Droplets, Hourglass, Gem, ChevronsUp, Lock, LoaderCircle, BookOpen, Check, ChevronDown, ChevronRight, ChevronsUpDown, Crown, Flame, Hammer, HeartHandshake, Infinity as InfinityIcon, Medal, Search, Shield, Handshake, Snowflake, Sparkles, Star, Trophy, Zap, Users, Skull, Award, Mountain, Heart, Moon, type LucideIcon } from "lucide-react"
 import { RecordCell } from "@/components/cells"
 import { ContribBars, ContribScore } from "@/components/Contribution"
 import { PERF_PARTS, WORK, WORK_GAMES, WORK_GAP, WORK_MEASURES, WORK_PARTS } from "@/hooks/useContribution"
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { CountUp } from "@/components/CountUp"
 import { EmptyState, LoadingBlock, Panel, QueryError } from "@/components/primitives"
 import { Hint } from "@/components/TipLayer"
 import { stripTip, tipLevelClass } from "@/lib/tip"
@@ -1098,6 +1099,23 @@ const TITLE_MEASURES = [
   "participants.kill_participation",
   "participants.multikill_rate",
   "participants.ace_games",
+  // 徽章（累積、單場紀錄）：累積量用「平均 × 場次」還原成總數，不另外在語意層加 sum
+  "participants.wins",
+  "participants.avg_kills",
+  "participants.avg_assists",
+  "participants.avg_damage",
+  "participants.multikills",
+  "participants.total_turret_kills",
+  "participants.max_kills",
+  "participants.max_assists",
+  "participants.max_damage",
+  "participants.max_largest_spree",
+  "participants.max_largest_multi_kill",
+  "participants.max_taken",
+  "participants.max_duration",
+  "participants.max_crit",
+  "participants.max_turret_kills",
+  "participants.max_heal",
 ]
 
 /** 稱號另外要的三份資料，併進 TITLE_MEASURES 那一列（鍵名是這裡自訂的，不是語意層的成員）：
@@ -1240,37 +1258,63 @@ const DUO_NEUTRAL_PP = 2
 
 const nameOf = (p: Player) => splitRiotId(p.riot_id, p.puuid).name
 
-/** 一個人離一個徽章還有多遠。ratio 是進度條（0～1）；levels 是多段的徽章（老將）在進度條上的刻度 */
+/** 一枚徽章值多少成就點數（成就等級用）：銀 10、金 25、傳說 50；階梯型每升一級各算一次 */
+const TIER_POINTS: Record<TitleTier, number> = { silver: 10, gold: 25, legend: 50 }
+const TIER_NAME: Record<TitleTier, string> = { silver: "銀", gold: "金", legend: "傳說" }
+/** 階梯型徽章的三級：銀 → 金 → 傳說 */
+const LADDER_TIERS = ["silver", "gold", "legend"] as const
+const ROMAN = ["I", "II", "III"] as const
+/** 每累積這麼多成就點數升一級 */
+const LEVEL_XP = 100
+
+/** 一個人離一個徽章還有多遠。ratio 是進度條（0～1）；steps 是階梯型在進度條上的段位刻度 */
 type BadgeStatus = {
   state: "earned" | "progress" | "locked"
   ratio: number
   now: string | null
   target: string
   note: string
-  /** 多段徽章：這個人目前到哪一級（顯示在名稱上） */
+  /** 拿到的等級（決定顏色）；還沒拿到是 null */
+  tier: TitleTier | null
+  /** 這枚徽章目前替他賺到的成就點數 */
+  points: number
+  /** 下一級（或這一枚）拿到時值多少點；已經滿級是 0 */
+  nextPoints: number
+  /** 階梯型：目前到哪一級的名稱 */
   level?: string
-  levels?: { at: number; label: string }[]
+  steps?: { at: number; label: string; tier: TitleTier; done: boolean }[]
 }
 
 /** 稱號的進度：場次不到 TITLE_MIN_GAMES 或缺賽後統計時是「還不能算」；計數類（五殺、本命）沒有紀錄就當 0 */
 function titleStatus(t: TitleDef, r: CubeRow | undefined): BadgeStatus {
   const target = `${t.fmt(t.threshold)}${t.lower ? " 以下" : " 以上"}`
+  const base = { tier: null, points: 0, nextPoints: TIER_POINTS[t.tier] }
   const games = r ? n0(r, "participants.games") : 0
   if (!r || games < TITLE_MIN_GAMES)
-    return { state: "locked", ratio: games / TITLE_MIN_GAMES, now: null, target, note: `再打 ${TITLE_MIN_GAMES - games} 場才開始計算（目前 ${games} 場）` }
+    return { ...base, state: "locked", ratio: games / TITLE_MIN_GAMES, now: null, target, note: `再打 ${TITLE_MIN_GAMES - games} 場才開始計算（目前 ${games} 場）` }
   const lock = t.locked?.(r)
-  if (lock) return { state: "locked", ratio: 0, now: null, target, note: lock }
+  if (lock) return { ...base, state: "locked", ratio: 0, now: null, target, note: lock }
   const raw = t.value(r)
-  if (raw === null && t.lower) return { state: "locked", ratio: 0, now: null, target, note: "還沒有紀錄" }
+  if (raw === null && t.lower) return { ...base, state: "locked", ratio: 0, now: null, target, note: "還沒有紀錄" }
   const v = raw ?? 0
   const earned = t.lower ? v <= t.threshold : v >= t.threshold
   const ratio = earned ? 1 : t.lower ? t.threshold / v : Math.max(0, v / t.threshold)
-  return { state: earned ? "earned" : "progress", ratio, now: t.fmt(v), target, note: earned ? "已獲得" : `還差 ${t.gap(t.lower ? v - t.threshold : t.threshold - v)}` }
+  return {
+    state: earned ? "earned" : "progress",
+    ratio,
+    now: t.fmt(v),
+    target,
+    note: earned ? "已解鎖" : `還差 ${t.gap(t.lower ? v - t.threshold : t.threshold - v)}`,
+    tier: earned ? t.tier : null,
+    points: earned ? TIER_POINTS[t.tier] : 0,
+    nextPoints: earned ? 0 : TIER_POINTS[t.tier],
+  }
 }
 
 /** 最佳拍檔的進度：看他和每位好友同隊的紀錄，拿最接近的那一組 */
 function duoStatus(p: Player, duos: DuoPair[]): BadgeStatus {
   const target = `同隊 ${DUO_TITLE_MIN} 場以上、勝率 ${T.duoWr}% 以上`
+  const base = { tier: null, points: 0, nextPoints: TIER_POINTS.gold }
   const mine = duos.filter((d) => d.a.puuid === p.puuid || d.b.puuid === p.puuid)
   const other = (d: DuoPair) => nameOf(d.a.puuid === p.puuid ? d.b : d.a)
   const wr = (d: DuoPair) => (100 * d.wins) / d.games
@@ -1282,12 +1326,16 @@ function duoStatus(p: Player, duos: DuoPair[]): BadgeStatus {
       ratio: earned ? 1 : wr(best) / T.duoWr,
       now: `和 ${other(best)} ${wr(best).toFixed(1)}%（${best.games} 場）`,
       target,
-      note: earned ? "已獲得" : `和 ${other(best)} 一起的勝率還差 ${PP(T.duoWr - wr(best))}`,
+      note: earned ? "已解鎖" : `和 ${other(best)} 一起的勝率還差 ${PP(T.duoWr - wr(best))}`,
+      tier: earned ? "gold" : null,
+      points: earned ? TIER_POINTS.gold : 0,
+      nextPoints: earned ? 0 : TIER_POINTS.gold,
     }
   }
   const most = [...mine].sort((x, y) => y.games - x.games)[0]
-  if (!most?.games) return { state: "locked", ratio: 0, now: null, target, note: "還沒有和比較對象裡的好友同隊過" }
+  if (!most?.games) return { ...base, state: "locked", ratio: 0, now: null, target, note: "還沒有和比較對象裡的好友同隊過" }
   return {
+    ...base,
     state: "locked",
     ratio: most.games / DUO_TITLE_MIN,
     now: `和 ${other(most)} 同隊 ${most.games} 場`,
@@ -1296,63 +1344,190 @@ function duoStatus(p: Player, duos: DuoPair[]): BadgeStatus {
   }
 }
 
-/** 老將：場次分三級（GAME_MILESTONES），進度條畫到最高一級，中間的級數是刻度 */
-function veteranStatus(r: CubeRow | undefined): BadgeStatus {
-  const games = r ? n0(r, "participants.games") : 0
-  const asc = [...GAME_MILESTONES].sort((a, b) => a.games - b.games)
-  const top = asc[asc.length - 1].games
-  const got = [...asc].reverse().find((m) => games >= m.games)
-  const next = asc.find((m) => games < m.games)
+/** 累積量的數字：一萬以上寫「x 萬」 */
+const wan = (v: number) => (v >= 1e4 ? `${(v / 1e4).toLocaleString(undefined, { maximumFractionDigits: 1 })} 萬` : Math.round(v).toLocaleString())
+/** 平均 × 場次還原成總數（平均是同一批列的算術平均，乘回去就是總和） */
+const totalOf = (r: CubeRow, avg: string) => Math.round(n0(r, avg) * n0(r, "participants.games"))
+
+/** 階梯型徽章：越打越多，銀 → 金 → 傳說三級，每一級都是一枚（點數各算一次）。
+ *  門檻看 2026-10-24 好友 9 人全部版本的累積量：第一級幾乎人人拿得到，第二級大約一半，第三級只有一兩位或還沒有人 */
+type LadderDef = {
+  key: string
+  name: string
+  icon: LucideIcon
+  what: string
+  value: (r: CubeRow) => number
+  /** 數字＋單位（「120 勝」） */
+  fmt: (v: number) => string
+  /** 進度條刻度上的短字 */
+  short: (v: number) => string
+  steps: readonly [number, number, number]
+  /** 每一級自己的名字；沒給就是「名稱 I／II／III」 */
+  names?: readonly [string, string, string]
+}
+const VETERAN = [...GAME_MILESTONES].sort((a, b) => a.games - b.games)
+const LADDERS: LadderDef[] = [
+  { key: "常勝軍", name: "常勝軍", icon: Trophy, what: "累積勝場", value: (r) => n0(r, "participants.wins"), fmt: (v) => `${v.toLocaleString()} 勝`, short: (v) => `${v}`, steps: [25, 100, 250] },
+  { key: "殺戮機器", name: "殺戮機器", icon: Swords, what: "累積擊殺", value: (r) => totalOf(r, "participants.avg_kills"), fmt: (v) => `${v.toLocaleString()} 殺`, short: wan, steps: [500, 2000, 5000] },
+  { key: "無私奉獻", name: "無私奉獻", icon: HandHeart, what: "累積助攻", value: (r) => totalOf(r, "participants.avg_assists"), fmt: (v) => `${v.toLocaleString()} 助攻`, short: wan, steps: [1000, 5000, 10000] },
+  { key: "傷害製造機", name: "傷害製造機", icon: Bomb, what: "累積對英雄傷害", value: (r) => totalOf(r, "participants.avg_damage"), fmt: (v) => `${wan(v)} 傷害`, short: wan, steps: [1e6, 5e6, 1.5e7] },
+  { key: "連殺達人", name: "連殺達人", icon: Crosshair, what: "累積多殺（雙殺以上）次數", value: (r) => n0(r, "participants.multikills"), fmt: (v) => `${v.toLocaleString()} 次多殺`, short: (v) => `${v}`, steps: [100, 500, 1000] },
+  { key: "推塔機器", name: "推塔機器", icon: Castle, what: "累積拆掉的防禦塔（最後一擊）", value: (r) => n0(r, "participants.total_turret_kills"), fmt: (v) => `${v} 座塔`, short: (v) => `${v}`, steps: [30, 100, 250] },
+  {
+    key: "老將",
+    name: "老將",
+    icon: Medal,
+    what: "大亂鬥場次",
+    value: (r) => n0(r, "participants.games"),
+    fmt: (v) => `${v} 場`,
+    short: (v) => `${v}`,
+    steps: [VETERAN[0].games, VETERAN[1].games, VETERAN[2].games],
+    names: [VETERAN[0].name, VETERAN[1].name, VETERAN[2].name],
+  },
+]
+const levelName = (l: LadderDef, i: number) => l.names?.[i] ?? `${l.name} ${ROMAN[i]}`
+
+function ladderStatus(l: LadderDef, r: CubeRow | undefined): BadgeStatus {
+  const v = r ? l.value(r) : 0
+  const done = l.steps.filter((s) => v >= s).length
+  const top = l.steps[2]
+  const next: number | undefined = l.steps[done]
   return {
-    state: got ? "earned" : "progress",
-    ratio: Math.min(1, games / top),
-    now: `${games} 場`,
-    target: asc.map((m) => `${m.games}`).join("／") + " 場",
-    note: next ? `再 ${next.games - games} 場升到「${next.name}」` : "已經是最高一級",
-    level: got?.name,
-    levels: asc.map((m) => ({ at: m.games / top, label: `${m.games}` })),
+    state: done ? "earned" : "progress",
+    ratio: Math.min(1, v / top),
+    now: l.fmt(v),
+    target: l.steps.map((x) => l.short(x)).join("／"),
+    note: next === undefined ? "已達最高級" : `再 ${l.fmt(next - v)} 升到「${levelName(l, done)}」`,
+    tier: done ? LADDER_TIERS[done - 1] : null,
+    points: LADDER_TIERS.slice(0, done).reduce((a, t) => a + TIER_POINTS[t], 0),
+    nextPoints: next === undefined ? 0 : TIER_POINTS[LADDER_TIERS[done]],
+    level: done ? levelName(l, done - 1) : undefined,
+    steps: l.steps.map((x, i) => ({ at: x / top, label: l.short(x), tier: LADDER_TIERS[i], done: v >= x })),
   }
 }
 
-/** 徽章一覽的目錄：全部稱號＋最佳拍檔＋兩個里程碑。status 依人算 */
-type BadgeCard = { key: string; name: string; icon: LucideIcon; tier: TitleTier; kind: "title" | "milestone"; hint: string; status: (p: Player) => BadgeStatus }
+/** 壯舉：單場紀錄，打出一次就算（不看場次門檻）。門檻看好友 9 人全部版本的最佳紀錄：大多是一半左右的人做到過 */
+type FeatDef = {
+  key: string
+  icon: LucideIcon
+  tier: TitleTier
+  hint: string
+  value: (r: CubeRow) => number
+  threshold: number
+  fmt: (v: number) => string
+  gap: (d: number) => string
+  /** 沒解鎖時的說明（次數類用：「再拿一次四殺就解鎖」比「還差 1」好懂） */
+  todo?: string
+}
+const MULTI_NAME = ["", "", "雙殺", "三殺", "四殺", "五殺"]
+const FEATS: FeatDef[] = [
+  { key: "四殺達成", icon: Star, tier: "silver", hint: "拿過一次四殺", value: (r) => n0(r, "participants.max_largest_multi_kill"), threshold: 4, fmt: (v) => `最高 ${MULTI_NAME[Math.min(5, v)] || "單殺"}`, gap: () => "一次四殺", todo: "再拿一次四殺就解鎖" },
+  { key: "五殺達成", icon: Sparkles, tier: "silver", hint: "拿過一次五殺", value: (r) => n0(r, "participants.pentas"), threshold: 1, fmt: (v) => `${v} 次五殺`, gap: () => "一次五殺", todo: "再拿一次五殺就解鎖" },
+  { key: "持久戰", icon: Hourglass, tier: "silver", hint: "打過一場 30 分鐘以上的對局", value: (r) => opt(r, "participants.max_duration") ?? 0, threshold: 30, fmt: (v) => `最長 ${v.toFixed(1)} 分鐘`, gap: (d) => `${d.toFixed(1)} 分鐘` },
+  { key: "殺神降臨", icon: Skull, tier: "gold", hint: "單場擊殺 30 以上", value: (r) => n0(r, "participants.max_kills"), threshold: 30, fmt: (v) => `單場 ${v} 殺`, gap: (d) => `${d} 殺` },
+  { key: "助攻狂人", icon: Orbit, tier: "gold", hint: "單場助攻 50 以上", value: (r) => n0(r, "participants.max_assists"), threshold: 50, fmt: (v) => `單場 ${v} 助攻`, gap: (d) => `${d} 助攻` },
+  { key: "十萬輸出", icon: Rocket, tier: "gold", hint: "單場對英雄傷害 100,000 以上", value: (r) => n0(r, "participants.max_damage"), threshold: 1e5, fmt: (v) => `單場 ${v.toLocaleString()} 傷害`, gap: (d) => `${d.toLocaleString()} 傷害` },
+  { key: "勢不可擋", icon: Axe, tier: "gold", hint: "連殺 10 人以上（中途沒有陣亡）", value: (r) => n0(r, "participants.max_largest_spree"), threshold: 10, fmt: (v) => `最高 ${v} 連殺`, gap: (d) => `${d} 連殺` },
+  { key: "銅牆鐵壁", icon: ShieldHalf, tier: "gold", hint: "單場承受傷害 150,000 以上", value: (r) => n0(r, "participants.max_taken"), threshold: 1.5e5, fmt: (v) => `單場扛 ${v.toLocaleString()}`, gap: (d) => `${d.toLocaleString()} 承傷` },
+  { key: "暴擊一刀", icon: Sword, tier: "gold", hint: "單次暴擊傷害 3,000 以上", value: (r) => n0(r, "participants.max_crit"), threshold: 3000, fmt: (v) => `最大暴擊 ${v.toLocaleString()}`, gap: (d) => `${d.toLocaleString()} 暴擊傷害` },
+  { key: "拆遷專家", icon: Target, tier: "gold", hint: "單場拆掉 4 座防禦塔以上（最後一擊）", value: (r) => n0(r, "participants.max_turret_kills"), threshold: 4, fmt: (v) => `單場 ${v} 座塔`, gap: (d) => `${d} 座塔` },
+  { key: "生生不息", icon: Droplets, tier: "gold", hint: "單場治療量 100,000 以上（含自補）", value: (r) => n0(r, "participants.max_heal"), threshold: 1e5, fmt: (v) => `單場治療 ${v.toLocaleString()}`, gap: (d) => `${d.toLocaleString()} 治療` },
+  { key: "毀天滅地", icon: Gem, tier: "legend", hint: "單場對英雄傷害 200,000 以上", value: (r) => n0(r, "participants.max_damage"), threshold: 2e5, fmt: (v) => `單場 ${v.toLocaleString()} 傷害`, gap: (d) => `${d.toLocaleString()} 傷害` },
+]
+
+function featStatus(f: FeatDef, r: CubeRow | undefined): BadgeStatus {
+  const v = r ? f.value(r) : 0
+  const earned = v >= f.threshold
+  return {
+    state: earned ? "earned" : "progress",
+    ratio: earned ? 1 : Math.max(0, v / f.threshold),
+    now: v ? f.fmt(v) : "還沒有紀錄",
+    target: f.fmt(f.threshold),
+    note: earned ? "已解鎖" : (f.todo ?? `最佳紀錄還差 ${f.gap(f.threshold - v)}`),
+    tier: earned ? f.tier : null,
+    points: earned ? TIER_POINTS[f.tier] : 0,
+    nextPoints: earned ? 0 : TIER_POINTS[f.tier],
+  }
+}
+
+type BadgeCategory = "戰鬥" | "團隊" | "壯舉" | "累積" | "風格"
+const CATEGORIES: { key: BadgeCategory; icon: LucideIcon; note: string }[] = [
+  { key: "戰鬥", icon: Swords, note: "每分鐘的輸出、承傷、控場與多殺" },
+  { key: "團隊", icon: Users, note: "幫隊友、拿 MVP、逆風也扛得住" },
+  { key: "壯舉", icon: Star, note: "單場紀錄：打出一次就解鎖" },
+  { key: "累積", icon: ChevronsUp, note: "越打越多：銀 → 金 → 傳說，每一級都是一枚" },
+  { key: "風格", icon: Heart, note: "怎麼玩、什麼時候玩" },
+]
+/** 稱號屬於哪一類 */
+const TITLE_CATEGORY: Record<string, BadgeCategory> = {
+  五殺之王: "戰鬥",
+  輸出擔當: "戰鬥",
+  鋼鐵前排: "戰鬥",
+  控場大師: "戰鬥",
+  拆遷大隊: "戰鬥",
+  先馳得點: "戰鬥",
+  多殺專家: "戰鬥",
+  守護天使: "團隊",
+  "MVP 常客": "團隊",
+  不死之身: "團隊",
+  團戰核心: "團隊",
+  逆境王牌: "團隊",
+  逆風支柱: "團隊",
+  本命專精: "風格",
+  夜貓子: "風格",
+  英雄百科: "風格",
+}
+
+/** 徽章一覽的目錄：稱號、最佳拍檔、壯舉、階梯。tier 是這枚徽章最高拿得到的等級 */
+type BadgeCard = {
+  key: string
+  name: string
+  icon: LucideIcon
+  tier: TitleTier
+  kind: "title" | "feat" | "ladder"
+  category: BadgeCategory
+  hint: string
+  status: (p: Player) => BadgeStatus
+}
 
 function badgeCatalog(rows: CubeRow[], duos: DuoPair[]): BadgeCard[] {
   const rowOf = (puuid: string) => rows.find((r) => r["participants.puuid"] === puuid)
   return [
-    ...TITLES.map((t): BadgeCard => ({ key: t.name, name: t.name, icon: t.icon, tier: t.tier, kind: "title", hint: t.hint, status: (p) => titleStatus(t, rowOf(p.puuid)) })),
+    ...TITLES.map(
+      (t): BadgeCard => ({ key: t.name, name: t.name, icon: t.icon, tier: t.tier, kind: "title", category: TITLE_CATEGORY[t.name] ?? "風格", hint: t.hint, status: (p) => titleStatus(t, rowOf(p.puuid)) }),
+    ),
     {
       key: "最佳拍檔",
       name: "最佳拍檔",
       icon: Handshake,
       tier: "gold",
       kind: "title",
+      category: "團隊",
       hint: `和某位好友同隊至少 ${DUO_TITLE_MIN} 場，一起打的勝率 ${T.duoWr}% 以上`,
       status: (p) => duoStatus(p, duos),
     },
-    {
-      key: "五殺達成",
-      name: "五殺達成",
-      icon: Sparkles,
-      tier: "silver",
-      kind: "milestone",
-      hint: "拿過一次五殺",
-      status: (p) => {
-        const n = n0(rowOf(p.puuid), "participants.pentas")
-        return { state: n > 0 ? "earned" : "progress", ratio: n > 0 ? 1 : 0, now: `${n} 次五殺`, target: "1 次五殺", note: n > 0 ? "已獲得" : "還差 1 次五殺" }
-      },
-    },
-    {
-      key: "老將",
-      name: "老將",
-      icon: Medal,
-      tier: "silver",
-      kind: "milestone",
-      hint: [...GAME_MILESTONES].reverse().map((m) => `${m.games} 場「${m.name}」`).join(" → "),
-      status: (p) => veteranStatus(rowOf(p.puuid)),
-    },
+    ...FEATS.map((f): BadgeCard => ({ key: f.key, name: f.key, icon: f.icon, tier: f.tier, kind: "feat", category: "壯舉", hint: f.hint, status: (p) => featStatus(f, rowOf(p.puuid)) })),
+    ...LADDERS.map(
+      (l): BadgeCard => ({
+        key: l.key,
+        name: l.name,
+        icon: l.icon,
+        tier: "legend",
+        kind: "ladder",
+        category: "累積",
+        hint: `${l.what}：${l.steps.map((x, i) => `${TIER_NAME[LADDER_TIERS[i]]} ${l.short(x)}`).join(" → ")}`,
+        status: (p) => ladderStatus(l, rowOf(p.puuid)),
+      }),
+    ),
   ]
 }
+
+/** 一個人的成就點數與等級 */
+function levelOf(points: number) {
+  return { level: Math.floor(points / LEVEL_XP) + 1, xp: points % LEVEL_XP }
+}
+/** 成就等級的徽框顏色：10 級以上傳說、5 級以上金，其餘銀 */
+const levelTier = (level: number): TitleTier => (level >= 10 ? "legend" : level >= 5 ? "gold" : "silver")
 
 /** 每個人拿到的稱號與里程碑：達標就有，不跟別人比。rows 是 TITLE_MEASURES 以 participants.puuid 分組的結果（再併上敗場貢獻等） */
 function titlesOf(people: Player[], rows: CubeRow[], duos: DuoPair[]): Map<string, Title[]> {
@@ -1518,151 +1693,311 @@ function TitleBadges({ titles, className, size = "sm" }: { titles: Title[] | und
   )
 }
 
-/** 徽章一覽：所有徽章一張一張卡片，選一個人看他拿到哪些、沒拿到的還差多少；每張卡片下面列出比較對象裡誰已經拿到。
- *  版面參考 LoL 的挑戰：圖示＋名稱＋等級、一句條件、進度條（左邊是目前、右邊是門檻；多段的有刻度）、已獲得的人。 */
+/** 徽章的六角框：等級色的外框與底、外圍一圈同色的光；還沒拿到是灰的。children 可以換掉圖示（成就等級放數字） */
+const HEX = "[clip-path:polygon(50%_0%,93%_25%,93%_75%,50%_100%,7%_75%,7%_25%)]"
+const CREST: Record<TitleTier, { frame: string; fill: string; glow: string; text: string; bar: string; card: string; ribbon: string; dot: string }> = {
+  legend: {
+    frame: "bg-linear-135 from-prismatic via-gold to-prismatic",
+    fill: "bg-linear-160 from-prismatic to-prismatic/55",
+    glow: "bg-prismatic/55",
+    text: "text-prismatic",
+    bar: "bg-linear-90 from-prismatic/60 via-prismatic to-gold",
+    card: "border-prismatic/60 bg-linear-160 from-prismatic/18 via-card to-card shadow-[0_0_24px_-10px] shadow-prismatic",
+    ribbon: "bg-prismatic text-background",
+    dot: "bg-prismatic",
+  },
+  gold: {
+    frame: "bg-linear-135 from-gold via-gold/55 to-gold",
+    fill: "bg-linear-160 from-gold to-gold/55",
+    glow: "bg-gold/45",
+    text: "text-gold",
+    bar: "bg-linear-90 from-gold/55 to-gold",
+    card: "border-gold/55 bg-linear-160 from-gold/15 via-card to-card shadow-[0_0_20px_-10px] shadow-gold",
+    ribbon: "bg-gold text-background",
+    dot: "bg-gold",
+  },
+  silver: {
+    frame: "bg-linear-135 from-silver via-silver/50 to-silver",
+    fill: "bg-linear-160 from-silver to-silver/55",
+    glow: "bg-silver/35",
+    text: "text-silver",
+    bar: "bg-linear-90 from-silver/50 to-silver",
+    card: "border-silver/45 bg-linear-160 from-silver/12 via-card to-card",
+    ribbon: "bg-silver text-background",
+    dot: "bg-silver",
+  },
+}
+
+function Crest({ icon: Icon, tier, size = "md", dim, children }: { icon?: LucideIcon; tier: TitleTier | null; size?: "sm" | "md" | "lg"; dim?: boolean; children?: ReactNode }) {
+  const c = tier ? CREST[tier] : null
+  const box = size === "lg" ? "size-20" : size === "md" ? "size-14" : "size-8"
+  const ico = size === "lg" ? "size-8" : size === "md" ? "size-6" : "size-3.5"
+  const ring = size === "sm" ? ["inset-[1.5px]", "inset-[3px]"] : ["inset-[2.5px]", "inset-[5px]"]
+  return (
+    <span className={cn("relative grid shrink-0 place-items-center", box)}>
+      {c && <span className={cn("absolute inset-1 rounded-full blur-md", c.glow)} />}
+      <span className={cn("absolute inset-0", HEX, c ? c.frame : "bg-muted-foreground/35")} />
+      <span className={cn("absolute", ring[0], HEX, "bg-card")} />
+      <span className={cn("absolute", ring[1], HEX, c ? c.fill : "bg-muted", dim && "opacity-60")} />
+      {children ?? (Icon && <Icon className={cn("relative", ico, c ? "text-background" : "text-muted-foreground")} strokeWidth={2.25} />)}
+    </span>
+  )
+}
+
+/** 徽章一覽：選一個人，看他的成就等級、已解鎖的徽章（獎盃架），以及每一枚還差多少。
+ *  版面參考 LoL 的挑戰：六角徽框＋等級色、角落的等級緞帶、進度條上的段位刻度、依類別分區。 */
 function BadgesPanel({ people, rows, duos, loading }: { people: Player[]; rows: CubeRow[]; duos: DuoPair[]; loading: boolean }) {
   const [who, setWho] = useState<string | null>(null)
   const [show, setShow] = useState<"all" | "earned" | "todo">("all")
   const sel = people.find((p) => p.puuid === who) ?? people.find((p) => p.is_me) ?? people[0]
   const cards = useMemo(() => badgeCatalog(rows, duos), [rows, duos])
+  // 每個人的狀態一次算好：選人列的等級、卡片下面的「誰解鎖了」都用同一份
+  const table = useMemo(() => new Map(people.map((p) => [p.puuid, cards.map((c) => c.status(p))])), [cards, people])
+  const pointsOf = (puuid: string) => (table.get(puuid) ?? []).reduce((a, st) => a + st.points, 0)
   const view = useMemo(() => {
     if (!sel) return []
+    const mine = table.get(sel.puuid) ?? []
     const rank = { earned: 0, progress: 1, locked: 2 } as const
+    const tierRank = (st: BadgeStatus) => (st.tier ? TIER_ORDER[st.tier] : 3)
     return cards
-      .map((c) => ({ c, st: c.status(sel), holders: people.filter((p) => c.status(p).state === "earned") }))
-      .sort((a, b) => rank[a.st.state] - rank[b.st.state] || (a.st.state === "earned" ? TIER_ORDER[a.c.tier] - TIER_ORDER[b.c.tier] : b.st.ratio - a.st.ratio))
-  }, [cards, sel, people])
-  const earned = view.filter((v) => v.st.state === "earned").length
-  const closest = view.find((v) => v.st.state === "progress")
-  const shown = view.filter((v) => (show === "all" ? true : show === "earned" ? v.st.state === "earned" : v.st.state !== "earned"))
+      .map((c, i) => ({ c, st: mine[i], holders: people.filter((p) => table.get(p.puuid)?.[i].state === "earned") }))
+      .sort((a, b) => rank[a.st.state] - rank[b.st.state] || tierRank(a.st) - tierRank(b.st) || b.st.ratio - a.st.ratio)
+  }, [cards, sel, people, table])
+  if (loading || !sel) {
+    return (
+      <Panel title="徽章">
+        <LoadingBlock height={640} label="載入徽章進度…" />
+      </Panel>
+    )
+  }
+  const points = pointsOf(sel.puuid)
+  const { level, xp } = levelOf(points)
+  const got = view.filter((v) => v.st.state === "earned")
+  const tierCount = (t: TitleTier) => got.filter((v) => v.st.tier === t).length
+  const next = view.filter((v) => v.st.state === "progress" && v.st.nextPoints > 0 && v.c.kind !== "ladder").sort((a, b) => b.st.ratio - a.st.ratio)[0]
+  const shown = view.filter((v) => (show === "all" ? true : show === "earned" ? v.st.state === "earned" : v.st.state !== "earned" || v.st.nextPoints > 0))
+  const units = view.reduce((a, v) => a + (v.st.steps ? v.st.steps.length : 1), 0)
+  const unlocked = view.reduce((a, v) => a + (v.st.steps ? v.st.steps.filter((x) => x.done).length : v.st.state === "earned" ? 1 : 0), 0)
+  let n = 0
   return (
     <Panel
       title="徽章"
-      caption="每個徽章都是累積到門檻就有；選一個人看他拿到哪些、還差多少"
-      hint={`稱號（金、傳說）與里程碑（銀）都在這裡。數字照上面的篩選與比較範圍算；場次不到 ${TITLE_MIN_GAMES} 場的人，稱號先不算（比率太不準）。每張卡片下面列出目前比較對象裡已經拿到的人`}
+      caption="累積到門檻就解鎖；每一枚都有成就點數，點數決定成就等級"
+      hint={`稱號（戰鬥、團隊、風格）、單場壯舉、累積階梯（銀 → 金 → 傳說，每一級都算一枚）。成就點數：銀 ${TIER_POINTS.silver}、金 ${TIER_POINTS.gold}、傳說 ${TIER_POINTS.legend}，每 ${LEVEL_XP} 點升一級。數字照上面的篩選與比較範圍算；場次不到 ${TITLE_MIN_GAMES} 場的人，稱號先不算（比率太不準），壯舉與累積照算`}
     >
-      {loading || !sel ? (
-        <LoadingBlock height={560} label="載入徽章進度…" />
-      ) : (
-        <div className="space-y-4" data-testid="crew-badges">
-          <div className="flex flex-wrap items-center gap-2">
-            {people.map((p) => (
+      <div className="space-y-5" data-testid="crew-badges">
+        {/* 選人：像選角畫面的名牌，帶各自的成就等級 */}
+        <div className="flex flex-wrap gap-2">
+          {people.map((p) => {
+            const lv = levelOf(pointsOf(p.puuid)).level
+            const on = p.puuid === sel.puuid
+            return (
               <button
                 key={p.puuid}
                 type="button"
                 onClick={() => setWho(p.puuid)}
                 data-testid="badge-person"
                 className={cn(
-                  "rounded-full border px-3 py-1 text-xs transition",
-                  p.puuid === sel.puuid ? "border-primary bg-primary/15 font-semibold text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                  "flex items-center gap-1.5 rounded-lg border py-1 pr-3 pl-1 text-xs transition-transform hover:-translate-y-0.5",
+                  on ? "border-primary bg-primary/15 font-semibold text-foreground shadow-[0_0_14px_-6px] shadow-primary" : "bg-card text-muted-foreground hover:text-foreground",
                 )}
               >
+                <span className={cn("rounded-md px-1.5 font-mono text-[10px] font-bold leading-5", CREST[levelTier(lv)].ribbon)}>Lv.{lv}</span>
                 {nameOf(p)}
-                {!!p.is_me && <span className="ml-1 text-[10px] text-primary">我</span>}
+                {!!p.is_me && <span className="text-[10px] text-primary">我</span>}
               </button>
-            ))}
-          </div>
-          <div className="flex flex-wrap items-end justify-between gap-3 rounded-lg border bg-muted/20 px-4 py-3">
-            <div className="min-w-[14rem] flex-1">
-              <div className="text-sm">
-                <span className="font-semibold">{nameOf(sel)}</span> 已獲得{" "}
-                <span className="font-mono text-lg font-bold tabular-nums" data-testid="badge-earned-count">
-                  {earned}
+            )
+          })}
+        </div>
+
+        {/* 玩家卡：成就等級、經驗條、各等級數量、獎盃架 */}
+        <div key={sel.puuid} className="reveal relative overflow-hidden rounded-xl border bg-linear-135 from-primary/15 via-card to-card p-4">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+            <Crest tier={levelTier(level)} size="lg">
+              <span className="relative flex flex-col items-center leading-none text-background">
+                <span className="text-[10px] font-black tracking-widest">LV</span>
+                <span className="font-mono text-2xl font-black tabular-nums">
+                  <CountUp text={String(level)} />
                 </span>
-                <span className="text-muted-foreground"> / {view.length} 個徽章</span>
+              </span>
+            </Crest>
+            <div className="min-w-[15rem] flex-1">
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <span className="text-lg font-bold">{nameOf(sel)}</span>
+                <span className="text-xs text-muted-foreground">成就等級</span>
+                <span className={cn("font-mono text-sm font-bold", CREST[levelTier(level)].text)}>Lv.{level}</span>
               </div>
-              <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
-                <div key={sel.puuid} className="bar-grow h-full rounded-full bg-primary" style={{ width: `${(100 * earned) / Math.max(1, view.length)}%` }} />
+              <div className="mt-2 flex items-center gap-2">
+                <div className="relative h-3 flex-1 overflow-hidden rounded-full bg-muted ring-1 ring-border/60 ring-inset">
+                  <div className="bar-grow h-full rounded-full bg-linear-90 from-primary/50 via-primary to-prismatic" style={{ width: `${xp}%` }} />
+                </div>
+                <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
+                  {xp} / {LEVEL_XP} 到 Lv.{level + 1}
+                </span>
               </div>
-              {closest && (
-                <div className="mt-1.5 text-xs text-muted-foreground">
-                  最接近的是「<span className="text-foreground">{closest.c.name}</span>」：{closest.st.note}
+              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                <span>
+                  成就點數 <span className="font-mono text-base font-bold tabular-nums text-foreground"><CountUp text={String(points)} /></span>
+                </span>
+                <span className="text-muted-foreground">
+                  已解鎖{" "}
+                  <span className="font-mono font-bold text-foreground" data-testid="badge-earned-count">
+                    {unlocked}
+                  </span>{" "}
+                  / {units} 枚
+                </span>
+                {(["legend", "gold", "silver"] as const).map((t) => (
+                  <span key={t} className="flex items-center gap-1">
+                    <span className={cn("size-2.5 rotate-45", CREST[t].dot)} />
+                    <span className="text-muted-foreground">{TIER_NAME[t]}</span>
+                    <span className="font-mono font-bold tabular-nums">{tierCount(t)}</span>
+                  </span>
+                ))}
+              </div>
+              {next && (
+                <div className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
+                  <Target className="size-3.5 text-primary" />
+                  下一個目標：<span className="font-semibold text-foreground">{next.c.name}</span>
+                  <span>——{next.st.note}</span>
+                  <span className={cn("font-mono font-bold", CREST[next.c.tier].text)}>+{next.st.nextPoints}</span>
                 </div>
               )}
             </div>
             <ToggleGroup type="single" size="sm" variant="outline" value={show} onValueChange={(v) => v && setShow(v as typeof show)}>
               <ToggleGroupItem value="all" className="h-7 px-2 text-xs">全部</ToggleGroupItem>
-              <ToggleGroupItem value="earned" className="h-7 px-2 text-xs">已獲得</ToggleGroupItem>
-              <ToggleGroupItem value="todo" className="h-7 px-2 text-xs">還沒拿到</ToggleGroupItem>
+              <ToggleGroupItem value="earned" className="h-7 px-2 text-xs">已解鎖</ToggleGroupItem>
+              <ToggleGroupItem value="todo" className="h-7 px-2 text-xs">還能拿</ToggleGroupItem>
             </ToggleGroup>
           </div>
-          {shown.length === 0 ? (
-            <EmptyState>{show === "earned" ? `${nameOf(sel)} 目前還沒有拿到徽章。` : `${nameOf(sel)} 已經拿到全部的徽章。`}</EmptyState>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-              {shown.map(({ c, st, holders }, i) => (
-                <BadgeCardView key={`${sel.puuid}:${c.key}`} card={c} st={st} holders={holders} total={people.length} index={i} />
-              ))}
-            </div>
-          )}
+          {/* 獎盃架：已解鎖的徽章排成一排，滑過看是哪一枚 */}
+          <div className="mt-3 flex min-h-9 flex-wrap items-center gap-1 border-t border-border/60 pt-3" data-testid="badge-shelf">
+            {got.length === 0 ? (
+              <span className="text-xs text-muted-foreground">獎盃架還是空的——從「下一個目標」開始吧</span>
+            ) : (
+              got.map(({ c, st }, i) => (
+                <span key={c.key} data-tip={`${st.level ?? c.name}\n${TIER_NAME[st.tier!]}・${c.category}・+${st.points} 點`} className="rise" style={{ "--stagger": `${Math.min(i * 40, 600)}ms` } as CSSProperties}>
+                  <Crest icon={c.icon} tier={st.tier} size="sm" />
+                </span>
+              ))
+            )}
+          </div>
         </div>
-      )}
+
+        {/* 依類別分區 */}
+        {shown.length === 0 && <EmptyState>{show === "earned" ? `${nameOf(sel)} 目前還沒有解鎖徽章。` : `${nameOf(sel)} 已經拿到全部的徽章。`}</EmptyState>}
+        {CATEGORIES.map((cat) => {
+          const items = shown.filter((v) => v.c.category === cat.key)
+          if (!items.length) return null
+          const all = view.filter((v) => v.c.category === cat.key)
+          const CatIcon = cat.icon
+          return (
+            <section key={cat.key} data-testid="badge-category">
+              <div className="mb-2.5 flex items-center gap-2">
+                <span className="grid size-6 place-items-center rounded-md bg-primary/15 text-primary">
+                  <CatIcon className="size-3.5" />
+                </span>
+                <h3 className="text-sm font-bold tracking-wider">{cat.key}</h3>
+                <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                  {all.filter((v) => v.st.state === "earned").length}/{all.length}
+                </span>
+                <span className="h-px flex-1 bg-linear-90 from-border to-transparent" />
+                <span className="hidden text-[11px] text-muted-foreground sm:inline">{cat.note}</span>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                {items.map(({ c, st, holders }) => (
+                  <BadgeTile key={`${sel.puuid}:${c.key}`} card={c} st={st} holders={holders} total={people.length} index={n++} />
+                ))}
+              </div>
+            </section>
+          )
+        })}
+      </div>
     </Panel>
   )
 }
 
-/** 一張徽章卡片。拿到的：等級色的框與圖示、進度條滿格；沒拿到的：灰階圖示、主題色進度條與「還差多少」；還不能算的：鎖頭與缺什麼 */
-function BadgeCardView({ card, st, holders, total, index }: { card: BadgeCard; st: BadgeStatus; holders: Player[]; total: number; index: number }) {
-  const tier = TIER_CLASS[card.tier]
-  const Icon = card.icon
+/** 一張徽章卡片。解鎖的：等級色的框、光暈、角落緞帶（階梯型寫 I／II／III）、掃過一道光；沒解鎖的：灰的徽框與主題色進度條；
+ *  還不能算的：鎖頭與缺什麼。右上角是這一枚值多少成就點數 */
+function BadgeTile({ card, st, holders, total, index }: { card: BadgeCard; st: BadgeStatus; holders: Player[]; total: number; index: number }) {
   const got = st.state === "earned"
-  const fill = got ? (card.tier === "legend" ? "bg-prismatic" : card.tier === "gold" ? "bg-gold" : "bg-silver") : st.state === "locked" ? "bg-muted-foreground/50" : "bg-primary"
+  const locked = st.state === "locked"
+  const c = st.tier ? CREST[st.tier] : null
+  const lv = st.steps ? st.steps.filter((x) => x.done).length : 0
+  const maxed = got && st.nextPoints === 0
+  const fill = locked ? "bg-muted-foreground/45" : c && maxed ? c.bar : "bg-linear-90 from-primary/50 to-primary"
   const shownHolders = holders.slice(0, 4)
   return (
     <div
       data-testid="badge-card"
       data-state={st.state}
       data-badge={card.key}
-      style={{ "--stagger": `${Math.min(index * 30, 360)}ms` } as CSSProperties}
-      className={cn("rise flex flex-col gap-2 rounded-lg border p-3", got ? cn(tier.badge, "text-foreground") : "bg-card")}
+      style={{ "--stagger": `${Math.min(index * 25, 400)}ms` } as CSSProperties}
+      className={cn(
+        "rise relative flex flex-col gap-2.5 overflow-hidden rounded-xl border p-3.5 transition-transform duration-200 hover:-translate-y-0.5",
+        got && c ? cn(c.card, "title-shine") : locked ? "bg-muted/25" : "bg-card",
+      )}
     >
-      <div className="flex items-center gap-3">
-        <span className={cn("relative flex size-11 shrink-0 items-center justify-center rounded-full", got ? tier.icon : "bg-muted text-muted-foreground")}>
-          <Icon className="size-5" strokeWidth={2.25} />
-          {st.state === "locked" && (
-            <span className="absolute -right-0.5 -bottom-0.5 flex size-4 items-center justify-center rounded-full border bg-card text-muted-foreground">
-              <Lock className="size-2.5" />
-            </span>
-          )}
+      {got && c && (
+        <span className={cn("absolute top-0 left-0 size-9 [clip-path:polygon(0_0,100%_0,0_100%)]", c.ribbon)}>
+          <span className="absolute top-1 left-1.5 text-[10px] font-black leading-none">{st.steps ? ROMAN[lv - 1] : "★"}</span>
         </span>
-        <div className="min-w-0 flex-1">
+      )}
+      <div className="flex items-start gap-3">
+        <Crest icon={card.icon} tier={st.tier} dim={locked} />
+        <div className="min-w-0 flex-1 pt-1">
           <div className="flex items-center gap-1.5">
-            <span className={cn("truncate font-semibold", !got && "text-foreground/85")}>{st.level ?? card.name}</span>
-            {got && <Check className="size-4 shrink-0 text-win" strokeWidth={3} />}
+            <span className={cn("truncate text-[15px] font-bold tracking-wide", !got && "text-foreground/80")}>{st.level ?? card.name}</span>
+            {locked && <Lock className="size-3.5 shrink-0 text-muted-foreground" />}
           </div>
-          <div className="text-[11px] text-muted-foreground">
-            {card.tier === "legend" ? "傳說稱號" : card.kind === "title" ? "稱號" : "里程碑"}・好友中 {holders.length}／{total} 人已獲得
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+            <span className={cn("rounded px-1.5 font-semibold leading-[18px]", c ? c.ribbon : "bg-muted text-muted-foreground")}>
+              {c ? `${TIER_NAME[st.tier!]}${st.steps ? ` ${ROMAN[lv - 1]}` : ""}` : locked ? "鎖定中" : "未解鎖"}
+            </span>
+            <span className="text-muted-foreground">{holders.length ? `${holders.length}／${total} 位好友解鎖` : "還沒有好友解鎖"}</span>
           </div>
         </div>
+        <span
+          className={cn("shrink-0 font-mono text-[11px] font-bold tabular-nums", got ? c?.text : "text-muted-foreground")}
+          data-tip={got ? `這一枚替他賺到 ${st.points} 成就點數${st.nextPoints ? `；下一級再 +${st.nextPoints}` : ""}` : `解鎖可得 ${st.nextPoints} 成就點數`}
+        >
+          {got ? `+${st.points}` : `${st.nextPoints} 點`}
+        </span>
       </div>
       <p className="text-xs leading-5 text-muted-foreground">{card.hint}</p>
       <div className="mt-auto">
-        <div className="relative h-2 rounded-full bg-muted">
-          <div key={card.key} className={cn("bar-grow absolute inset-y-0 left-0 rounded-full", fill)} style={{ width: `${Math.round(Math.min(1, Math.max(0, st.ratio)) * 100)}%` }} />
-          {st.levels?.map((l) => (
-            <span key={l.label} className="absolute -top-0.5 h-3 w-0.5 rounded bg-foreground/50" style={{ left: `calc(${l.at * 100}% - 1px)` }} />
-          ))}
+        <div className="flex items-center gap-1.5">
+          <div className="relative h-2.5 flex-1 rounded-full bg-muted ring-1 ring-border/60 ring-inset">
+            <div key={card.key} className={cn("bar-grow absolute inset-y-0 left-0 rounded-full", fill)} style={{ width: `${Math.round(Math.min(1, Math.max(0, st.ratio)) * 100)}%` }} />
+            {st.steps?.map((x) => (
+              <span
+                key={x.label}
+                className={cn("absolute top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rotate-45 ring-2 ring-card", x.done ? CREST[x.tier].dot : "bg-muted-foreground/45")}
+                style={{ left: `${x.at * 100}%` }}
+              />
+            ))}
+          </div>
+          <Crown className={cn("size-4 shrink-0", maxed && c ? c.text : "text-muted-foreground/40")} />
         </div>
-        {st.levels && (
-          <div className="relative mt-0.5 h-3.5 font-mono text-[10px] text-muted-foreground">
-            {st.levels.map((l) => (
-              <span key={l.label} className="absolute tabular-nums" style={{ left: `${l.at * 100}%`, transform: `translateX(${l.at >= 0.99 ? "-100%" : "-50%"})` }}>
-                {l.label}
+        {st.steps && (
+          <div className="relative mt-1 mr-5.5 h-3.5 font-mono text-[10px] text-muted-foreground">
+            {st.steps.map((x) => (
+              <span key={x.label} className={cn("absolute whitespace-nowrap tabular-nums", x.done && CREST[x.tier].text)} style={{ left: `${x.at * 100}%`, transform: `translateX(${x.at >= 0.99 ? "-100%" : "-50%"})` }}>
+                {x.label}
               </span>
             ))}
           </div>
         )}
         <div className="mt-1 flex items-baseline justify-between gap-2 text-[11px]">
-          <span className="truncate font-mono tabular-nums text-foreground/90">{st.now ?? "—"}</span>
-          {!st.levels && <span className="shrink-0 text-muted-foreground">門檻 {st.target}</span>}
+          <span className="truncate font-mono font-semibold tabular-nums text-foreground/90">{st.now ?? "—"}</span>
+          {!st.steps && <span className="shrink-0 text-muted-foreground">門檻 {st.target}</span>}
         </div>
-        <div className={cn("mt-0.5 text-xs", got ? "font-semibold text-win" : st.state === "locked" ? "text-muted-foreground" : "font-medium text-primary")} data-testid="badge-note">
+        <div className={cn("mt-0.5 text-xs", got ? cn("font-semibold", c?.text) : locked ? "text-muted-foreground" : "font-medium text-primary")} data-testid="badge-note">
           {st.note}
         </div>
       </div>
       <div className="flex min-h-5 flex-wrap items-center gap-1 border-t border-border/60 pt-2 text-[11px] text-muted-foreground">
         {holders.length === 0 ? (
-          <span>比較對象裡還沒有人拿到</span>
+          <span>比較對象裡還沒有人解鎖</span>
         ) : (
           <>
             {shownHolders.map((p) => (
