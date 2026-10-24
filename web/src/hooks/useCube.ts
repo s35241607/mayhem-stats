@@ -6,33 +6,38 @@ type State = {
   loading: boolean
   error: string | null
 }
+/** 內部多記一份「這份結果是為哪個查詢算的」，key 換了但結果還沒回來的那一幀也要回報 loading */
+type Held = State & { key: string | null }
 
 /** 執行一個 Cube 查詢。傳入 null 表示條件還沒備妥，先不要查。 */
 export function useCube(query: CubeQuery | null): State {
-  const [state, setState] = useState<State>({ rows: [], loading: true, error: null })
   const key = query ? JSON.stringify(query) : null
+  const [held, setHeld] = useState<Held>({ rows: [], loading: true, error: null, key })
+  // 條件從 null 變成有值（例如切到要用它的分頁）時，結果還是上一個條件的：這一幀就算 loading，
+  // 不然呼叫端會先畫一幀「沒有資料」的空狀態，下一幀才變成載入中
+  const state: State = key !== null && held.key !== key ? { ...held, loading: true } : held
 
   useEffect(() => {
     if (!key) {
       // 條件還沒備妥。這裡若直接 return，state 會永遠停在初始的 loading:true，
       // 呼叫端就會看到一個永遠轉不完的骨架或「查詢中…」。
-      setState({ rows: [], loading: false, error: null })
+      setHeld({ rows: [], loading: false, error: null, key })
       return
     }
     let cancelled = false
     // 重查詢可能要輪詢好幾輪，離開頁面時要真的把請求中止，
     // 不然使用者已經切走了，背景還在替一個沒人要看的查詢輪詢。
     const controller = new AbortController()
-    setState((prev) => ({ ...prev, loading: true, error: null }))
+    setHeld((prev) => ({ ...prev, key, loading: true, error: null }))
 
     cubeQuery(JSON.parse(key) as CubeQuery, controller.signal)
       .then((rows) => {
         // 條件在請求途中被改掉時，丟棄這次的結果，避免舊資料蓋掉新資料
-        if (!cancelled) setState({ rows, loading: false, error: null })
+        if (!cancelled) setHeld({ rows, loading: false, error: null, key })
       })
       .catch((err: Error) => {
         if (cancelled || err.name === "AbortError") return
-        setState({ rows: [], loading: false, error: err.message })
+        setHeld({ rows: [], loading: false, error: err.message, key })
       })
 
     return () => {

@@ -1,6 +1,7 @@
 import { type CSSProperties, type ReactNode } from "react"
 import { CountUp } from "@/components/CountUp"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { LoaderCircle } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 import { Hint } from "@/components/TipLayer"
@@ -111,6 +112,21 @@ export function EmptyState({ children }: { children: ReactNode }) {
   return (
     <div className="rounded-lg border border-dashed px-6 py-10 text-center text-sm text-muted-foreground">
       {children}
+    </div>
+  )
+}
+
+/** 載入中的佔位：一塊淡淡呼吸的底，正中間一個轉圈圈加一句話（說在等什麼）。
+ *  高度要和載入完的內容接近，換上內容時版面才不會跳。動畫只有 opacity（呼吸）與 transform（轉圈），
+ *  「減少動態」時 index.css 會把它們縮成瞬間。 */
+export function LoadingBlock({ height = 320, label = "載入中…", className }: { height?: number; label?: string; className?: string }) {
+  return (
+    <div className={cn("relative w-full", className)} style={{ height }} role="status" aria-live="polite" data-testid="loading-block">
+      <Skeleton className="absolute inset-0" />
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+        <LoaderCircle className="size-6 animate-spin text-primary" />
+        <span>{label}</span>
+      </div>
     </div>
   )
 }

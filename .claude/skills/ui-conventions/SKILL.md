@@ -45,6 +45,11 @@ description: 這個專案前端的主題與動畫規範。只要動到 web/src �
 - 定位要從語意層查：`hooks/useBuildRoles.ts` 拿參賽者鍵（`participants.participant_key`）向 Cube 查，一批不超過 50 個鍵。
   不要在後端或前端另寫一份分類規則。
 
+### 滑過提示（TipLayer）
+
+- 任何元素加 `data-tip` 就有提示，內容是字串；要有層次（大數字、勝敗色、等級標籤）就用 `lib/tip.ts` 說明的 `{{種類|文字}}` 標記與 `{{lab|…}}`／`> `／`-- ` 行首記號，不要整段同一個顏色。
+  只吃純文字的地方（aria-label、SVG `<title>`）用 `stripTip()`。等級標籤的顏色由頁面用 `tipLevelClass` 登記（class 字串留在頁面檔案裡，Tailwind 才掃得到）。
+
 ### 圖表（ECharts）取色
 
 - 只能透過 `charts.tsx` 的 `useTheme()` 取色，它依主題名稱重算，切換主題時圖表才會跟著換。
@@ -113,6 +118,9 @@ description: 這個專案前端的主題與動畫規範。只要動到 web/src �
 6. **重元件等進場動畫結束才掛。** AG Grid、ECharts 已經用 `useAfterPageEnter()`（`lib/motion.ts`）處理。
    新增其他重元件（大型清單、編輯器……）照做，等待期間畫**同高度**的佔位，版面才不會跳。
 7. **骨架與內容等高。** 骨架高度要接近真正內容，否則換上內容時整頁往下推（CLS）。
+   載入中不要只放一塊空的灰底：用 `components/primitives.tsx` 的 `<LoadingBlock height label>`（呼吸的底＋轉圈圈＋一句說明在等什麼）；
+   整頁性的列表（像好友比較的全員一覽）畫一份和真正的列同欄位的骨架（`MatrixSkeleton`），換上內容時版面不跳。
+   骨架根元素要帶 `data-slot="skeleton"`，e2e 的 `ready()` 才知道還在載入。只有某個分頁用得到的查詢，切到那個分頁才查（傳 null 給 `useCube`），不要讓它卡住第一個畫面。
 8. **尊重「減少動態」。** CSS 那邊由 `index.css` 的 `prefers-reduced-motion` 縮成 1ms；JS 的資料動畫要自己檢查
    `prefersReducedMotion()`（`CountUp` 直接顯示最終值、`ResponsiveChart` 關掉 ECharts 動畫）。新動畫不要繞過它。
 

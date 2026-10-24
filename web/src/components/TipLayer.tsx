@@ -1,6 +1,81 @@
-import { useEffect, useRef, useState } from "react"
-import { Info } from "lucide-react"
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react"
+import { ChevronRight, Info } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { MARK, stripTip, tipLevelClass } from "@/lib/tip"
+
+const CHIP = "inline-flex items-center rounded-md border px-1.5 text-[11px] leading-[18px] whitespace-nowrap align-[1px]"
+
+function Mark({ kind, text }: { kind: string; text: string }) {
+  switch (kind) {
+    case "big":
+      return <b className="font-mono text-[15px] font-bold tabular-nums text-foreground">{text}</b>
+    case "n":
+      return <b className="font-mono font-semibold tabular-nums text-foreground">{text}</b>
+    case "win":
+      return <b className="font-mono font-semibold tabular-nums text-win">{text}</b>
+    case "loss":
+      return <b className="font-mono font-semibold tabular-nums text-loss">{text}</b>
+    case "mute":
+      return <span className="text-muted-foreground">{text}</span>
+    case "rank":
+      return <span className="mr-1.5 rounded bg-primary/15 px-1.5 font-mono text-[11px] font-bold leading-[18px] text-primary">{text}</span>
+    case "lv":
+      return <span className={cn(CHIP, tipLevelClass[text] ?? "border-border bg-muted text-foreground")}>{text}</span>
+    case "tagwin":
+      return <span className={cn(CHIP, "border-win/50 bg-win/15 text-foreground")}>{text}</span>
+    case "tagmute":
+      return <span className={cn(CHIP, "border-foreground/25 bg-muted text-foreground")}>{text}</span>
+    default:
+      return <>{text}</>
+  }
+}
+
+function Inline({ text }: { text: string }) {
+  const out: ReactNode[] = []
+  let last = 0
+  let k = 0
+  for (const m of text.matchAll(MARK)) {
+    if (m.index > last) out.push(text.slice(last, m.index))
+    out.push(<Mark key={k++} kind={m[1]} text={m[2]} />)
+    last = m.index + m[0].length
+  }
+  if (last < text.length) out.push(text.slice(last))
+  return (
+    <>
+      {out.map((n, i) => (
+        <Fragment key={i}>{n}</Fragment>
+      ))}
+    </>
+  )
+}
+
+type Block =
+  | { kind: "title"; text: string }
+  | { kind: "item"; label: string; text: string; subs: string[] }
+  | { kind: "para"; text: string }
+  | { kind: "foot"; text: string }
+
+/** 把提示字串拆成幾塊：標題、項目（含補充行）、段落、操作提示 */
+function parseTip(text: string): Block[] {
+  const lines = text.split("\n")
+  const blocks: Block[] = []
+  lines.forEach((line, i) => {
+    const lab = /^\{\{lab\|([^}]*)\}\}(.*)$/.exec(line)
+    if (lab) return void blocks.push({ kind: "item", label: lab[1], text: lab[2], subs: [] })
+    if (line.startsWith("> ")) {
+      const last = blocks[blocks.length - 1]
+      if (last?.kind === "item") last.subs.push(line.slice(2))
+      else blocks.push({ kind: "para", text: line.slice(2) })
+      return
+    }
+    if (line.startsWith("-- ")) return void blocks.push({ kind: "foot", text: line.slice(3) })
+    // 第一行夠短（像「鬥士・179 場」）就當標題；有標記的標題長一點也行（名次小標＋名字＋場次）
+    const plain = stripTip(line)
+    if (i === 0 && lines.length > 1 && plain.length <= (line.includes("{{") ? 30 : 24)) return void blocks.push({ kind: "title", text: line })
+    blocks.push({ kind: "para", text: line })
+  })
+  return blocks
+}
 
 /** 全站共用的滑過提示：任何元素加上 data-tip="…"，滑過或用鍵盤聚焦就在它上方（放不下改下方）顯示主題配色的提示框，
  *  取代瀏覽器內建的 title（延遲久、樣式不能改、深色主題下是一塊白框）。
@@ -81,12 +156,52 @@ export function TipLayer() {
         transform: `translate(-50%, ${tip.below ? "8px" : "calc(-100% - 8px)"})`,
       }}
     >
-      {/* 第一行夠短（像「鬥士・179 場」）就當標題（粗體）；之後每行一段，段落之間留一點距離 */}
-      {tip.text.split("\n").map((line, i, all) => (
-        <p key={i} className={cn(all.length > 1 && i === 0 && line.length <= 24 ? "mb-1 font-semibold" : "text-popover-foreground/90", i > 0 && "mt-1")}>
-          {line}
-        </p>
-      ))}
+      {parseTip(tip.text).map((b, i) => {
+        if (b.kind === "title")
+          return (
+            <p key={i} className="mb-1.5 border-b border-border/60 pb-1.5 text-[14px] font-semibold leading-6 text-foreground">
+              <Inline text={b.text} />
+            </p>
+          )
+        if (b.kind === "item")
+          return (
+            <div key={i} className={cn("grid grid-cols-[3.25rem_minmax(0,1fr)] items-baseline gap-x-2", i > 0 && "mt-2")}>
+              <span className="text-xs text-muted-foreground">{b.label}</span>
+              <div>
+                <p className="flex flex-wrap items-baseline gap-x-1.5">
+                  <Inline text={b.text} />
+                </p>
+                {b.subs.map((sub, j) => (
+                  <p key={j} className="text-xs leading-5 text-muted-foreground">
+                    <Inline text={sub} />
+                  </p>
+                ))}
+              </div>
+            </div>
+          )
+        if (b.kind === "foot")
+          return (
+            <p key={i} className="mt-2 flex items-center gap-0.5 border-t border-border/60 pt-1.5 text-xs text-muted-foreground">
+              <Inline text={b.text} />
+              <ChevronRight className="size-3.5" />
+            </p>
+          )
+        // 沒有標記的純文字：「標題：說明」的標題加粗、說明用次一級的顏色，一眼分得出重點
+        const two = !b.text.includes("{{") ? /^([^：\n]{1,8})：(.+)$/.exec(b.text) : null
+        return (
+          <p key={i} className={cn("text-popover-foreground/90", i > 0 && "mt-1")}>
+            {two ? (
+              <>
+                <span className="font-semibold text-foreground">{two[1]}</span>
+                <span className="text-muted-foreground">：</span>
+                {two[2]}
+              </>
+            ) : (
+              <Inline text={b.text} />
+            )}
+          </p>
+        )
+      })}
       <span
         className={cn("absolute size-2.5 rotate-45 border-border bg-popover", tip.below ? "border-t border-l" : "border-r border-b")}
         style={{ left: `calc(50% - ${shift}px)`, [tip.below ? "top" : "bottom"]: -5.5, marginLeft: -5 }}

@@ -1,5 +1,5 @@
 import { Fragment, createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react"
-import { ArrowRight, BookOpen, Check, ChevronDown, ChevronRight, ChevronsUpDown, Crown, Flame, Hammer, HeartHandshake, Infinity as InfinityIcon, Medal, Search, Shield, Handshake, Snowflake, Sparkles, Star, Trophy, Zap, Users, Skull, Award, Mountain, Heart, Moon, CalendarCheck, type LucideIcon } from "lucide-react"
+import { ArrowRight, LoaderCircle, BookOpen, Check, ChevronDown, ChevronRight, ChevronsUpDown, Crown, Flame, Hammer, HeartHandshake, Infinity as InfinityIcon, Medal, Search, Shield, Handshake, Snowflake, Sparkles, Star, Trophy, Zap, Users, Skull, Award, Mountain, Heart, Moon, type LucideIcon } from "lucide-react"
 import { RecordCell } from "@/components/cells"
 import { ContribBars, ContribScore } from "@/components/Contribution"
 import { PERF_PARTS, WORK, WORK_GAMES, WORK_GAP, WORK_MEASURES, WORK_PARTS } from "@/hooks/useContribution"
@@ -7,10 +7,10 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { EmptyState, Panel, QueryError } from "@/components/primitives"
+import { EmptyState, LoadingBlock, Panel, QueryError } from "@/components/primitives"
 import { Hint } from "@/components/TipLayer"
+import { stripTip, tipLevelClass } from "@/lib/tip"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ContribRadarChart, SHRINK_K, shrunk } from "@/components/charts"
@@ -230,6 +230,8 @@ const LEVELS = [
   { label: "初體驗", strength: null, min: -Infinity, note: `${TRIAL_MAX} 場以下`, cls: "border-foreground/10 bg-muted/40 text-muted-foreground/80" },
 ] as const satisfies readonly { label: string; strength: Strength | null; min: number; note: string; cls: string }[]
 type Level = (typeof LEVELS)[number]["label"]
+// 提示框裡的等級標籤要和畫面上同一個顏色：把每一級的 class 登記給 TipLayer（class 字串留在這個檔案裡，Tailwind 才掃得到）
+for (const l of LEVELS) tipLevelClass[l.label] = l.cls
 const LEVEL_OF = new Map(LEVELS.map((l) => [l.label as Level, l]))
 
 /** 同一個內部五級裡，照差距由高往低找第一個 d ≥ min 的那一級（每一組最後一級的 min 是 −∞，一定找得到） */
@@ -247,30 +249,37 @@ const isPos = (s: Strength) => s === "強勢" || s === "偏強"
 const isNeg = (s: Strength) => s === "不強勢" || s === "偏弱"
 const isClear = (s: Strength) => s === "強勢" || s === "不強勢"
 
+/** 提示框的內容（排版標記見 components/TipLayer）：標題是名字與場次；「本場貢獻」「勝率」各一個項目，
+ *  大數字在前、等級標籤與勝負用各自的顏色，次要的補充（區間、他自己的整體勝率）放在下一行 */
 function tipOf(j: Judged, ownWr: number | null) {
-  const lines = [`${j.label}・${j.games} 場${j.scored !== j.games ? `（有本場貢獻的 ${j.scored} 場）` : ""}`]
+  const m = (kind: string, text: string) => `{{${kind}|${text}}}`
+  const lines = [`${j.label}${m("mute", `・${j.games} 場${j.scored !== j.games ? `（有本場貢獻的 ${j.scored} 場）` : ""}`)}`]
   if (j.g) {
+    const iv = j.g.interval
+    lines.push(`${m("lab", "本場貢獻")}${m("big", String(Math.round(j.g.mean)))}${iv ? ` ${m("lv", labelOf(j))}` : ""}`)
     lines.push(
-      `本場貢獻 ${Math.round(j.g.mean)}（50＝所有人的平均）` +
-        (j.g.interval
-          ? `，區間 ${Math.round(50 + j.g.interval[0])}～${Math.round(50 + j.g.interval[1])} → ${labelOf(j)}`
-          : `；不到 ${MIN_N} 場，不下判斷`),
+      iv
+        ? `> 區間 ${Math.round(50 + iv[0])}～${Math.round(50 + iv[1])}・50＝所有人的平均`
+        : `> 不到 ${MIN_N} 場，不下判斷・50＝所有人的平均`,
     )
   }
   if (j.games && j.winrate !== null) {
-    lines.push(
-      `勝率 ${j.winrate.toFixed(1)}%（${j.wins} 勝 ${j.games - j.wins} 敗）` +
-        (ownWr !== null ? `，他自己的整體 ${ownWr.toFixed(1)}%` : "") +
-        (j.wr?.interval
-          ? `，差 ${signed(j.wr.diff)}pp、區間 ${signed(j.wr.interval[0], 0)}～${signed(j.wr.interval[1], 0)}pp${j.wr.clear ? "（看得出差別）" : "（還在誤差內）"}`
-          : ""),
-    )
+    lines.push(`${m("lab", "勝率")}${m("big", `${j.winrate.toFixed(1)}%`)} ${m("win", `${j.wins} 勝`)} ${m("loss", `${j.games - j.wins} 敗`)}`)
+    const parts: string[] = []
+    if (ownWr !== null) parts.push(`他自己的整體 ${ownWr.toFixed(1)}%`)
+    if (j.wr?.interval) {
+      parts.push(`差 ${m(j.wr.diff >= 0 ? "win" : "loss", `${signed(j.wr.diff)}pp`)}`)
+      parts.push(`區間 ${signed(j.wr.interval[0], 0)}～${signed(j.wr.interval[1], 0)}pp`)
+      parts.push(j.wr.clear ? "看得出差別" : m("mute", "還在誤差內"))
+    }
+    if (parts.length) lines.push(`> ${parts.join("・")}`)
   }
   const x = extraOf(j)
+  const unclear = j.wr?.clear ? "" : "（勝率差距還在誤差內）"
   if (x === WR_NOTES.unlucky)
-    lines.push(`${WR_NOTES.unlucky}：貢獻比平均高，勝率卻比他平常低 ${WR_LUCK} 個百分點以上，輸多半不是他的問題${j.wr?.clear ? "" : "（勝率差距還在誤差內）"}`)
+    lines.push(`${m("tagwin", x)} 貢獻比平均高，勝率卻比他平常低 ${WR_LUCK} 個百分點以上，輸多半不是他的問題${unclear}`)
   if (x === WR_NOTES.carried)
-    lines.push(`${WR_NOTES.carried}：貢獻還在追平均，勝率卻比他平常高 ${WR_LUCK} 個百分點以上，和隊友配合得好${j.wr?.clear ? "" : "（勝率差距還在誤差內）"}`)
+    lines.push(`${m("tagmute", x)} 貢獻還在追平均，勝率卻比他平常高 ${WR_LUCK} 個百分點以上，和隊友配合得好${unclear}`)
   return lines.join("\n")
 }
 
@@ -317,6 +326,52 @@ const NUM_CLASS: Record<Strength, string> = {
  *  用容器查詢（@container）而不是視窗寬度，側欄展開或收合時排版跟著實際可用的寬度走。 */
 const ROW_COLS =
   "grid-cols-[minmax(0,1fr)_6rem] gap-3 @[1000px]:grid-cols-[14rem_6rem_minmax(14rem,0.8fr)_minmax(0,1.2fr)] @[1000px]:gap-4 @[1400px]:grid-cols-[18rem_6rem_minmax(16rem,0.7fr)_minmax(0,1.3fr)]"
+/** 全員一覽載入中的佔位：每人一列，欄位和真正的列（ROW_COLS）一樣——名字與稱號、雷達、出裝橫條、英雄頭像——
+ *  換上內容時版面不會跳。上面一行是轉圈圈與說明，讓人知道不是壞了；列本身是呼吸的淡色塊（只動 opacity）。 */
+function MatrixSkeleton({ rows, label }: { rows: number; label: string }) {
+  const bar = "rounded bg-muted"
+  return (
+    <div className="@container" role="status" aria-live="polite" data-testid="loading-block" data-slot="skeleton">
+      <div className="mb-2 flex items-center gap-2 px-2 text-sm text-muted-foreground">
+        <LoaderCircle className="size-4 animate-spin text-primary" />
+        {label}
+      </div>
+      {Array.from({ length: Math.min(rows, 9) }, (_, i) => (
+        <div
+          key={i}
+          style={{ animationDelay: `${i * 120}ms` }}
+          className={cn("grid animate-pulse items-center border-b px-2 py-3", ROW_COLS)}
+        >
+          <span className="grid gap-1.5">
+            <span className={cn(bar, "h-4 w-32")} />
+            <span className={cn(bar, "h-3 w-40")} />
+            <span className={cn(bar, "h-3 w-24")} />
+            <span className="mt-0.5 flex gap-1.5">
+              {[0, 1, 2].map((k) => (
+                <span key={k} className={cn(bar, "h-[22px] w-16 rounded-full")} />
+              ))}
+            </span>
+          </span>
+          <span className="mx-auto size-[88px] rounded-full bg-muted" />
+          <span className={cn("grid gap-2", SECTION_SPAN)}>
+            {[0, 1, 2, 3, 4, 5].map((k) => (
+              <span key={k} className={cn(bar, "h-3")} style={{ width: `${55 + ((i * 7 + k * 13) % 40)}%` }} />
+            ))}
+          </span>
+          <span className={cn("grid gap-3", SECTION_SPAN)}>
+            {[0, 1].map((row) => (
+              <span key={row} className="flex gap-1.5">
+                {Array.from({ length: 8 }, (_, k) => (
+                  <span key={k} className="size-8 shrink-0 rounded-md bg-muted" />
+                ))}
+              </span>
+            ))}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
 /** 窄的時候出裝、英雄整行；寬的時候各佔一欄 */
 const SECTION_SPAN = "col-span-2 border-t border-border/50 pt-2 @[1000px]:col-span-1 @[1000px]:border-t-0 @[1000px]:pt-0"
 
@@ -427,7 +482,7 @@ function RoleHex({ roles, total, selected, onPick }: { roles: Judged[]; total: n
               }
             }}
           >
-            <title>{j.games ? tipOf(j, null) : `${j.label}：沒有對局`}</title>
+            <title>{j.games ? stripTip(tipOf(j, null)) : `${j.label}：沒有對局`}</title>
             <circle cx={x} cy={y} r={isClear(j.strength) ? 5 : j.g?.interval && j.strength !== "看不出" ? 4 : 3} className={tone(j)} />
             <text x={lx} y={ly - 7} textAnchor="middle" dominantBaseline="central" className={cn("text-[13px] font-semibold", tone(j), on && "underline")}>
               {j.label}
@@ -612,7 +667,7 @@ function ChampBadge({ j, rank, ownWr, onClick }: { j: Judged; rank: number; ownW
       )}
     </span>
   )
-  const tip = `第 ${rank} 名・${tipOf(j, ownWr)}${onClick ? "\n點一下看他玩這隻的每一場" : ""}`
+  const tip = `{{rank|第 ${rank} 名}}${tipOf(j, ownWr)}${onClick ? "\n-- 點一下看他玩這隻的每一場" : ""}`
   if (!onClick) {
     return (
       <span data-tip={tip} className="relative shrink-0" data-testid="crew-champ" data-strength={j.strength}>
@@ -762,7 +817,7 @@ function PlayerMatches({ puuid, filters, recordMetric }: { puuid: string; filter
       "all",
     ),
   )
-  if (ids.loading) return <Skeleton className="h-40 w-full" />
+  if (ids.loading) return <LoadingBlock height={160} label="載入中…" />
   if (ids.error) return <div className="text-sm text-destructive">{ids.error}</div>
   const gameIds = ids.rows.map((r) => String(r["matches.game_id"]))
   if (!gameIds.length) return <EmptyState>{recordMetric ? "找不到創下這項紀錄的對局。" : "這個條件下沒有對局。"}</EmptyState>
@@ -772,7 +827,7 @@ function PlayerMatches({ puuid, filters, recordMetric }: { puuid: string; filter
 /** 抽屜裡的一串對局。等抽屜滑完才查、才掛逐場列表，滑動時不卡 */
 function GamesBody({ source }: { source: GamesSource }) {
   const settled = useDrawerSettled()
-  if (!settled) return <Skeleton className="h-40 w-full" />
+  if (!settled) return <LoadingBlock height={160} label="載入中…" />
   if ("params" in source) return <MatchList params={source.params} showPlayer />
   return <PlayerMatches puuid={source.puuid} filters={source.filters} recordMetric={source.recordMetric} />
 }
@@ -1137,7 +1192,6 @@ const TITLES: TitleDef[] = [
     },
     fmt: (v) => `深夜場 ${v.toFixed(1)}%`,
   },
-  { name: "全勤獎", icon: CalendarCheck, tier: "gold", hint: "場次最多", value: (r) => n0(r, "participants.games") || null, fmt: (v) => `${v} 場` },
   { name: "英雄百科", icon: BookOpen, tier: "gold", hint: "玩過的英雄最多", value: (r) => opt(r, "participants.champion_count"), fmt: (v) => `玩過 ${Math.round(v)} 隻英雄` },
 ]
 
@@ -1737,7 +1791,7 @@ function PlayerDrawerBody({
           <Hint text={"每一項都是每分鐘的量，和同一場另外九個人比：參考量是其他九人的量依裝備職責分到他的份，等於參考量是 50、兩倍約 67，雷達裡的虛線圈與橫條中間的刻度就是 50。\n權重看終場裝備的連續比例（輸出裝重輸出、坦裝重承傷、輔助裝重治療護盾，控場每種都有一點），不用英雄名稱（只有射手英雄依 AD 裝比例另加最多約 2.5 分，補控場少、站後排的落差）；權重低的工作做到超過參考量另有加分，清兵、推塔另有最多 6 分。\n死亡不扣分。治療護盾隊友的量只有賽後統計有，沒有的場次改用含自補的治療量（暫估）"} />
         </div>
         {!settled || contrib.loading ? (
-          <Skeleton className="h-[300px] w-full" />
+          <LoadingBlock height={300} label="載入貢獻分解…" />
         ) : contrib.error ? (
           <div className="text-sm text-destructive">{contrib.error}</div>
         ) : (
@@ -1801,7 +1855,7 @@ function PlayerDrawerBody({
         </div>
         <div ref={listRef} style={{ minHeight: onlyClear ? listMinH : undefined }}>
         {role && (!settled || champs.loading) ? (
-          <Skeleton className="h-[320px] w-full" />
+          <LoadingBlock height={320} label="載入英雄戰績…" />
         ) : role && champs.error ? (
           <div className="text-sm text-destructive">{champs.error}</div>
         ) : !champRows.length ? (
@@ -2021,7 +2075,7 @@ function LookupPanel({
         )}
       </div>
       {loading ? (
-        <Skeleton className="h-[320px] w-full" />
+        <LoadingBlock height={320} label="載入中…" />
       ) : !value ? (
         <EmptyState>這群人還沒有對局。</EmptyState>
       ) : (
@@ -2307,7 +2361,7 @@ function StatsPanel({
       hint={"每個人的各項平均（每場先算再平均），另有單場巔峰紀錄。切換上方的分組看不同面向；點欄位標題換排序，點數字開抽屜看算進去的每一場；平均表現的最佳值標綠，單場紀錄維持中性。\n比人時記得出裝不同：射手天生打塔快、坦克天生承傷多，可以對照「出裝比例」"}
     >
       {loading ? (
-        <Skeleton className="h-[300px] w-full" />
+        <LoadingBlock height={300} label="載入數據中…" />
       ) : (
         <div className="reveal space-y-2">
           <div className="flex flex-wrap items-center gap-2">
@@ -2501,7 +2555,7 @@ function PeakTop({
       {top.error ? (
         <QueryError error={top.error} />
       ) : top.loading ? (
-        <Skeleton className="h-[360px] w-full" />
+        <LoadingBlock height={360} label="載入中…" />
       ) : !top.rows.length ? (
         <EmptyState>{centers.length ? `${centerNames} 在這個模式與期間裡沒有對局。` : "這個條件下沒有對局。"}</EmptyState>
       ) : (
@@ -2682,14 +2736,18 @@ export function Crew() {
   )
   // 增幅是一場多列的維度：查 winrate 會讓 Cube 走「撈主鍵再 join 回來」的慢路徑（實測 2.0 秒，不查 0.5 秒），
   // 所以只查 games 與 wins，勝率由 LookupPanel 自己除（定義就是 100 × wins / games）
+  //   只有「查增幅裝置」分頁用得到，切過去才查：冷快取時這支要 2.6 秒，原本會把一進頁面的全員一覽也卡住
   const augments = useCube(
-    q({
-      measures: ["participants.games", "participants.wins", "participants.losses", WORK],
-      dimensions: ["participants.puuid", "augments.name", "augments.icon_path"],
-      limit: NO_LIMIT,
-    }),
+    section === "augment"
+      ? q({
+          measures: ["participants.games", "participants.wins", "participants.losses", WORK],
+          dimensions: ["participants.puuid", "augments.name", "augments.icon_path"],
+          limit: NO_LIMIT,
+        })
+      : null,
   )
-  const stats = useCube(q({ measures: STAT_MEASURES_ALL, dimensions: ["participants.puuid"], limit: NO_LIMIT }))
+  //   數據總表分頁專用（冷快取 1.5 秒），同樣切過去才查
+  const stats = useCube(section === "stats" ? q({ measures: STAT_MEASURES_ALL, dimensions: ["participants.puuid"], limit: NO_LIMIT }) : null)
   // 稱號用的幾項數據（每人一列）
   const titleStats = useCube(q({ measures: TITLE_MEASURES, dimensions: ["participants.puuid"], limit: NO_LIMIT }))
   const lossStats = useCube(q({ measures: [WORK, WORK_GAMES], dimensions: ["participants.puuid"], segments: ["participants.losses_only"], limit: NO_LIMIT }))
@@ -2723,7 +2781,11 @@ export function Crew() {
   const everyone = useCube(centerFilters === null ? null : apply({ measures: ["participants.games", "participants.winrate", "participants.kda"], filters: centerFilters }, "all"))
   const everyoneRoles = useCube(centerFilters === null ? null : apply({ measures: ["participants.games"], dimensions: ["builds.build_role"], filters: centerFilters, limit: NO_LIMIT }, "all"))
   const error = summary.error ?? roles.error ?? champs.error ?? augments.error ?? everyone.error ?? everyoneRoles.error ?? stats.error ?? dmgTypes.error ?? titleStats.error ?? lossStats.error ?? nightStats.error ?? duo.error ?? together.error
-  const loading = summary.loading || roles.loading || champs.loading || augments.loading || everyone.loading || everyoneRoles.loading
+  // 全員一覽要等的：核心數字，加上稱號與玩法用的幾支（不等的話，稱號會在畫面出來之後才一個個冒出來、版面往下推）。
+  // 增幅、數據總表不在這裡：那是別的分頁的資料
+  const loading =
+    summary.loading || roles.loading || champs.loading || everyone.loading || everyoneRoles.loading ||
+    dmgTypes.loading || titleStats.loading || lossStats.loading || nightStats.loading
 
   const sumOf = (puuid: string) => summary.rows.find((r) => r["participants.puuid"] === puuid)
   const gamesOf = (puuid: string) => n0(sumOf(puuid), "participants.games")
@@ -2831,7 +2893,7 @@ export function Crew() {
   }, [profiles, puuids.join()])
 
 
-  if (!players.length) return <Skeleton className="h-[420px] w-full" />
+  if (!players.length) return <MatrixSkeleton rows={6} label="載入好友名單…" />
   if (crew.length < 2) {
     return (
       <EmptyState>
@@ -2947,7 +3009,7 @@ export function Crew() {
             hint={"判定看本場貢獻（每場只和同一場的人比，50＝所有人的平均）的誤差範圍：整段高於 50 是得心應手以上（拿手、招牌、傳奇）、整段低於 50 是潛力股或璞玉，還在誤差內的依差距細分（虛線框）；滑過圖例看每一級的切點。\n雷達是各出裝佔他場次的比例；出裝欄每種出裝一條，所有人同一把尺，點是本場貢獻和 50 的差、橫線是誤差範圍（實心＝看得出）。\n英雄的數字是名次，看得出的排前面。"}
           >
             {loading ? (
-              <Skeleton className="h-[640px] w-full" />
+              <MatrixSkeleton rows={matrixRows.length || crew.length || 6} label="載入好友戰績…" />
             ) : (
               <div className="space-y-3">
                 <p className="text-sm" data-testid="crew-matrix-summary">
@@ -3087,7 +3149,7 @@ export function Crew() {
             hint={`兩人同隊的場次與勝率（同一場、同一隊）。顏色是勝率比 50% 高或低，越深差越多；外框加粗的是誤差範圍整段在一邊、看得出差別的。不到 ${DUO_MIN_GAMES} 場只寫場次。\n好友多半一起打，勝率互相牽動，當作描述看。模式、版本、期間照上方篩選，「中心」不套用。`}
           >
             {duo.loading ? (
-              <Skeleton className="h-[360px] w-full" />
+              <LoadingBlock height={360} label="載入搭檔勝率…" />
             ) : (
               <DuoMatrix
                 people={matrixRows}
@@ -3134,7 +3196,7 @@ export function Crew() {
           <LookupPanel
             kind={AUGMENT_LOOKUP}
             rows={augments.rows}
-            loading={loading}
+            loading={loading || augments.loading}
             people={ordered}
             puuids={puuids}
             wrOf={wrOf}
