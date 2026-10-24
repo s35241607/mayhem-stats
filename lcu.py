@@ -207,6 +207,20 @@ def _item_stats(description):
     return stats
 
 
+# 客戶端資料沒有翻譯的增幅：nameTRA 是佔位字串（「…_BlankName」）或空的，畫面上會出現英文內部代號。
+# 鍵是 augmentNameId。GoH_PentakillAug_Generic（id 3176）：2026-10 的客戶端與遊戲字串表都沒有它的名稱，
+# 對局裡一定和重金屬／力量金屬／鞭擊金屬／末日金屬同時出現、共用殺五社（Pentakill，台服造型系列的譯名）的圖示，
+# 是金屬套裝附帶的效果，所以叫它「殺五社（金屬套裝效果）」。
+AUGMENT_NAME_FALLBACK = {"GoH_PentakillAug_Generic": "殺五社（金屬套裝效果）"}
+
+
+def _augment_name(a):
+    name = a.get("nameTRA") or a.get("name") or ""
+    if name and not name.endswith("_BlankName") and name != a.get("augmentNameId"):
+        return name
+    return AUGMENT_NAME_FALLBACK.get(a.get("augmentNameId"), f"未命名增幅（{a.get('id')}）")
+
+
 def fetch_dimensions(client):
     """抓英雄/增幅/裝備/符文/召喚師技能的名稱對照表。"""
     champions = [
@@ -218,7 +232,7 @@ def fetch_dimensions(client):
         for c in client.asset("champion-summary") if c.get("id", -1) > 0
     ]
     augments = [
-        {"id": a["id"], "name": a.get("nameTRA") or a.get("name"),
+        {"id": a["id"], "name": _augment_name(a),
          "rarity": a.get("rarity"), "icon_path": _icon(a, "augmentSmallIconPath", "iconPath")}
         for a in client.asset("cherry-augments")
     ]
