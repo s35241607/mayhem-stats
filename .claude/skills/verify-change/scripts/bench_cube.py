@@ -197,17 +197,17 @@ def heavy_queries() -> dict:
     of_crew = {"member": "participants.puuid", "operator": "equals", "values": crew}
     return {
         "好友比較：陣容×貢獻": {
-            "measures": ["participants.games", "participants.wins", "participants.winrate", "contribution.score"],
+            "measures": ["participants.games", "participants.wins", "participants.winrate", "contribution.work"],
             "dimensions": ["participants.puuid", "builds.build_role", "comp_context.ally_frontline"],
             "filters": [mayhem, of_crew],
         },
         "好友比較：英雄×貢獻": {
-            "measures": ["participants.games", "participants.winrate", "contribution.score"],
+            "measures": ["participants.games", "participants.winrate", "contribution.work"],
             "dimensions": ["participants.puuid", "champions.name"],
             "filters": [mayhem, of_crew],
         },
         "好友比較：定位×貢獻": {
-            "measures": ["participants.games", "participants.winrate", "contribution.score"],
+            "measures": ["participants.games", "participants.winrate", "contribution.work"],
             "dimensions": ["participants.puuid", "builds.build_role"],
             "filters": [mayhem, of_crew],
         },
@@ -216,8 +216,8 @@ def heavy_queries() -> dict:
             "dimensions": ["participant_context.prev_result"],
             "segments": ["participants.mine"],
         },
-        "英雄×perf_index": {
-            "measures": ["participants.games", "builds.perf_index"],
+        "英雄×本場貢獻": {
+            "measures": ["participants.games", "contribution.work"],
             "dimensions": ["participants.puuid", "champions.name"],
             "filters": [of_crew],
         },

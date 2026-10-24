@@ -100,6 +100,11 @@ def rebuild(conn: sqlite3.Connection | None = None) -> float:
                 conn.execute(f"DROP TABLE IF EXISTS main.{table}")
                 conn.execute(f"CREATE TABLE main.{table} AS SELECT * FROM temp.{table}")
                 conn.execute(f"CREATE UNIQUE INDEX main.{table}_key ON {table}({key})")
+            # yml 已經拿掉的衍生表（例如 v3 取代掉的 mat_contribution_v2）一併刪掉，免得留著被誤用
+            keep = {table for table, _, _ in specs} | {"mat_state"}
+            for (name,) in conn.execute("SELECT name FROM main.sqlite_master WHERE type = 'table' AND name LIKE 'mat\\_%' ESCAPE '\\'").fetchall():
+                if name not in keep:
+                    conn.execute(f"DROP TABLE main.{name}")
             # version 給 Cube 的 refresh key 用；source 給 stale() 判斷要不要重建
             conn.execute("DROP TABLE IF EXISTS main.mat_state")
             conn.execute("CREATE TABLE main.mat_state (version INTEGER NOT NULL, source TEXT NOT NULL)")

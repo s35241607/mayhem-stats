@@ -1,9 +1,8 @@
-"""貢獻分數 SQL：用小型合成資料釘住最容易悄悄壞掉的規則——治療護盾軸「哪一種場次走哪一種算法」，
-以及當局表現分（perf）和隊內排名（score）的差別。
-
-整套分數和獨立 Python 實作的逐筆比對是在真實資料上做的（見 docs/contribution-scoring.md 的驗證）。"""
+"""本場貢獻 v3 的 SQL（contribution.yml）：用小型合成資料釘住規格裡最容易悄悄壞掉的性質——
+只和同場比、每一項多做不會變少、坦克打出高輸出會加分、基準依出裝定位、K/DA 的死亡會扣、功能裝的算法、
+治療護盾哪一種場次走哪一種資料、不完整的對局不計分。整套分數和獨立 Python 實作的逐筆比對見 analysis/scoring_v3_check.py。"""
+import re
 import sqlite3
-import statistics
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,183 +13,164 @@ import db
 
 YML = Path(__file__).parent.parent / "cube" / "model" / "cubes" / "contribution.yml"
 SQL = yaml.safe_load(YML.read_text(encoding="utf-8"))["cubes"][0]["meta"]["materialize"]["sql"]
+SD_WORK = float(re.search(r"VALUES \([\d., ]+, ([\d.]+)\)\s*-- 校正常數結束", SQL).group(1))
+WEIGHTS = {"d": 0.25, "t": 0.20, "h": 0.13, "c": 0.12, "kda": 0.12, "o": 0.08, "w": 0.06, "a": 0.04}
 
 
 class Fixture:
-    """幾場對局、每場十個人，全部是法師（同一個比較池）。"""
-
     def __init__(self, path):
         db.init(path)
         self.conn = db.connect(path)
+        # 出裝定位由 builds.yml 決定（有自己的測試）；這裡直接給
         self.conn.execute("CREATE TABLE mat_builds (participant_rowid INTEGER PRIMARY KEY, build_role TEXT)")
-        self.rows = {}  # (game_id, 序號) -> participant_rowid
+        self.rows = {}
 
-    def game(self, game_id, units_healed=None, eog=None, minutes=15, dmg_mult=1.0):
-        """units_healed：{序號: 值}；eog：{序號: (治療隊友, 護盾隊友)}，沒給的人這場沒有賽後統計；
-        dmg_mult：這場所有人的傷害同乘一個倍數（隊伍傷害跟著變，所以份額不變）。"""
-        units_healed, eog = units_healed or {}, eog or {}
+    def game(self, game_id, *, players=10, minutes=15, queue=2400, over=None, roles=None, items=None, eog=None):
+        """over：{序號: {欄位: 值}} 改某人的數字；roles：{序號: 出裝定位}，沒給的是法師；items：{序號: [裝備]}；
+        eog：{序號: (治療隊友, 護盾隊友)}，十人都給才算有賽後統計。"""
+        over, roles, items, eog = over or {}, roles or {}, items or {}, eog or {}
         c = self.conn
         c.execute(
-            """INSERT INTO matches
-               (platform_id,game_id,queue_id,game_mode,game_version,map_id,game_creation,
-                game_duration,ended_surrender,local_date,local_weekday,local_hour,raw_json,ingested_at)
-               VALUES ('TW2',?,2400,'KIWI','16.19',12,1000,?,0,NULL,NULL,NULL,'{}',1)""",
-            (game_id, minutes * 60),
+            """INSERT INTO matches (platform_id,game_id,queue_id,game_mode,game_version,map_id,game_creation,
+                 game_duration,ended_surrender,raw_json,ingested_at) VALUES ('TW2',?,?,'KIWI','16.20',12,1000,?,0,'{}',1)""",
+            (game_id, queue, minutes * 60),
         )
-        dmg = {i: (10000 + i * 500) * dmg_mult for i in range(1, 11)}
-        team_dmg = {100: sum(dmg[i] for i in range(1, 6)), 200: sum(dmg[i] for i in range(6, 11))}
-        for i in range(1, 11):
+        for i in range(1, players + 1):
+            v = dict(dmg_to_champions=20000 + i * 1000, dmg_taken=25000 + i * 500, dmg_mitigated=10000, time_ccing_others=20 + i,
+                     total_damage=90000 + i * 2000, dmg_to_objectives=1000 * (i % 3 + 1), kills=3, deaths=5, assists=5,
+                     total_heal=3000, units_healed=1)
+            v.update(over.get(i, {}))
             cur = c.execute(
-                """INSERT INTO match_participants (platform_id, game_id, participant_id, puuid, team_id, win, champion_id,
-                     kills, deaths, assists, dmg_to_champions, dmg_taken, dmg_mitigated, total_heal, time_ccing_others,
-                     cc_duration, team_kills, team_dmg, units_healed)
-                   VALUES ('TW2',?,?,?,?,?,1, 5+?, 3+?, 8, ?, 20000, 10000, 5000, 20+?, 100+?, 40, ?, ?)""",
-                (game_id, i, f"p{game_id}-{i}", 100 if i <= 5 else 200, 1 if i <= 5 else 0, i, i % 4, dmg[i], i, i,
-                 team_dmg[100 if i <= 5 else 200], units_healed.get(i, 1)),
+                f"""INSERT INTO match_participants (platform_id, game_id, participant_id, puuid, team_id, win, champion_id,
+                      {", ".join(v)}) VALUES ('TW2', ?, ?, ?, ?, ?, 1, {", ".join("?" * len(v))})""",
+                (game_id, i, f"p{game_id}-{i}", 100 if i <= 5 else 200, 1 if i <= 5 else 0, *v.values()),
             )
             self.rows[(game_id, i)] = cur.lastrowid
-            c.execute("INSERT INTO mat_builds VALUES (?, '法師')", (cur.lastrowid,))
+            c.execute("INSERT INTO mat_builds VALUES (?, ?)", (cur.lastrowid, roles.get(i, "法師")))
+            for slot, iid in enumerate(items.get(i, [])):
+                c.execute("INSERT INTO participant_items VALUES ('TW2', ?, ?, ?, ?)", (game_id, i, slot, iid))
             if i in eog:
-                c.execute(
-                    "INSERT INTO eog_player_stats (game_id, puuid, team_id, champion_id, heal_on_teammates, shield_on_teammates) VALUES (?,?,?,1,?,?)",
-                    (game_id, f"p{game_id}-{i}", 100 if i <= 5 else 200, eog[i][0], eog[i][1]),
-                )
+                c.execute("INSERT INTO eog_player_stats (game_id, puuid, team_id, champion_id, heal_on_teammates, shield_on_teammates) VALUES (?,?,?,1,?,?)",
+                          (game_id, f"p{game_id}-{i}", 100 if i <= 5 else 200, *eog[i]))
         c.commit()
 
     def result(self):
-        cols = ["rid", "p_heal", "heal_src", "score", "perf", "pa_dmg", "pa_surv", "pa_kp", "pa_cc", "pa_soak", "pa_minion", "pa_obj"]
-        out = {}
-        for row in self.conn.execute(f"SELECT participant_rowid, p_heal, heal_src, score, perf, pa_dmg, pa_surv, pa_kp, pa_cc, pa_soak, pa_minion, pa_obj FROM ({SQL})"):
-            out[row[0]] = dict(zip(cols, row))
-        return out
+        self.conn.row_factory = sqlite3.Row
+        return {r["participant_rowid"]: dict(r) for r in self.conn.execute(SQL)}
 
 
-class HealShieldTests(unittest.TestCase):
+class ContributionTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.fx = Fixture(Path(self._tmp.name) / "t.db")
         self.addCleanup(self.fx.conn.close)
 
-    def at(self, res, game_id, i):
-        return res[self.fx.rows[(game_id, i)]]
+    def at(self, res, g, i):
+        return res[self.fx.rows[(g, i)]]
 
-    def test_providers_use_the_new_measure_once_the_pool_is_big_enough(self):
-        # 三場、三十人都有賽後統計；前 22 人有治療或護盾隊友（量各不相同），其餘是 0
-        for g in (1, 2, 3):
-            self.fx.game(g, eog={i: ((g * 10 + i) * 100, 0) if (g - 1) * 10 + i <= 22 else (0, 0) for i in range(1, 11)})
+    def score(self, g, i):
+        return self.at(self.fx.result(), g, i)["work_score"]
+
+    def test_only_compared_within_the_same_game(self):
+        self.fx.game(1)
+        before = self.score(1, 3)
+        self.fx.game(2, over={i: {"dmg_to_champions": 90000} for i in range(1, 11)})
+        self.assertEqual(self.score(1, 3), before)
+        # 同一場十個人的傷害同乘一個倍數（對英雄、對建築、總輸出一起，清兵量才跟著乘），相對分數不變
+        self.fx.game(3, over={i: {"dmg_to_champions": 2 * (20000 + i * 1000), "total_damage": 2 * (90000 + i * 2000),
+                                  "dmg_to_objectives": 2 * 1000 * (i % 3 + 1)} for i in range(1, 11)})
+        self.assertAlmostEqual(self.score(3, 3), before, places=6)
+
+    def test_more_work_in_any_gene_never_lowers_the_score(self):
+        self.fx.game(1)
+        base = self.score(1, 3)
+        for g, field, value in ((2, "dmg_to_champions", 60000), (3, "dmg_taken", 80000), (4, "dmg_mitigated", 60000),
+                                (5, "time_ccing_others", 120), (6, "dmg_to_objectives", 9000), (7, "total_damage", 200000),
+                                (8, "kills", 15), (9, "assists", 25)):
+            self.fx.game(g, over={3: {field: value}})
+            self.assertGreater(self.score(g, 3), base, field)
+        self.fx.game(10, over={3: {"deaths": 1}})
+        self.assertGreater(self.score(10, 3), base, "死得少")
+        self.fx.game(11, over={3: {"deaths": 12}})
+        self.assertLess(self.score(11, 3), base, "K/DA 的死亡會扣分")
+
+    def test_a_tank_who_deals_carry_damage_scores_high(self):
+        """使用者 2026-10-24：坦克輸出高，就是這場打出了其他價值，分數要高。"""
+        roles = {3: "坦克"}
+        self.fx.game(1, roles=roles, over={3: {"dmg_to_champions": 15000, "dmg_taken": 60000, "dmg_mitigated": 50000}})
+        self.fx.game(2, roles=roles, over={3: {"dmg_to_champions": 45000, "dmg_taken": 60000, "dmg_mitigated": 50000}})
+        quiet, loud = self.at(self.fx.result(), 1, 3), self.at(self.fx.result(), 2, 3)
+        self.assertGreater(loud["gene_d"], 80)
+        self.assertGreater(loud["work_score"], quiet["work_score"] + 15)
+
+    def test_baseline_depends_on_build_role(self):
+        """同樣的數字，坦克的輸出比坦克平常多、射手的輸出只是射手平常的量"""
+        self.fx.game(1, roles={3: "坦克"})
+        self.fx.game(2, roles={3: "射手"})
+        tank, adc = self.at(self.fx.result(), 1, 3), self.at(self.fx.result(), 2, 3)
+        self.assertEqual(tank["p_d"], adc["p_d"])
+        self.assertGreater(tank["gene_d"], adc["gene_d"])
+        self.assertLess(tank["gene_t"], adc["gene_t"])
+
+    def test_points_add_up_to_the_score(self):
+        self.fx.game(1)
+        for i in range(1, 11):
+            r = self.at(self.fx.result(), 1, i)
+            pts = sum(r[k] for k in ("pts_d", "pts_w", "pts_o", "pts_t", "pts_c", "pts_h", "pts_a", "pts_kda"))
+            self.assertAlmostEqual(pts, 20 * r["work_raw"] / SD_WORK, places=6)
+            if 0 < r["work_score"] < 100:
+                self.assertAlmostEqual(r["work_score"], 50 + pts, places=6)
+
+    def test_weights_sum_to_one(self):
+        m = re.search(r"SELECT \*,\s*(0\.\d+ \* z_\w+(?: \+ 0\.\d+ \* z_\w+)*) AS work_raw", SQL)
+        weights = {w.split(" * z_")[1]: float(w.split(" * ")[0]) for w in m.group(1).split(" + ")}
+        self.assertEqual(weights, WEIGHTS)
+        self.assertAlmostEqual(sum(weights.values()), 1.0)
+
+    def test_heal_source_needs_all_ten_end_of_game_stats(self):
+        full = {i: (0, 0) for i in range(1, 11)}
+        full[3] = (30000, 5000)
+        self.fx.game(1, eog=full)
+        partial = dict(full)
+        del partial[7]
+        self.fx.game(2, eog=partial, over={3: {"units_healed": 3, "total_heal": 20000}})
         res = self.fx.result()
-        providers = [r for g in (1, 2, 3) for i in range(1, 11) for r in [self.at(res, g, i)] if r["heal_src"] == "eog"]
-        self.assertEqual(len(providers), 22)
-        self.assertTrue(all(r["p_heal"] is not None for r in providers))
-        # 排名在 0～100 之間，量越大排名越前面
-        best = max(providers, key=lambda r: r["p_heal"])
-        self.assertAlmostEqual(best["p_heal"], 100.0)
-        # 有賽後統計但量是 0 的人：這個軸不適用，不扣分
-        zero = [self.at(res, 3, i) for i in (3, 4, 5, 6, 7, 8, 9, 10)]
-        self.assertTrue(all(r["heal_src"] is None and r["p_heal"] is None for r in zero))
+        a, b = self.at(res, 1, 3), self.at(res, 2, 3)
+        self.assertEqual((a["heal_src"], a["score_status"]), ("eog", "complete"))
+        self.assertAlmostEqual(a["x_h"], 35000 / 15)
+        self.assertEqual((b["heal_src"], b["score_status"]), ("flag", "estimate"))
+        self.assertAlmostEqual(b["x_h"], 20000 / 15)
+        # flag：只算有治療到隊友（units_healed ≥ 2）的人
+        self.assertEqual(self.at(res, 2, 4)["x_h"], 0.0)
 
-    def test_zero_ally_support_is_not_applicable_even_if_the_old_flag_says_healer(self):
-        for g in (1, 2, 3):
-            self.fx.game(g, eog={i: (1000 + g * 10 + i, 0) for i in range(1, 11)})
-        # 第四場：有賽後統計、量是 0，但舊旗標（units_healed ≥ 2）會說他治療過
-        self.fx.game(4, units_healed={2: 5}, eog={i: (0, 0) for i in range(1, 11)})
+    def test_anti_heal_prevented_healing_is_split_between_owners(self):
+        enemy_heal = {i: {"total_heal": 6000} for i in range(6, 11)}
+        self.fx.game(1, items={3: [3075]}, over=enemy_heal)
+        self.fx.game(2, items={3: [3075], 4: [3165]}, over=enemy_heal)
         res = self.fx.result()
-        r = self.at(res, 4, 2)
-        self.assertIsNone(r["heal_src"])
-        self.assertIsNone(r["p_heal"])
+        self.assertAlmostEqual(self.at(res, 1, 3)["x_a"], 0.4 * 30000 / 15)
+        self.assertAlmostEqual(self.at(res, 2, 3)["x_a"], 0.4 * 30000 / 15 / 2)
+        self.assertEqual(self.at(res, 1, 4)["x_a"], 0.0)
+        self.assertGreater(self.at(res, 1, 3)["gene_a"], self.at(res, 1, 4)["gene_a"])
 
-    def test_small_pool_falls_back_to_the_old_flag(self):
-        # 只有 5 個人有量：池子不到 20 人，退回舊算法（units_healed ≥ 2 的才有軸）
-        self.fx.game(1, units_healed={1: 3, 2: 3}, eog={1: (900, 0), 2: (800, 0), 3: (700, 0), 4: (600, 0), 5: (500, 0)})
-        res = self.fx.result()
-        self.assertEqual(self.at(res, 1, 1)["heal_src"], "flag")
-        self.assertEqual(self.at(res, 1, 2)["heal_src"], "flag")
-        self.assertIsNone(self.at(res, 1, 3)["heal_src"])  # 有量但不是旗標：池子太小，不排名也不退回
-
-    def test_games_without_eog_stats_use_the_old_flag(self):
-        self.fx.game(1, units_healed={1: 4, 2: 1})
-        res = self.fx.result()
-        self.assertEqual(self.at(res, 1, 1)["heal_src"], "flag")
-        self.assertIsNone(self.at(res, 1, 2)["heal_src"])
-
-    def test_incidental_support_barely_moves_the_score(self):
-        """附帶一點護盾的人（量遠小於自己的傷害）權重很小：分數不會因為這個軸被拉低。"""
-        for g in (1, 2, 3):
-            self.fx.game(g, eog={i: ((g * 10 + i) * 100, 0) if (g - 1) * 10 + i <= 22 else (0, 0) for i in range(1, 11)})
-        # 第四場：第 1 人只有一點點護盾（排名在池子最後面，但量只佔自己傷害的幾 %）
-        self.fx.game(4, eog={1: (0, 120), **{i: (0, 0) for i in range(2, 11)}})
-        with_axis = self.at(self.fx.result(), 4, 1)
-        self.assertEqual(with_axis["heal_src"], "eog")
-        self.assertLess(with_axis["p_heal"], 5)  # 排名很後面
-        # 同一個人拿掉賽後統計（不適用這個軸）時的分數
-        self.fx.conn.execute("DELETE FROM eog_player_stats WHERE game_id = 4")
-        self.fx.conn.commit()
-        without = self.at(self.fx.result(), 4, 1)
-        self.assertIsNone(without["heal_src"])
-        self.assertLess(abs(with_axis["score"] - without["score"]), 6)
-
-    def test_short_games_are_not_scored(self):
+    def test_unscored_games(self):
         self.fx.game(1, minutes=5)
-        self.assertEqual(self.fx.result(), {})
-
-
-class PerformanceScoreTests(unittest.TestCase):
-    """當局表現分（perf）：每分鐘的實際數值，和同時長帶的人比，不再重新排名。"""
-
-    def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.fx = Fixture(Path(self._tmp.name) / "t.db")
-        self.addCleanup(self.fx.conn.close)
-
-    def game_rows(self, res, game_id):
-        return [res[self.fx.rows[(game_id, i)]] for i in range(1, 11)]
-
-    def test_a_team_that_all_plays_well_can_all_score_above_50_while_the_rank_stays_around_50(self):
-        for g in (1, 2, 3):
-            self.fx.game(g)
-        self.fx.game(4, dmg_mult=3.0)  # 這場十個人的每分鐘傷害都是別場的三倍，份額不變
+        self.fx.game(2, players=9)
+        self.fx.game(3, queue=450)
         res = self.fx.result()
-        strong = self.game_rows(res, 4)
-        self.assertGreater(sum(r["perf"] for r in strong) / 10, 65)
-        self.assertTrue(all(r["perf"] > 50 for r in strong))
-        # 隊內排名看份額，份額和別場一樣，所以平均還是 50 附近：它分不出這場整體打得特別好
-        self.assertLess(abs(sum(r["score"] for r in strong) / 10 - 50), 10)
+        for g, reason in ((1, "remake_or_short_game"), (2, "incomplete_5v5"), (3, "other_queue")):
+            r = self.at(res, g, 1)
+            self.assertIsNone(r["work_score"])
+            self.assertEqual((r["score_status"], r["unscored_reason"]), ("unscored", reason))
 
-    def test_players_are_only_compared_with_the_same_game_length_band(self):
-        # 短局（10 分鐘）與長局（25 分鐘）各三場；長局的每分鐘傷害是短局的兩倍。
-        # 不分時長帶的話，所有長局的人都會排在短局的人前面
-        for g in (1, 2, 3):
-            self.fx.game(g, minutes=10, dmg_mult=1 + g / 10)
-        for g in (4, 5, 6):
-            self.fx.game(g, minutes=25, dmg_mult=5 * (1 + g / 100))
-        res = self.fx.result()
-        short = [r["pa_dmg"] for g in (1, 2, 3) for r in self.game_rows(res, g)]
-        long_ = [r["pa_dmg"] for g in (4, 5, 6) for r in self.game_rows(res, g)]
-        self.assertAlmostEqual(max(short), 100.0)
-        self.assertAlmostEqual(max(long_), 100.0)
-        self.assertAlmostEqual(min(short), 0.0)
-        self.assertAlmostEqual(min(long_), 0.0)
-
-    def test_perf_calibrates_weighted_axes_within_the_comparison_pool(self):
-        for g in (1, 2, 3):
-            self.fx.game(g)
-        res = self.fx.result()
-        # 現行法師權重為輸出 45、清兵 15、推塔 20、控場 15（2026-10-11 起沒有存活、參團）；加權後依比較池校準到平均 50、標準差 20。
-        # 全部合成玩家都屬同一比較池，使用獨立 Python 計算核對。
-        raw = {}
-        for rid, r in res.items():
-            present = [(weight, r[key]) for weight, key in
-                       ((45, "pa_dmg"), (0, "pa_soak"), (15, "pa_minion"), (20, "pa_obj"), (15, "pa_cc")) if r[key] is not None]
-            raw[rid] = round(sum(weight * value for weight, value in present) / sum(weight for weight, _ in present), 9)
-        mean = statistics.mean(raw.values())
-        spread = statistics.pstdev(raw.values())
-        for r in self.game_rows(res, 1):
-            expected = min(100, max(0, 50 + 20 * (raw[r["rid"]] - mean) / spread))
-            self.assertAlmostEqual(r["perf"], expected, places=6)
-        # 加權平均不會被拉成 0～100 平均分布：最高分遠低於 100
-        self.assertLess(max(r["perf"] for g in (1, 2, 3) for r in self.game_rows(res, g)), 95)
+    def test_missing_build_role_uses_the_overall_baseline(self):
+        self.fx.game(1)
+        self.fx.conn.execute("DELETE FROM mat_builds WHERE participant_rowid = ?", (self.fx.rows[(1, 3)],))
+        self.fx.conn.commit()
+        r = self.at(self.fx.result(), 1, 3)
+        self.assertEqual(r["build_role"], "未成形")
+        self.assertIsNotNone(r["work_score"])
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@ import { Fragment, createContext, useContext, useEffect, useMemo, useRef, useSta
 import { ArrowRight, Swords, HandHeart, Bomb, Crosshair, Castle, Orbit, Rocket, Axe, ShieldHalf, Sword, Target, Droplets, Hourglass, Gem, ChevronsUp, Lock, LoaderCircle, BookOpen, Check, ChevronDown, ChevronRight, ChevronsUpDown, Crown, Flame, Hammer, HeartHandshake, Infinity as InfinityIcon, Medal, Search, Shield, Handshake, Snowflake, Sparkles, Star, Trophy, Zap, Users, Skull, Award, Mountain, Heart, Moon, type LucideIcon } from "lucide-react"
 import { RecordCell } from "@/components/cells"
 import { ContribBars, ContribScore } from "@/components/Contribution"
-import { PERF_PARTS, WORK, WORK_GAMES, WORK_GAP, WORK_MEASURES, WORK_PARTS } from "@/hooks/useContribution"
+import { WORK, WORK_GAMES, WORK_GAP, WORK_MEASURES, WORK_PARTS } from "@/hooks/useContribution"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
@@ -43,10 +43,9 @@ import { participantRows } from "@/lib/who"
 import { BUILD_ROLES, BUILD_SHORT, NO_LIMIT, round0, splitRiotId } from "./shared"
 
 // ── 判斷：和陣容、敗因、節奏三頁同一套「區間」講法 ─────────────────────────────
-// 判斷用本場貢獻（contribution_v2.work，2026-10-17 起）：每場只和同一場另外九個人比工作量，權重依終場裝備的連續比例，
-// 最後用寫死的常數換成 0～100，再扣掉同樣裝備組成的平均（v2.1），50＝所有人的平均（所以跨場平均和 50 比是「比一般人做得多或少」）。
-// 不用擊殺、金錢、勝負當輸入，死亡不扣分。規格與限制見 contribution_v2.yml 與 docs/contribution-scoring.md。
-// 之前用當局表現分（contribution.perf，和同類型、同時長帶的歷史人次比）；「打法」那一段還是看它的各項。
+// 判斷用本場貢獻（contribution.work，v3 起全站唯一的分數）：八個基因（輸出、承傷、治療護盾、控場、K/DA、推塔、清兵、功能裝）
+// 先各自和同一場的人比、再和同出裝定位的平均比，加權成 0～100；50＝同出裝定位的人的平均（所以跨場平均和 50 比是「比同位置的一般人做得多或少」）。
+// 「打法」看同一組基因的平均。規格與限制見 contribution.yml 與 docs/contribution-scoring.md。
 // 2026-10-10 從隊內排名（contribution.score）換成本場貢獻的理由仍然成立：隊內排名是零和的，而好友幾乎都五排，
 //   它量到的是「這群朋友之間誰分到比較多工作」——和強的朋友同隊的人一定被壓低（同隊時 64.7 對 31.1）。
 //   原本不用本場貢獻是因為它和勝負有關（個人相關 0.19），但五排的朋友共享輸贏，這個顧慮在這頁不成立。
@@ -899,19 +898,21 @@ function SummaryCard({ title, main, sub, strength, label, note, cls }: { title: 
   )
 }
 
-// ── 玩家類型：常玩什麼（出裝分布、AD／AP、英雄池）與打法（表現分六項哪裡突出） ─────────────
-// 位置看出裝定位的場次比例，打法看表現分六項的平均（各項都和同類型比，50＝中位數，所以是「同樣的位置裡他哪裡做得多」）。
-// 門檻是判斷：六項的平均在 300 場時誤差約 ±2，差 AXIS_LEAN 分以上才算突出；場次不到 STYLE_MIN 只講位置不講打法。
+// ── 玩家類型：常玩什麼（出裝分布、AD／AP、英雄池）與打法（本場貢獻的基因哪裡突出） ─────────────
+// 位置看出裝定位的場次比例，打法看基因的平均（各項都和同出裝定位的平均比，50＝平均，所以是「同樣的位置裡他哪裡做得多」）。
+// 門檻是判斷：基因的單場標準差 20，平均在 300 場時誤差約 ±2，差 AXIS_LEAN 分以上才算突出；場次不到 STYLE_MIN 只講位置不講打法。
 
 const STYLE_MIN = 20
-/** 打法用的六項（表現分），順序同 PERF_PARTS */
+/** 打法用的基因（本場貢獻的八項，順序同 WORK_PARTS） */
 const AXES = [
-  { key: "contribution.perf_dmg", label: "輸出", up: "輸出高", down: "輸出較少" },
-  { key: "contribution.perf_soak", label: "承傷", up: "很耐打", down: "承傷較少" },
-  { key: "contribution.perf_minion", label: "清兵", up: "清兵多", down: "清兵較少" },
-  { key: "contribution.perf_obj", label: "推塔", up: "常拆塔", down: "推塔較少" },
-  { key: "contribution.perf_cc", label: "控場", up: "控場多", down: "控場較少" },
-  { key: "contribution.perf_heal", label: "治療護盾", up: "常補血護盾", down: "補血護盾較少" },
+  { key: "contribution.gene_dmg", label: "輸出", up: "輸出高", down: "輸出較少" },
+  { key: "contribution.gene_soak", label: "承傷", up: "很耐打", down: "承傷較少" },
+  { key: "contribution.gene_heal", label: "治療護盾", up: "常補血護盾", down: "補血護盾較少" },
+  { key: "contribution.gene_cc", label: "控場", up: "控場多", down: "控場較少" },
+  { key: "contribution.gene_kda", label: "K/DA", up: "很少死", down: "常陣亡" },
+  { key: "contribution.gene_obj", label: "推塔", up: "常拆塔", down: "推塔較少" },
+  { key: "contribution.gene_wave", label: "清兵", up: "清兵多", down: "清兵較少" },
+  { key: "contribution.gene_anti", label: "功能裝", up: "常出重創破盾", down: "很少出重創" },
 ] as const
 const AXIS_LEAN = 4
 
@@ -931,7 +932,7 @@ type PlayStyle = {
   topChamps: string[]
   /** 有表現分的場次夠 STYLE_MIN，才講打法 */
   enough: boolean
-  /** 五項的平均（和同類型比，50＝中位數；治療護盾不算） */
+  /** 基因的平均（和同出裝定位比，50＝平均） */
   axes: { label: string; value: number | null; up: string; down: string }[]
 }
 
@@ -983,36 +984,40 @@ function playStyleOf(
   const champGames = played.reduce((a, j) => a + j.games, 0)
   const top5Share = champGames ? played.slice(0, 5).reduce((a, j) => a + j.games, 0) / champGames : 0
 
-  // 治療護盾只在有治療或護盾隊友的場次才有值，平均只代表那幾場（可能只占一成），不拿來判斷打法
-  const axes = AXES.filter((a) => a.label !== "治療護盾").map((a) => ({ label: a.label, value: opt(sum, a.key), up: a.up, down: a.down }))
+  const axes = AXES.map((a) => ({ label: a.label, value: opt(sum, a.key), up: a.up, down: a.down }))
   const v = (label: string) => axes.find((a) => a.label === label)?.value ?? 50
   let archetype: string | null = null
   let archetypeNote: string | null = null
   if (scored >= STYLE_MIN) {
     const ups = axes.filter((a) => a.value !== null && a.value >= 50 + AXIS_LEAN)
     const downs = axes.filter((a) => a.value !== null && a.value <= 50 - AXIS_LEAN)
-    // 輸出、承傷都除以 √（死亡＋1），死得多會拉低這兩項，所以不再另外看存活
     if (ups.length >= 3) {
       archetype = "全面型"
-      archetypeNote = "好幾項都比同類型多，沒有明顯的洞"
+      archetypeNote = "好幾項都比同出裝定位的人多，沒有明顯的洞"
     } else if (v("推塔") >= 57) {
       archetype = "推進型"
-      archetypeNote = "拆塔比同類型多：團戰贏了會把優勢換成塔"
+      archetypeNote = "拆塔比同出裝定位的人多：團戰贏了會把優勢換成塔"
     } else if (v("輸出") >= 57) {
       archetype = "輸出型"
-      archetypeNote = "打出的傷害（死亡打折後）比同類型多"
+      archetypeNote = "打出的傷害比同出裝定位的人多"
     } else if (v("承傷") >= 57) {
       archetype = "前排型"
-      archetypeNote = "扛下的傷害（死亡打折後）比同類型多"
+      archetypeNote = "扛下的傷害（承受＋減免）比同出裝定位的人多"
+    } else if (v("治療護盾") >= 57) {
+      archetype = "保人型"
+      archetypeNote = "治療、護盾隊友比同出裝定位的人多"
     } else if (v("控場") >= 57) {
       archetype = "控場型"
-      archetypeNote = "控制敵人的時間比同類型多"
+      archetypeNote = "控制敵人的時間比同出裝定位的人多"
+    } else if (v("K/DA") >= 57) {
+      archetype = "穩健型"
+      archetypeNote = "參與擊殺多、死得少"
     } else if (v("清兵") >= 57) {
       archetype = "清線型"
-      archetypeNote = "清兵比同類型多"
+      archetypeNote = "清兵比同出裝定位的人多"
     } else if (!ups.length && !downs.length) {
       archetype = "均衡型"
-      archetypeNote = "輸出、承傷、清兵、推塔、控場都和同類型的中位數差不多"
+      archetypeNote = "每一項都和同出裝定位的平均差不多"
     }
   }
   return {
@@ -2057,8 +2062,8 @@ function StyleCard({ style, scored }: { style: PlayStyle; scored: number }) {
                     <span className="font-mono text-muted-foreground tabular-nums">（{a.label} {Math.round(a.value ?? 50)}）</span>
                   </span>
                 ))
-              : "五項都和同類型的中位數差不多"}
-          <Hint className="ml-1" text="打法看的是舊的當局表現分各項：和同類型、同時長帶的人比，50＝中位數，所以是「同樣的位置裡他哪裡做得多」；治療護盾只有部分場次有量，不算進來" />
+              : "每一項都和同出裝定位的平均差不多"}
+          <Hint className="ml-1" text="打法看的是本場貢獻的八個基因的平均：每一項先和同一場的人比、再和同出裝定位的平均比，50＝平均，所以是「同樣的位置裡他哪裡做得多」" />
         </dd>
       </dl>
     </div>
@@ -2344,7 +2349,7 @@ function PlayerDrawerBody({
             strength={ov.strength}
             label={labelOf(ov)}
             cls={levelClass(ov)}
-            note="每場只和同一場另外九個人比工作量（輸出、承傷、控場、治療護盾，權重依終場裝備），50＝所有人的平均；死亡不扣分。標 * 的暫估場次（沒有賽後統計）也算在內"
+            note="八個基因（輸出、承傷、治療護盾、控場、K/DA、推塔、清兵、功能裝）先和同一場的人比、再和同出裝定位的平均比，50＝同出裝定位的平均。標 * 的暫估場次（沒有賽後統計）也算在內"
           />
           <SummaryCard
             title="勝率"
@@ -2391,8 +2396,8 @@ function PlayerDrawerBody({
           </div>
         </div>
         <div className="mb-2 flex items-center gap-1 text-[11px] text-muted-foreground">
-          每一項和同一場另外九個人比，50＝參考量
-          <Hint text={"每一項都是每分鐘的量，和同一場另外九個人比：參考量是其他九人的量依裝備職責分到他的份，等於參考量是 50、兩倍約 67，雷達裡的虛線圈與橫條中間的刻度就是 50。\n權重看終場裝備的連續比例（輸出裝重輸出、坦裝重承傷、輔助裝重治療護盾，控場每種都有一點），不用英雄名稱（只有射手英雄依 AD 裝比例另加最多約 2.5 分，補控場少、站後排的落差）；這場實際打出來的最好表現也算（把自己當成輸出位、承傷位、保人位各算一次，取最高的打九折，和裝備的版本取高：全防禦裝卻打出全場最高輸出的坦克會拿到高分），權重低的工作做到超過參考量另有加分，清兵、推塔另有最多 6 分。\n死亡不扣分。治療護盾隊友的量只有賽後統計有，沒有的場次改用含自補的治療量（暫估）"} />
+          八個基因，50＝同出裝定位的平均；右邊是每一項讓總分加減幾分
+          <Hint text={"八個基因：輸出（每分鐘對英雄傷害）25%、承傷（承受＋自身減免）20%、治療護盾隊友 13%、控場 12%、K/DA（擊殺參與與死得少各半）12%、推塔 8%、清兵 6%、功能裝（重創、破盾擋掉的敵方治療護盾）4%。\n每一項先和同一場另外九個人的平均比，再和同出裝定位的人平常的比法比：50＝同出裝定位的平均，雷達裡的虛線圈與橫條中間的刻度就是 50。\n每個人八項都算，沒有「坦克只看承傷」：坦克打出高輸出，輸出那一項就加分。\n治療護盾隊友的量只有賽後統計有，沒有的場次改用含自補的治療量（暫估）"} />
         </div>
         {!settled || contrib.loading ? (
           <LoadingBlock height={300} label="載入貢獻分解…" />
@@ -3335,7 +3340,7 @@ export function Crew() {
     puuids.length && centerFilters ? apply({ ...query, filters: [crewFilter(puuids), ...centerFilters, ...(query.filters ?? [])] }, "all") : null
 
   const summary = useCube(
-    q({ measures: [...STAT_MEASURES, "participants.kda", ...PERF_PARTS.map((c) => c.key)], dimensions: ["participants.puuid"], limit: NO_LIMIT }),
+    q({ measures: [...STAT_MEASURES, "participants.kda", ...AXES.map((c) => c.key)], dimensions: ["participants.puuid"], limit: NO_LIMIT }),
   )
   const roles = useCube(q({ measures: STAT_MEASURES, dimensions: ["participants.puuid", "builds.build_role"], limit: NO_LIMIT }))
   const champs = useCube(
@@ -3722,9 +3727,9 @@ export function Crew() {
                 </div>
                 <HowWeJudge>
                   <p>
-                    本場貢獻：每場的輸出（對英雄傷害）、承傷（承受＋減免）、控場、治療護盾隊友，各自和同一場另外九個人比（參考量是其他九人的量依裝備職責分到他的份），
-                    依終場裝備的連續比例加權（不分固定定位；只有射手英雄依 AD 裝比例另加最多約 2.5 分，補控場少、站後排的落差），這場實際打出來的最好表現也算（把自己當成輸出位、承傷位、保人位各算一次，取最高的打九折，和裝備的版本取高：全防禦裝卻打出全場最高輸出的坦克會拿到高分），權重低的工作做到超過參考量另有加分，清兵、推塔另有最多 6 分；最後扣掉「同樣裝備組成的平均」再換成 0～100（係數定版時寫死，射手、坦克、輔助的平均都接近 50），50 是所有人的平均。
-                    不用擊殺、金錢、勝負計算，死亡也不扣分；全隊都做得多可以全隊都高。這是「這場做了多少工作」，不是操作實力：同樣的數字在不同陣容下會不同分，跨場平均只是描述。
+                    本場貢獻：八個基因——輸出（對英雄傷害）、承傷（承受＋減免）、治療護盾隊友、控場、K/DA（擊殺參與與死得少各半）、推塔、清兵、功能裝（重創、破盾擋掉的敵方治療護盾）——
+                    每一項先和同一場另外九個人的平均比，再和同出裝定位（射手、法師、刺客、鬥士、坦克、輔助）的人平常的比法比，最後加權（輸出 25%、承傷 20%、治療護盾 13%、控場 12%、K/DA 12%、推塔 8%、清兵 6%、功能裝 4%）換成 0～100，50 是同出裝定位的人的平均（常數定版時寫死）。
+                    每個人八項都算，坦克打出高輸出一樣加分。K/DA、推塔有一半是結果（贏的隊殺得多、拆得到塔），所以權重不高。這是「這場做了多少工作」，不是操作實力：同樣的數字在不同陣容下會不同分，跨場平均只是描述。
                     沒有賽後統計的場次（治療護盾隊友的量改用含自補的治療量）是暫估，也算進平均。
                   </p>
                   <p>

@@ -33,16 +33,16 @@ ARAM: Mayhem 的本機戰績採集與分析工具。FastAPI（`app.py`）+ Cube 
   規則寫在各 cube 的 `meta.materialize.sql`，`features.py` 在啟動時與每輪採集後照它重建。
   改這段 SQL **不會**被 Cube 的熱重載套用——要重啟服務或 `uv run features.py`。
   新的衍生表 cube 若要對全部參賽者跑視窗函數，也照這個做法，不要每個查詢現算（資料十倍時一個查詢十幾秒）。
-- **貢獻分數的規格與實測依據在 `docs/contribution-scoring.md`**：規則本體在各 cube 的 `meta.materialize.sql`，兩邊一起改。
-  畫面主分數是 **本場貢獻 v2**（`contribution_v2.yml` → `mat_contribution_v2`，欄位 `work_score_v2`）：只和同一場另外九個人比，
-  權重依終場裝備的連續比例，死亡不扣分；計分板大數字、對局卡片、MVP／ACE、好友比較頁用它。最後一步扣掉「同樣裝備組成的平均」、射手英雄另加 0.74 × AD 裝比例，主分取「裝備的模板」與「這場實際打出來的最好模板打九折」較高者（v2.3），係數寫死，
-  **改任何常數或對照表都要升 `score_version` 並跑 `analysis/scoring_v2_check.py`（獨立 Python 逐筆比對）**。
-  畫面上只有這一個分數（2026-10-24 起不再顯示「隊內」與舊表現分）。舊的 `perf`（只剩好友比較頁「打法」那段在用）與
-  `score`（沒有畫面在用）留在 `contribution.yml`、用到 `dim_champion_roles`，當回放對照。
-  前端門檻 `WORK_GAP` 與 `WORK_SD` 跟本場貢獻的標準差綁在一起。承傷一律是「承受＋自身減免」（語意層的 `soak_*` 指標）。
-  不要把擊殺、金錢、勝負、KDA 比放回輸入（都是結果）。對局明細沒有護盾與治療隊友的量；賽後統計端點有，
-  採集器自動存進 `eog_snapshots` 並拆進 `eog_player_stats`，「治療護盾」有這份資料（本場十人齊全）就用它，
-  沒有的場次退回含自補的治療量並標暫估（v2 的 `score_status = 'estimate'`）。
+- **貢獻分數的規格與實測依據在 `docs/contribution-scoring.md`**：規則本體在 `contribution.yml` 的 `meta.materialize.sql`，兩邊一起改。
+  全站只有一個分數：**本場貢獻 v3**（`contribution.yml` → `mat_contribution`，欄位 `work_score`）。計分板、對局卡片、MVP／ACE、英雄頁、
+  好友比較頁（含「打法」、稱號、徽章）都用它；不要再加第二套分數（v2、perf、score、builds 的 perf_index 都已刪除）。
+  八個基因（輸出、承傷＝承受＋自身減免、治療護盾隊友、控場、K/DA、推塔、清兵、功能裝）先和同一場的人比、再和同出裝定位的平均比，
+  固定權重加總；**每個人八項都算，不依定位挑項目**（使用者要求：坦克打出高輸出就要高分）。校正常數與權重寫死，
+  **改任何常數、權重或對照表都要升 `score_version`，跑 `analysis/scoring_v3_fit.py --write` 與 `analysis/scoring_v3_check.py`（獨立 Python 逐筆比對）**。
+  K/DA 是使用者 2026-10-24 要求加回來的（取代「死亡不扣分」），它和推塔有一半是結果，權重刻意壓低；不要把金錢、勝負放進輸入。
+  前端門檻 `WORK_GAP` 與 `WORK_SD` 跟本場貢獻的標準差綁在一起；基因的標籤與權重在 `hooks/useContribution.ts` 的 `WORK_PARTS`。
+  對局明細沒有護盾與治療隊友的量；賽後統計端點有，採集器自動存進 `eog_snapshots` 並拆進 `eog_player_stats`，
+  「治療護盾」有這份資料（本場十人齊全）就用它，沒有的場次退回含自補的治療量並標暫估（`score_status = 'estimate'`）。
 - **`cube/model/views/` 是給 AI Agent 與外部工具的查詢入口**，前端不用、自由探索頁會濾掉。在 cube 加了對外有用的欄位，記得一併加進對應的 view，並補上 description。
 - **聚合走 Cube，逐列走 `/api/matches`；新的可下鑽維度一律用 `game_ids`**，不要再往 `/api/matches` 加篩選參數。
   作法：用和圖表同一組條件向 Cube 查 `<cube>.game_id`，再交給 `<DrillPanel query gameIdKey>`（`components/MatchList.tsx`）。

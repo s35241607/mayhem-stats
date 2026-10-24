@@ -168,7 +168,7 @@ test.describe("對局紀錄：單場戰報", () => {
     await expect(board.getByText("ACE", { exact: true })).toHaveCount(1)
   })
 
-  test("點某人的表現分展開六項明細：雷達圖 + 橫條，再點收合", async ({ page }) => {
+  test("點某人的本場貢獻展開八個基因：雷達圖 + 橫條，再點收合", async ({ page }) => {
     await cards(page).first().click()
     const board = page.locator('[role="tabpanel"]').first()
     const meter = board.locator("button[aria-expanded]").first()
@@ -176,9 +176,9 @@ test.describe("對局紀錄：單場戰報", () => {
     await expect(meter).toHaveAttribute("aria-expanded", "true")
     const reveal = board.locator(".reveal")
     await expect(reveal).toHaveCount(1)
-    await expect(reveal.getByText(/本場貢獻：每分鐘的輸出/)).toBeVisible()
+    await expect(reveal.getByText(/八個基因：先和同一場的人比/)).toBeVisible()
     await expect(charts(reveal)).toHaveCount(1)
-    expect(await reveal.locator("[title*='本場參考量']").count()).toBe(4) // 輸出、承傷、控場、治療護盾
+    expect(await reveal.locator("[data-tip*='同出裝定位的平均']").count()).toBe(8) // 八個基因
     await meter.click()
     await expect(reveal).toHaveCount(0)
   })

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { EmptyState, Panel } from "@/components/primitives"
+import { Hint } from "@/components/TipLayer"
 import { WhoSwitch } from "@/components/WhoSwitch"
 import { useCube } from "@/hooks/useCube"
 import { usePageWho } from "@/lib/whoState"
@@ -301,7 +302,7 @@ function Scoreboard({
                     </div>
                     <div className="min-w-[260px] flex-1 space-y-1.5">
                       <div className="text-[11px] text-muted-foreground">
-                        本場貢獻：每分鐘的輸出、承傷、控場、治療護盾，和同一場另外九個人比（權重依終場裝備；50＝剛好等於參考量），另有清兵、推塔的小幅加分。
+                        八個基因：先和同一場的人比、再和同出裝定位的平均比（50＝平均）；右邊的數字是這一項讓總分加減幾分。
                         {isEstimate(contrib.get(keyOf(p))) && " *暫估：這場沒有賽後統計，治療護盾改用含自補的治療量。"}
                       </div>
                       <ContribBars row={contrib.get(keyOf(p))} className="grid gap-x-8 gap-y-1.5 sm:grid-cols-2" />
@@ -375,7 +376,7 @@ const STAT_SECTIONS: { title: string; rows: StatRow[] }[] = [
 ]
 
 function StatTable({ players, roleOf, contrib }: { players: Player[]; roleOf: Map<string, string>; contrib: Map<string, CubeRow> }) {
-  // 本場貢獻是 0～100 的分數，不是這場的原始數字；缺值（重開局、沒有治療隊友的治療軸）給 -1，畫成「—」且不會被標成最高
+  // 本場貢獻與各基因是 0～100 的分數，不是這場的原始數字；缺值（重開局）給 -1，畫成「—」且不會被標成最高
   const pct = (key: string) => (p: Player) => {
     const r = contrib.get(keyOf(p))
     return (r ? num(r[key]) : null) ?? -1
@@ -384,7 +385,7 @@ function StatTable({ players, roleOf, contrib }: { players: Player[]; roleOf: Ma
   const sections = [
     ...STAT_SECTIONS,
     {
-      title: "本場貢獻（和同一場另外九個人比；各項 50＝剛好等於本場參考量）",
+      title: "本場貢獻（各基因 50＝同出裝定位的平均）",
       rows: [
         { label: "本場貢獻", get: pct(WORK), fmt: fmtPct },
         ...WORK_PARTS.map((c) => ({ label: c.label, get: pct(c.key), fmt: fmtPct })),
@@ -537,12 +538,17 @@ export function MatchDetail({
           </div>
           <Scoreboard players={players} roleOf={roleOf} contrib={contrib} />
           <p className="mt-2 text-xs text-muted-foreground">
-            大數字是「本場貢獻」（0～100，50＝所有人的平均）：這場每分鐘的輸出、承傷、控場、治療護盾隊友，各自和同一場另外九個人比，
-            再依終場裝備的連續比例加權（輸出裝重輸出、坦裝重承傷、輔助裝重治療護盾）；承傷是「承受＋自身減免」。
-            這場實際打出來的價值也會算：把自己當成輸出位、承傷位、保人位各算一次，取最高的打九折，和裝備的版本取高——
-            例如全防禦裝的坦克這場傷害全場第一，輸出就會算進主分。權重低的工作做得多另有加分，清兵、推塔另有最多 6 分。
-            死亡、擊殺、金錢、勝負都不算分；全隊都做得多，全隊都可以高於 50。數字後面有「*」是暫估：這場沒有賽後統計，治療護盾隊友的量改用含自補的治療量。橫條以 50 為中線。
-            6 分鐘內的重開局不計分。MVP＝贏的一隊本場貢獻最高、ACE＝輸的一隊本場貢獻最高；點一列看各項明細。
+            大數字是「本場貢獻」（0～100，50＝同出裝定位的平均），八個基因加權而成；點一列看每一項加減幾分。
+            <Hint
+              text={
+                "本場貢獻怎麼算\n" +
+                "1. 八個基因：輸出（每分鐘對英雄傷害）25%、承傷（承受＋自身減免）20%、治療護盾隊友 13%、控場 12%、K/DA（擊殺參與與死得少各半）12%、推塔 8%、清兵 6%、功能裝（重創、破盾擋掉的敵方治療護盾）4%。\n" +
+                "2. 每一項先和同一場另外九個人的平均比，再和同出裝定位（射手、法師、刺客、鬥士、坦克、輔助）的人平常的比法比。\n" +
+                "3. 每個人八項都算，沒有「坦克只看承傷」——坦克打出高輸出，輸出那一項就加分。\n" +
+                "4. 數字後面有「*」是暫估：這場沒有賽後統計，治療護盾隊友的量改用含自補的治療量。\n" +
+                "6 分鐘內的重開局不計分。MVP＝贏的一隊本場貢獻最高、ACE＝輸的一隊本場貢獻最高。"
+              }
+            />
           </p>
         </TabsContent>
         <TabsContent value="stats">

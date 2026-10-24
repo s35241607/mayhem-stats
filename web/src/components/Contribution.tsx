@@ -3,13 +3,10 @@ import { WORK_GAP, WORK_PARTS, type ContribTag } from "@/hooks/useContribution"
 import { num, type CubeRow } from "@/lib/cube"
 import { cn } from "@/lib/utils"
 
-// 貢獻分數的呈現。分數的定義只有一份，在語意層（規格見 docs/contribution-scoring.md）：
-//   本場貢獻（work，contribution_v2.yml；計分板大數字、對局卡片、MVP／ACE、好友比較頁）：這場可觀測的工作量，只和同一場另外九個人比，
-//     權重依終場裝備的連續比例；最後扣掉同樣裝備組成的平均（v2.1），50＝所有人的平均。沒有賽後統計的場次是暫估。
-//   表現（perf，contribution.yml）：舊的當局表現分，和同類型、同時長帶的歷史人次比；英雄頁與好友比較頁的「打法」還在用。
+// 貢獻分數的呈現。分數只有一個（本場貢獻），定義在語意層（contribution.yml，規格見 docs/contribution-scoring.md）；
 // 這裡只負責畫（常數與查詢在 hooks/useContribution.ts）：好友比較頁、單場計分板、對局卡片共用同一套數字與橫條。
 
-/** 貢獻的數字：0～100，50＝所有人的平均；差距不到門檻（WORK_GAP）的用淡色 */
+/** 貢獻的數字：0～100，50＝同出裝定位的平均；差距不到門檻（WORK_GAP）的用淡色 */
 export function ContribScore({ dev: d, className, gap = WORK_GAP }: { dev: number | null; className?: string; gap?: number }) {
   return (
     <span
@@ -24,7 +21,7 @@ export function ContribScore({ dev: d, className, gap = WORK_GAP }: { dev: numbe
   )
 }
 
-/** 以 50 為中線的橫條：往右是比中位數高，往左是比中位數低 */
+/** 以 50 為中線的橫條：往右是比同出裝定位的平均高，往左是比較低 */
 function DivergingBar({ v, className }: { v: number | null; className?: string }) {
   const d = v === null ? null : v - 50
   return (
@@ -40,17 +37,30 @@ function DivergingBar({ v, className }: { v: number | null; className?: string }
   )
 }
 
-/** 本場貢獻四項的橫條：中間的刻度是 50（剛好等於本場參考量），往右是比較多；沒有值的項目顯示「—」 */
+const signed = (v: number) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(1)}`
+
+/** 八個基因的橫條：中間的刻度是 50（同出裝定位的平均），右邊的數字是這一項讓總分加減幾分；沒有值的項目顯示「—」 */
 export function ContribBars({ row, className }: { row: CubeRow | undefined; className?: string }) {
   return (
     <div className={className ?? "space-y-1.5"}>
       {WORK_PARTS.map((c) => {
         const v = row ? num(row[c.key]) : null
+        const pts = row ? num(row[c.pts]) : null
+        const tip =
+          `{{lab|${c.label}}}{{big|${v === null ? "—" : Math.round(v)}}} 50＝同出裝定位的平均\n> ${c.hint}` +
+          (pts === null ? "" : `\n{{lab|總分}}{{${pts >= 0 ? "win" : "loss"}|${signed(pts)}}} 分（這一項占 ${c.weight}%）`)
         return (
-          <div key={c.key} className="grid grid-cols-[3.5rem_minmax(0,1fr)_2rem] items-center gap-2" title={`${c.label}：${c.hint}\n和本場參考量比，50＝剛好等於參考量`}>
+          <div key={c.key} className="grid grid-cols-[3.5rem_minmax(0,1fr)_2.75rem] items-center gap-2" data-tip={tip}>
             <span className="text-[12px]">{c.label}</span>
             <DivergingBar v={v} className="h-2" />
-            <ContribScore dev={v === null ? null : v - 50} gap={WORK_GAP} className="text-right text-[12px]" />
+            <span
+              className={cn(
+                "text-right font-mono text-[12px] tabular-nums",
+                pts === null || Math.abs(pts) < 1 ? "text-muted-foreground" : pts > 0 ? "text-win" : "text-loss",
+              )}
+            >
+              {pts === null ? "—" : signed(pts)}
+            </span>
           </div>
         )
       })}
@@ -59,7 +69,7 @@ export function ContribBars({ row, className }: { row: CubeRow | undefined; clas
 }
 
 const WORK_TITLE =
-  "本場貢獻（0～100）：這場的輸出、承傷、控場、治療護盾，和同一場另外九個人比，權重依你的終場裝備；清兵、推塔另有小幅加分。50＝所有人的平均，死亡不扣分"
+  "本場貢獻（0～100）：輸出、承傷、治療護盾、控場、K/DA、推塔、清兵、功能裝八項，先和同一場的人比、再和同出裝定位的平均比，加權成總分。50＝同出裝定位的平均"
 const ESTIMATE_NOTE = "*暫估：這場沒有賽後統計，治療護盾隊友的量改用含自補的治療量"
 
 /** 對局卡片裡的一個小數字：「貢獻 62」；暫估的場次數字後面加「*」 */
@@ -68,7 +78,7 @@ export function ContribInline({ score, estimate }: { score: number | null; estim
   return (
     <span
       className="whitespace-nowrap"
-      title={`${WORK_TITLE}${estimate ? `\n${ESTIMATE_NOTE}` : ""}`}
+      data-tip={`${WORK_TITLE}${estimate ? `\n${ESTIMATE_NOTE}` : ""}`}
     >
       貢獻 <ContribScore dev={score - 50} gap={WORK_GAP} className="font-semibold" />
       {estimate && <span className="text-muted-foreground">*</span>}
@@ -80,7 +90,7 @@ export function ContribInline({ score, estimate }: { score: number | null; estim
 export function ContribTagBadge({ tag, className }: { tag: ContribTag; className?: string }) {
   return (
     <span
-      title={tag === "MVP" ? "MVP：贏的一隊本場貢獻最高" : "ACE：輸的一隊本場貢獻最高"}
+      data-tip={tag === "MVP" ? "MVP：贏的一隊本場貢獻最高" : "ACE：輸的一隊本場貢獻最高"}
       className={cn(
         "rounded px-1 py-px text-[10px] font-bold leading-none",
         tag === "MVP" ? "bg-gold/20 text-gold" : "bg-primary/15 text-primary",
@@ -92,8 +102,7 @@ export function ContribTagBadge({ tag, className }: { tag: ContribTag; className
   )
 }
 
-/** 計分板每列：大數字（本場貢獻，暫估加「*」）＋ 以 50 為中線的橫條；點了展開各項。
- */
+/** 計分板每列：大數字（本場貢獻，暫估加「*」）＋ 以 50 為中線的橫條；點了展開八個基因。 */
 export function ContribMeter({
   score,
   tag,
@@ -112,7 +121,7 @@ export function ContribMeter({
       type="button"
       onClick={onToggle}
       aria-expanded={expanded}
-      title={`${WORK_TITLE}${estimate ? `\n${ESTIMATE_NOTE}` : ""}\n點一下看各項明細${tag === "MVP" ? "\nMVP：贏的一隊本場貢獻最高" : tag === "ACE" ? "\nACE：輸的一隊本場貢獻最高" : ""}`}
+      data-tip={`${WORK_TITLE}${estimate ? `\n${ESTIMATE_NOTE}` : ""}\n點一下看八個基因${tag === "MVP" ? "\nMVP：贏的一隊本場貢獻最高" : tag === "ACE" ? "\nACE：輸的一隊本場貢獻最高" : ""}`}
       className="flex w-[150px] shrink-0 flex-col gap-1 rounded-md px-1.5 py-1 text-left transition hover:bg-secondary/60"
     >
       <span className="flex items-center gap-1.5">

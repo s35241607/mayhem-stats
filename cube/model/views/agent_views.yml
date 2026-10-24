@@ -249,8 +249,6 @@ views:
           - name: ad_gold_share
           - name: ap_gold_share
           - name: tank_gold_share
-          - name: perf_index
-          - name: role_metric
 
       - join_path: participants.comp_context
         includes:
@@ -270,8 +268,9 @@ views:
           - name: team_lineup
           - name: enemy_lineup
 
-      # 本場貢獻 v2：計分板大數字、MVP／ACE、好友比較頁用的分數（只和同一場的人比，50＝同樣裝備組成的人的平均）
-      - join_path: participants.contribution_v2
+      # 本場貢獻：全站唯一的分數（計分板、MVP／ACE、英雄頁、好友比較頁都用它）。八個基因各自先和同一場的人比、再和同出裝定位的平均比，
+      # 加權成總分；50＝同出裝定位的人的平均。gene_*＝各基因（50＝同出裝平均），pts_*＝該基因讓總分加減幾分，rel_*＝只和同一場的人比
+      - join_path: participants.contribution
         includes:
           - name: work
             alias: work_score
@@ -279,64 +278,34 @@ views:
             alias: work_scored_games
           - name: estimate_games
             alias: work_estimate_games
-          - name: part_dmg
-            alias: work_damage
-          - name: part_soak
-            alias: work_soak
-          - name: part_cc
-            alias: work_cc
-          - name: part_heal
-            alias: work_heal
-          - name: base
-            alias: work_base
-          - name: cross_role
-            alias: work_cross_role_bonus
-          - name: progress
-            alias: work_progress_bonus
-          - name: anti_heal_share
-            alias: anti_heal_item_share
           - name: score_status
             alias: work_score_status
           - name: score_version
             alias: work_score_version
-
-      - join_path: participants.contribution
-        includes:
-          # perf＝當局表現分（這場打得有多好，全隊都打得好可以全隊都高）；score 與 *_pct＝隊內排名（誰在隊裡扛得多）
-          - name: perf
-            alias: performance_score
-          - name: perf_dmg
-            alias: performance_damage
-          - name: perf_soak
-            alias: performance_soak
-          - name: perf_surv
-            alias: performance_survival
-          - name: perf_kp
-            alias: performance_kill_participation
-          - name: perf_minion
-            alias: performance_minion_clear
-          - name: perf_obj
-            alias: performance_objective
-          - name: perf_cc
-            alias: performance_cc
-          - name: perf_heal
-            alias: performance_heal
-          - name: score
-            alias: contribution_score
-          - name: scored_games
-            alias: contribution_scored_games
-          - name: dmg_pct
-            alias: contribution_damage
-          - name: soak_pct
-            alias: contribution_soak
-          - name: surv_pct
-            alias: contribution_survival
-          - name: kp_pct
-            alias: contribution_kill_participation
-          - name: cc_pct
-            alias: contribution_cc
-          - name: heal_pct
-            alias: contribution_heal
+          - name: gene_dmg
+          - name: gene_soak
+          - name: gene_heal
+          - name: gene_cc
+          - name: gene_kda
+          - name: gene_obj
+          - name: gene_wave
+          - name: gene_anti
+          - name: pts_dmg
+          - name: pts_soak
+          - name: pts_heal
+          - name: pts_cc
+          - name: pts_kda
+          - name: pts_obj
+          - name: pts_wave
+          - name: pts_anti
+          - name: rel_dmg
+          - name: rel_soak
+          - name: rel_cc
+          - name: rel_kda
+          - name: rel_obj
+          - name: rel_wave
+          - name: anti_heal_share
+            alias: anti_heal_item_share
 
       # 「某個帳號也在場的那些對局」：加一個 co_player_puuid（或 co_player）等值篩選就好。
       # 只能當篩選用——一對多，拿來分組會讓一場變成十列、平均類指標被重複計算。

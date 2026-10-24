@@ -1,40 +1,32 @@
 import { useCube } from "@/hooks/useCube"
 import { num, type CubeRow } from "@/lib/cube"
 
-// 貢獻的分數，定義只有一份，在語意層（規格見 docs/contribution-scoring.md）；畫法在 components/Contribution.tsx：
-//   本場貢獻（contribution_v2.work，cube/model/cubes/contribution_v2.yml）：這場可觀測的工作量，只和同一場另外九個人比，
-//     權重依終場裝備的連續比例，再把實際打出來的最好表現算進去（v2.3）；最後扣掉同樣裝備組成的平均，50＝所有人的平均。
-//     計分板大數字、對局卡片、MVP／ACE、好友比較頁、英雄頁都用它，沒有別的分數。
-//   表現（perf，contribution.yml）：舊的當局表現分。只剩好友比較頁的「打法」（六項各自和同類型比）還在用。
+// 貢獻的分數只有一個，定義在語意層（cube/model/cubes/contribution.yml，規格見 docs/contribution-scoring.md）；畫法在 components/Contribution.tsx。
+// 本場貢獻（contribution.work）：八個基因（輸出、承傷、治療護盾、控場、K/DA、推塔、清兵、功能裝）先各自和同一場的人比，
+// 再和同出裝定位的平均比，加權成總分；50＝同出裝定位的人的平均。每個人八項都算，坦克打出高輸出一樣加分。
+// 計分板大數字、對局卡片、MVP／ACE、英雄頁、好友比較頁（含「打法」）都用它。
 
-/** 舊表現分的六項（好友比較頁的「打法」用）：每分鐘的實際數值，和同類型、同時長帶的人比 */
-export const PERF_PARTS = [
-  { key: "contribution.perf_dmg", label: "輸出", hint: "考慮死亡的傷害：對英雄傷害 ÷ √（死亡＋1），死得多會打折" },
-  { key: "contribution.perf_soak", label: "承傷", hint: "扛傷效率：（承受＋自身減免）÷ √（死亡＋1），死得多會打折" },
-  { key: "contribution.perf_minion", label: "清兵", hint: "每分鐘對小兵的傷害（估計＝總輸出 − 對英雄 − 對建築）" },
-  { key: "contribution.perf_obj", label: "推塔", hint: "每分鐘對建築的傷害（有一半是結果：贏的一隊才拆得到塔）" },
-  { key: "contribution.perf_cc", label: "控場", hint: "每分鐘控制敵人的時間" },
-  { key: "contribution.perf_heal", label: "治療護盾", hint: "每分鐘有效治療＋護盾隊友，只在有治療或護盾隊友的場次計（舊場次沒有護盾的量，改用含自補的治療量）" },
-] as const
-export const PERF_MEASURES = ["contribution.perf", ...PERF_PARTS.map((c) => c.key)]
-
-/** 本場貢獻 v2 的單場標準差約 20（2026-10-17 全體 19.7），門檻和表現分一樣用 4 */
+/** 本場貢獻的單場標準差約 20（2026-10-24 全體 19.7），差 4 分以上才上色 */
 export const WORK_GAP = 4
-export const WORK = "contribution_v2.work"
-export const WORK_STATUS = "contribution_v2.score_status"
+export const WORK = "contribution.work"
+export const WORK_STATUS = "contribution.score_status"
 /** 有本場貢獻的場次（重開局、不完整的對局沒有分數）：算誤差範圍的樣本數 */
-export const WORK_GAMES = "contribution_v2.scored_games"
+export const WORK_GAMES = "contribution.scored_games"
 
-/** 本場貢獻的四項：每項 0～100，等於本場參考量是 50（治療護盾是固定換算，每分鐘 1250 是 50） */
+/** 本場貢獻的八個基因：key＝基因分數（0～100，50＝同出裝定位的平均），pts＝這一項讓總分加減幾分，weight＝占總分的權重（%） */
 export const WORK_PARTS = [
-  { key: "contribution_v2.part_dmg", label: "輸出", hint: "每分鐘對英雄傷害，和本場參考量比（其他九人的量依裝備職責分到你的份）" },
-  { key: "contribution_v2.part_soak", label: "承傷", hint: "每分鐘承受＋自身減免，和本場參考量比；只是承傷量，分不出有效開戰或無效吃傷" },
-  { key: "contribution_v2.part_cc", label: "控場", hint: "每分鐘控制敵人的時間，和本場參考量比" },
-  { key: "contribution_v2.part_heal", label: "治療護盾", hint: "每分鐘治療＋護盾隊友（固定換算，每分鐘 1250 是 50）；沒有賽後統計的場次改用含自補的治療量，是暫估" },
+  { key: "contribution.gene_dmg", pts: "contribution.pts_dmg", label: "輸出", weight: 25, hint: "每分鐘對英雄傷害" },
+  { key: "contribution.gene_soak", pts: "contribution.pts_soak", label: "承傷", weight: 20, hint: "每分鐘承受＋自身減免的傷害（護甲、魔抗、護盾擋下的都算）；分不出有效開戰或無效吃傷" },
+  { key: "contribution.gene_heal", pts: "contribution.pts_heal", label: "治療護盾", weight: 13, hint: "每分鐘治療＋護盾隊友；沒有賽後統計的場次改用含自補的治療量，是暫估" },
+  { key: "contribution.gene_cc", pts: "contribution.pts_cc", label: "控場", weight: 12, hint: "每分鐘控制敵人的時間" },
+  { key: "contribution.gene_kda", pts: "contribution.pts_kda", label: "K/DA", weight: 12, hint: "擊殺參與（擊殺＋助攻）與存活（死得少）各半；有一半是結果，所以權重不高" },
+  { key: "contribution.gene_obj", pts: "contribution.pts_obj", label: "推塔", weight: 8, hint: "每分鐘對建築的傷害；和勝負綁得最緊（拆塔就是贏），所以權重不高" },
+  { key: "contribution.gene_wave", pts: "contribution.pts_wave", label: "清兵", weight: 6, hint: "每分鐘對小兵的傷害" },
+  { key: "contribution.gene_anti", pts: "contribution.pts_anti", label: "功能裝", weight: 4, hint: "終場帶重創／破盾裝，估計擋掉的敵方治療與護盾；只看有沒有帶，不知道實際命中多少" },
 ] as const
-export const WORK_MEASURES = [WORK, ...WORK_PARTS.map((c) => c.key), "contribution_v2.base", "contribution_v2.cross_role", "contribution_v2.progress"]
+export const WORK_MEASURES = [WORK, ...WORK_PARTS.flatMap((c) => [c.key, c.pts])]
 
-/** 本場貢獻 v2（0～100，50＝所有人的平均；各種裝備組成的平均也都接近 50） */
+/** 本場貢獻（0～100，50＝同出裝定位的人的平均） */
 export const workScore = (r: CubeRow | undefined) => (r ? num(r[WORK]) : null)
 /** 這一列的本場貢獻是不是暫估（沒有賽後統計的治療護盾隊友量） */
 export const isEstimate = (r: CubeRow | undefined) => r?.[WORK_STATUS] === "estimate"

@@ -125,10 +125,10 @@ type Cell = { games: number; scored: number; score: number | null; strength: str
 /** 一個人每種出裝（加上「整體」）的場次、隊內貢獻與判定 */
 function expectedCells(puuid: string): Record<string, Cell> {
   const rows = sql(
-    `SELECT b.build_role role, COUNT(*) games, COUNT(c.work_score_v2) scored, AVG(c.work_score_v2) score
+    `SELECT b.build_role role, COUNT(*) games, COUNT(c.work_score) scored, AVG(c.work_score) score
        FROM match_participants p JOIN matches m USING (platform_id, game_id)
        LEFT JOIN mat_builds b ON b.participant_rowid = p.rowid
-       LEFT JOIN mat_contribution_v2 c ON c.participant_rowid = p.rowid
+       LEFT JOIN mat_contribution c ON c.participant_rowid = p.rowid
       WHERE p.puuid = ? AND m.queue_id = 2400 AND m.is_remake = 0 GROUP BY b.build_role`,
     [puuid],
   )
@@ -146,8 +146,8 @@ function expectedCells(puuid: string): Record<string, Cell> {
     }
   }
   const t = sql(
-    `SELECT COUNT(*) games, COUNT(c.work_score_v2) scored, AVG(c.work_score_v2) score FROM match_participants p JOIN matches m USING (platform_id, game_id)
-       LEFT JOIN mat_contribution_v2 c ON c.participant_rowid = p.rowid WHERE p.puuid = ? AND m.queue_id = 2400 AND m.is_remake = 0`,
+    `SELECT COUNT(*) games, COUNT(c.work_score) scored, AVG(c.work_score) score FROM match_participants p JOIN matches m USING (platform_id, game_id)
+       LEFT JOIN mat_contribution c ON c.participant_rowid = p.rowid WHERE p.puuid = ? AND m.queue_id = 2400 AND m.is_remake = 0`,
     [puuid],
   )[0]
   out["整體"] = {
@@ -260,8 +260,8 @@ test.describe("好友比較頁：全員一覽", () => {
     for (const row of await matrixRows(page).all()) {
       const m = await memberOf(row)
       const champs = sql(
-        `SELECT p.champion_id, COUNT(c.work_score_v2) scored, AVG(c.work_score_v2) score FROM match_participants p JOIN matches mm USING (platform_id, game_id)
-           LEFT JOIN mat_contribution_v2 c ON c.participant_rowid = p.rowid WHERE p.puuid = ? AND mm.queue_id = 2400 AND mm.is_remake = 0 GROUP BY p.champion_id`,
+        `SELECT p.champion_id, COUNT(c.work_score) scored, AVG(c.work_score) score FROM match_participants p JOIN matches mm USING (platform_id, game_id)
+           LEFT JOIN mat_contribution c ON c.participant_rowid = p.rowid WHERE p.puuid = ? AND mm.queue_id = 2400 AND mm.is_remake = 0 GROUP BY p.champion_id`,
         [m.puuid],
       ).filter((r) => r.score !== null)
       const z = zFor(champs.filter((r) => Number(r.scored) >= 5).length)
@@ -349,8 +349,8 @@ test.describe("好友比較頁：抽屜（兩個分頁）", () => {
     const row = matrixRows(page).first()
     const m = await memberOf(row)
     const champs = sql(
-      `SELECT p.champion_id, COUNT(c.work_score_v2) scored, AVG(c.work_score_v2) score FROM match_participants p JOIN matches mm USING (platform_id, game_id)
-         LEFT JOIN mat_contribution_v2 c ON c.participant_rowid = p.rowid WHERE p.puuid = ? AND mm.queue_id = 2400 AND mm.is_remake = 0 GROUP BY p.champion_id`,
+      `SELECT p.champion_id, COUNT(c.work_score) scored, AVG(c.work_score) score FROM match_participants p JOIN matches mm USING (platform_id, game_id)
+         LEFT JOIN mat_contribution c ON c.participant_rowid = p.rowid WHERE p.puuid = ? AND mm.queue_id = 2400 AND mm.is_remake = 0 GROUP BY p.champion_id`,
       [m.puuid],
     ).filter((r) => r.score !== null)
     const z = zFor(champs.filter((r) => Number(r.scored) >= 5).length)

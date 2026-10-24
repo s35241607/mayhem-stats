@@ -129,22 +129,8 @@ cubes:
             LEFT JOIN gold g ON g.platform_id = mp.platform_id AND g.game_id = mp.game_id AND g.participant_id = mp.participant_id
             LEFT JOIN primary_role pr ON pr.champion_id = mp.champion_id
             LEFT JOIN marksman mk ON mk.champion_id = mp.champion_id
-          ),
-          scored AS (
-            SELECT *,
-              CASE build_role
-                WHEN '射手' THEN dmg_share
-                WHEN '法師' THEN dmg_share
-                WHEN '刺客' THEN dmg_share
-                WHEN '坦克' THEN taken_share
-                WHEN '鬥士' THEN (dmg_share + taken_share) / 2
-                WHEN '輔助' THEN kp
-              END AS role_metric
-            FROM classified
           )
-          SELECT *,
-            role_metric - AVG(role_metric) OVER (PARTITION BY queue_id, build_role) AS perf_index
-          FROM scored
+          SELECT * FROM classified
 
     # 反方向也要一條：查詢裡有 builds 的指標時，Cube 會從這裡出發找 matches、participants 的路徑
     joins:
@@ -205,31 +191,3 @@ cubes:
         type: number
         meta:
           group: 配置
-
-    measures:
-      # 表現分數：這場的「定位關鍵指標」減掉全資料庫同模式、同出裝定位的平均（百分點）。
-      # 每個定位的工作不同，關鍵指標也不同：
-      #   射手、法師、刺客 → 傷害佔比；坦克 → 承傷佔比；鬥士 → 兩者平均；輔助 → 參團率
-      # 都是「佔我方隊伍的比例」，陣容已經內含：隊上輸出越多，同樣打法的傷害佔比自然越低。
-      # 基準用全資料庫（每場 10 人都算，Mayhem 約 3,200 筆），比只看自己人穩定得多；
-      # 基準不跟著期間篩選變動，所以不同期間的分數可以直接比。
-      - name: perf_index
-        title: 表現分數
-        description: "定位關鍵指標和全資料庫同出裝定位平均的差距（百分點）。射手、法師與刺客看傷害佔比、坦克看承傷佔比、鬥士看兩者平均、輔助看參團率。正數代表這個定位的工作做得比一般人多。"
-        sql: perf_index
-        type: avg
-        meta:
-          group: 表現
-          unit: pp
-          decimals: 1
-          higherIsBetter: true
-
-      - name: role_metric
-        title: 定位關鍵指標
-        description: "依出裝定位取的關鍵指標（%）：射手、法師與刺客看傷害佔比、坦克看承傷佔比、鬥士看兩者平均、輔助看參團率。"
-        sql: role_metric
-        type: avg
-        meta:
-          group: 表現
-          unit: "%"
-          decimals: 1

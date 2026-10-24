@@ -77,14 +77,9 @@ cubes:
         sql: "{CUBE}.rowid = {comp_context}.participant_rowid"
         relationship: one_to_one
 
-      # 貢獻分數（各項指標在同類型裡的名次百分位；6 分鐘內的重開局沒有這一列），同樣一對一
+      # 本場貢獻（全站唯一的分數；不計分的場次也有一列，分數是空值），一對一
       - name: contribution
         sql: "{CUBE}.rowid = {contribution}.participant_rowid"
-        relationship: one_to_one
-
-      # 本場貢獻 v2（只和同一場的人比；不計分的場次也有一列，分數是空值），一對一
-      - name: contribution_v2
-        sql: "{CUBE}.rowid = {contribution_v2}.participant_rowid"
         relationship: one_to_one
 
       - name: team_context
@@ -814,11 +809,11 @@ cubes:
 
       - name: mvp_games
         title: MVP 場次
-        description: "拿到 MVP 的場次：贏的那一隊裡本場貢獻 v2 最高（同分都算），和計分板、對局卡片的 MVP 同一個定義。沒有 v2 分數的場次（重開、不足 6 分鐘）不算。"
+        description: "拿到 MVP 的場次：贏的那一隊裡本場貢獻最高（同分都算），和計分板、對局卡片的 MVP 同一個定義。沒有分數的場次（重開、不足 6 分鐘）不算。"
         sql: >
           CASE WHEN {CUBE}.win = 1
-           AND (SELECT v.work_score_v2 FROM mat_contribution_v2 v WHERE v.participant_rowid = {CUBE}.rowid)
-             = (SELECT MAX(o.work_score_v2) FROM match_participants t JOIN mat_contribution_v2 o ON o.participant_rowid = t.rowid
+           AND (SELECT v.work_score FROM mat_contribution v WHERE v.participant_rowid = {CUBE}.rowid)
+             = (SELECT MAX(o.work_score) FROM match_participants t JOIN mat_contribution o ON o.participant_rowid = t.rowid
                 WHERE t.platform_id = {CUBE}.platform_id AND t.game_id = {CUBE}.game_id AND t.team_id = {CUBE}.team_id)
           THEN {CUBE}.rowid END
         type: count_distinct
@@ -828,11 +823,11 @@ cubes:
 
       - name: ace_games
         title: ACE 場次
-        description: "拿到 ACE 的場次：輸的那一隊裡本場貢獻 v2 最高（同分都算），和計分板、對局卡片的 ACE 同一個定義。"
+        description: "拿到 ACE 的場次：輸的那一隊裡本場貢獻最高（同分都算），和計分板、對局卡片的 ACE 同一個定義。"
         sql: >
           CASE WHEN {CUBE}.win = 0
-           AND (SELECT v.work_score_v2 FROM mat_contribution_v2 v WHERE v.participant_rowid = {CUBE}.rowid)
-             = (SELECT MAX(o.work_score_v2) FROM match_participants t JOIN mat_contribution_v2 o ON o.participant_rowid = t.rowid
+           AND (SELECT v.work_score FROM mat_contribution v WHERE v.participant_rowid = {CUBE}.rowid)
+             = (SELECT MAX(o.work_score) FROM match_participants t JOIN mat_contribution o ON o.participant_rowid = t.rowid
                 WHERE t.platform_id = {CUBE}.platform_id AND t.game_id = {CUBE}.game_id AND t.team_id = {CUBE}.team_id)
           THEN {CUBE}.rowid END
         type: count_distinct

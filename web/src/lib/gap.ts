@@ -77,19 +77,15 @@ export const STRENGTH_CLASS: Record<Strength, string> = {
   不強勢: "border-loss/50 bg-loss/15 text-loss font-semibold",
 }
 
-/** 單場隊內貢獻扣掉每個人自己的平均之後的標準差（2026-10 實測 27.2，好友 7 人、1681 場；analysis/crew_verdicts.py）。
- *  「隊內貢獻平均」的標準誤 = CONTRIB_SD ÷ √有分數的場數。 */
-export const CONTRIB_SD = 27
-/** 當局表現分（contribution.perf）同一個人單場的標準差：2026-10-10 實測（12 位 30 場以上的玩家合併）19.0 */
-export const PERF_SD = 19
-/** 本場貢獻 v2（contribution_v2.work）同一個人單場的標準差：2026-10-17 實測（12 位 30 場以上的玩家合併）18.5。好友比較頁的判斷用它 */
+/** 本場貢獻（contribution.work）同一個人單場的標準差：v3 定版時 2026-10-24 實測（8 位 30 場以上的玩家合併）18.3，v2 時 18.5。
+ *  「本場貢獻平均」的標準誤 = WORK_SD ÷ √有分數的場數。好友比較頁的判斷用它 */
 export const WORK_SD = 18.5
 
 export type ScoreGap = { mean: number; diff: number; interval: [number, number] | null; clear: boolean }
 
-/** 隊內貢獻的平均和同類型的中位數（50）比：差幾分、95% 區間（z 可放寬，見 zFor），以及區間是否整段在 50 的同一邊。
- *  n 用「有隊內貢獻的場次」（contribution.scored_games；重開局沒有分數）。不到 MIN_N 場不給區間。 */
-export function scoreGapOf(mean: number, n: number, z = 1.96, sd = CONTRIB_SD): ScoreGap {
+/** 本場貢獻的平均和 50（同出裝定位的平均）比：差幾分、95% 區間（z 可放寬，見 zFor），以及區間是否整段在 50 的同一邊。
+ *  n 用「有分數的場次」（contribution.scored_games；重開局沒有分數）。不到 MIN_N 場不給區間。 */
+export function scoreGapOf(mean: number, n: number, z = 1.96, sd = WORK_SD): ScoreGap {
   const diff = mean - 50
   if (n < MIN_N) return { mean, diff, interval: null, clear: false }
   const half = (z * sd) / Math.sqrt(n)
@@ -97,8 +93,8 @@ export function scoreGapOf(mean: number, n: number, z = 1.96, sd = CONTRIB_SD): 
   return { mean, diff, interval, clear: interval[0] > 0 || interval[1] < 0 }
 }
 
-/** 隊內貢獻的五級判定：區間整段高於／低於 50 才是強勢／不強勢；差 lean 分以上但還在誤差內是偏強／偏弱。
- *  lean 預設 6（單場標準差約 29 時的「看得出的差距」）；本場貢獻的門檻是 hooks/useContribution 的 WORK_GAP。 */
+/** 本場貢獻的五級判定：區間整段高於／低於 50 才是強勢／不強勢；差 lean 分以上但還在誤差內是偏強／偏弱。
+ *  呼叫端傳 hooks/useContribution 的 WORK_GAP。 */
 export function scoreStrengthOf(g: ScoreGap, lean = 6): Strength {
   if (g.interval === null) return "看不出"
   if (g.clear) return g.diff > 0 ? "強勢" : "不強勢"
