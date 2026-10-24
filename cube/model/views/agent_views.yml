@@ -59,6 +59,7 @@ views:
           - name: team_winrate
             alias: lineup_winrate
           - deaths_per_10min
+          - soak_per_min
           - taken_per_min
           - mitigated_per_min
           - heal_per_min
@@ -85,7 +86,9 @@ views:
           - damage_share
           - damage_per_gold
           - avg_objective_damage
+          - avg_soak
           - avg_taken
+          - soak_share
           - tank_share
           - avg_mitigated
           - avg_heal

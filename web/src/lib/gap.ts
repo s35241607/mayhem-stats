@@ -98,7 +98,7 @@ export function scoreGapOf(mean: number, n: number, z = 1.96, sd = CONTRIB_SD): 
 }
 
 /** 隊內貢獻的五級判定：區間整段高於／低於 50 才是強勢／不強勢；差 lean 分以上但還在誤差內是偏強／偏弱。
- *  lean 預設 6，和 hooks/useContribution 的 CONTRIB_GAP 一致（單場標準差約 29 時的「看得出的差距」）。 */
+ *  lean 預設 6（單場標準差約 29 時的「看得出的差距」）；本場貢獻的門檻是 hooks/useContribution 的 WORK_GAP。 */
 export function scoreStrengthOf(g: ScoreGap, lean = 6): Strength {
   if (g.interval === null) return "看不出"
   if (g.clear) return g.diff > 0 ? "強勢" : "不強勢"

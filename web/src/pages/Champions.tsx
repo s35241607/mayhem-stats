@@ -1,7 +1,7 @@
 import { createContext, useContext, useMemo, useState, type CSSProperties } from "react"
 import { BarCell, RecordCell, StatCell, solidMax, weightedAvg } from "@/components/cells"
 import { ContribScore } from "@/components/Contribution"
-import { PERF_GAP } from "@/hooks/useContribution"
+import { WORK, WORK_GAP } from "@/hooks/useContribution"
 import { Filter, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -48,14 +48,14 @@ const MEASURES = [
   "participants.damage_share",
   "participants.taken_per_min",
   "participants.mitigated_per_min",
-  "participants.tank_share",
+  "participants.soak_per_min",
+  "participants.soak_share",
   "participants.cc_time_per_min",
   "participants.heal_per_min",
   "participants.multikill_rate",
   "participants.first_blood_rate",
   "participants.pentas",
-  "contribution.perf",
-  "contribution.score",
+  WORK,
 ]
 
 const n0 = (r: Record<string, unknown>, k: string) => num(r[k] as string | number | null) ?? 0
@@ -72,8 +72,8 @@ function buildColumns(rows: CubeRow[], overallWr: number | null, roleMix: RoleMi
   const avgDpm = totalGames
     ? rows.reduce((a, r) => a + n0(r, "participants.dpm") * n0(r, "participants.games"), 0) / totalGames
     : null
-  const maxTaken = solidMax(rows, "participants.taken_per_min", "participants.games", MIN_GAMES)
-  const avgTaken = weightedAvg(rows, "participants.taken_per_min", "participants.games")
+  const maxTaken = solidMax(rows, "participants.soak_per_min", "participants.games", MIN_GAMES)
+  const avgTaken = weightedAvg(rows, "participants.soak_per_min", "participants.games")
   // 戰績刻度一律是「整體勝率」（你的、追蹤對象的或所有人的），不從表格各列回推：六邊形篩成某一類之後，
   // 回推出來的會變成那一類的平均，刻度跟著移動，就看不出這一類整體是高是低
   const avgWr = overallWr
@@ -160,36 +160,30 @@ function buildColumns(rows: CubeRow[], overallWr: number | null, roleMix: RoleMi
       ),
     },
     {
-      // 當局表現分：和同類型、同時長帶的人比，50 是中位數；隊內排名是另一個零和的分數，放在補充裡對照
-      key: "contribution.perf",
-      title: "表現",
+      // 本場貢獻：每場只和同一場的人比，50＝所有人的平均
+      key: WORK,
+      title: "貢獻",
       kind: "metric",
       flex: 0.7,
       minWidth: 90,
       cell: (r) => {
-        const perf = opt(r, "contribution.perf")
-        const rank = opt(r, "contribution.score")
-        return (
-          <StatCell
-            main={<ContribScore dev={perf === null ? null : perf - 50} gap={PERF_GAP} className="text-sm font-semibold" />}
-            sub={`隊內 ${rank === null ? "—" : Math.round(rank)}`}
-          />
-        )
+        const v = opt(r, WORK)
+        return <ContribScore dev={v === null ? null : v - 50} gap={WORK_GAP} className="text-sm font-semibold" />
       },
     },
     {
-      key: "participants.taken_per_min",
-      title: "承受（每分鐘傷害）",
+      key: "participants.soak_per_min",
+      title: "承傷（承受＋減免，每分鐘）",
       kind: "metric",
       flex: 1.6,
       minWidth: 190,
       cell: (r) => (
         <BarCell
-          value={opt(r, "participants.taken_per_min")}
+          value={opt(r, "participants.soak_per_min")}
           max={maxTaken}
           reference={avgTaken}
-          label={round0(n0(r, "participants.taken_per_min"))}
-          sub={`減免 ${round0(n0(r, "participants.mitigated_per_min"))}/分 · 佔隊 ${round1(n0(r, "participants.tank_share"))}%`}
+          label={round0(n0(r, "participants.soak_per_min"))}
+          sub={`承受 ${round0(n0(r, "participants.taken_per_min"))} ＋ 減免 ${round0(n0(r, "participants.mitigated_per_min"))} · 佔隊 ${round1(n0(r, "participants.soak_share"))}%`}
         />
       ),
     },
@@ -222,11 +216,11 @@ function buildColumns(rows: CubeRow[], overallWr: number | null, roleMix: RoleMi
     { key: "participants.wins", title: "勝場", kind: "metric", hide: true },
     { key: "participants.losses", title: "敗場", kind: "metric", hide: true },
     { key: "participants.mitigated_per_min", title: "每分鐘減免傷害", kind: "metric", hide: true },
-    { key: "participants.tank_share", title: "承受佔比", kind: "metric", hide: true },
+    { key: "participants.taken_per_min", title: "每分鐘承受傷害", kind: "metric", hide: true },
+    { key: "participants.soak_share", title: "承傷佔比（承受＋減免）", kind: "metric", hide: true },
     { key: "participants.heal_per_min", title: "每分鐘治療", kind: "metric", hide: true },
     { key: "participants.first_blood_rate", title: "首殺率", kind: "metric", hide: true },
     { key: "participants.pentas", title: "五殺次數", kind: "metric", hide: true },
-    { key: "contribution.score", title: "隊內貢獻排名", kind: "metric", hide: true },
     { key: "participants.avg_kills", title: "平均擊殺", kind: "metric", hide: true },
     { key: "participants.avg_deaths", title: "平均死亡", kind: "metric", hide: true },
     { key: "participants.avg_assists", title: "平均助攻", kind: "metric", hide: true },
@@ -643,7 +637,7 @@ function ChampionsBody({ onWho }: { onWho: (who: Who) => void }) {
                 />
               )}
               <p className="text-[11px] text-muted-foreground">
-                預設依場次由多到少。戰績條的刻度是{baselineLabel}，輸出與承受條的刻度是表中英雄的平均；表現是當局表現分（50＝同類型的中位數），小字是隊內排名
+                預設依場次由多到少。戰績條的刻度是{baselineLabel}，輸出與承傷條的刻度是表中英雄的平均（承傷＝承受＋自身減免）；貢獻是本場貢獻（每場只和同一場的人比，50＝所有人的平均）
               </p>
             </div>
           </div>

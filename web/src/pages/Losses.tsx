@@ -40,13 +40,13 @@ const MINE_METRICS: Metric[] = [
   { key: "participants.kda", label: "我的 KDA", group: "我自己", decimals: 2, higherIsBetter: true },
   { key: "participants.dpm", label: "我的每分鐘傷害", group: "我自己", higherIsBetter: true },
   { key: "participants.gpm", label: "我的每分鐘經濟", group: "我自己", higherIsBetter: true },
-  { key: "participants.avg_taken", label: "我承受的傷害", group: "我自己", higherIsBetter: false },
+  { key: "participants.avg_soak", label: "我的承傷（承受＋減免）", group: "我自己", higherIsBetter: false },
   { key: "participants.avg_survival", label: "最長存活(秒)", group: "我自己", higherIsBetter: true },
 ]
 
 const SHARE_METRICS: Metric[] = [
   { key: "participants.damage_share", label: "我的傷害佔比", group: "隊內佔比", decimals: 1, suffix: "%", higherIsBetter: true },
-  { key: "participants.tank_share", label: "我的承傷佔比", group: "隊內佔比", decimals: 1, suffix: "%", higherIsBetter: true },
+  { key: "participants.soak_share", label: "我的承傷佔比（承受＋減免）", group: "隊內佔比", decimals: 1, suffix: "%", higherIsBetter: true },
   { key: "participants.kill_participation", label: "我的參團率", group: "隊內佔比", decimals: 1, suffix: "%", higherIsBetter: true },
 ]
 

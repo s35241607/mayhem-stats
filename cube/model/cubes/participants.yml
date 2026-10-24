@@ -441,6 +441,17 @@ cubes:
           group: 生存
           decimals: 0
 
+      # 承傷＝承受的傷害＋自身減免掉的傷害（護甲、魔抗、護盾擋下的）：坦克擋下的多半是減免，只看承受會嚴重低估。
+      # 本場貢獻的「承傷」就是這個量；下面三個是同一個定義的每分鐘、場均、單場最高、占全隊比例
+      - name: soak_per_min
+        title: 每分鐘承傷（承受＋減免）
+        description: "每場（承受傷害＋自身減免傷害）除以對局分鐘數後取平均。本場貢獻的承傷用的就是這個量。"
+        sql: "({CUBE}.dmg_taken + {CUBE}.dmg_mitigated) * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: avg
+        meta:
+          group: 生存
+          decimals: 0
+
       - name: mitigated_per_min
         title: 每分鐘減免傷害
         description: "每場減免傷害除以對局分鐘數後取平均；不等於減傷百分比。"
@@ -661,6 +672,15 @@ cubes:
           group: 單場紀錄
           unit: 分鐘
           decimals: 2
+
+      - name: max_soak
+        title: 單場最高承傷（承受＋減免）
+        description: "範圍內單場（承受傷害＋自身減免傷害）的最高值。"
+        sql: "{CUBE}.dmg_taken + {CUBE}.dmg_mitigated"
+        type: max
+        meta:
+          group: 單場紀錄
+          decimals: 0
 
       - name: max_taken
         title: 單場最高承受傷害
@@ -950,6 +970,15 @@ cubes:
           group: 輸出
           decimals: 0
 
+      - name: avg_soak
+        title: 平均承傷（承受＋減免）
+        description: "每場平均（承受的傷害＋自身減免掉的傷害）。本場貢獻的承傷用的就是這個量。"
+        sql: "{CUBE}.dmg_taken + {CUBE}.dmg_mitigated"
+        type: avg
+        meta:
+          group: 生存
+          decimals: 0
+
       - name: avg_taken
         title: 平均承受傷害
         description: "每場平均承受的總傷害。"
@@ -958,6 +987,22 @@ cubes:
         meta:
           group: 生存
           decimals: 0
+
+      - name: soak_share
+        title: 承傷佔比（承受＋減免）
+        sql: >
+          ({CUBE}.dmg_taken + {CUBE}.dmg_mitigated) * 100.0 / NULLIF(
+            (SELECT SUM(t.dmg_taken + t.dmg_mitigated) FROM match_participants t
+             WHERE t.platform_id = {CUBE}.platform_id
+               AND t.game_id = {CUBE}.game_id
+               AND t.team_id = {CUBE}.team_id), 0)
+        type: avg
+        format: percent
+        description: （承受傷害＋自身減免）佔隊伍的比例。只看承受的 tank_share 會漏掉坦克擋下的那一大塊
+        meta:
+          group: 生存
+          unit: "%"
+          decimals: 1
 
       - name: tank_share
         title: 承受佔比

@@ -4,7 +4,7 @@ import * as echarts from "echarts/core"
 import * as ECharts from "echarts/charts"
 import * as EComponents from "echarts/components"
 import { CanvasRenderer } from "echarts/renderers"
-import { CONTRIB_GAP } from "@/hooks/useContribution"
+import { WORK_GAP } from "@/hooks/useContribution"
 import { useThemeName } from "@/lib/theme"
 import { CHART_GROW_MS, STAGGER_CAP_MS, STAGGER_MS, prefersReducedMotion, useAfterPageEnter } from "@/lib/motion"
 
@@ -984,9 +984,9 @@ export type ContribRadarDatum = { label: string; hint: string; value: number | n
 
 /** 貢獻六項的雷達：六個頂點各是一項百分位（0～100，外框 100），50 那一圈畫成虛線——
  *  形狀在虛線圈外的那一項就是比同出裝定位、同勝負的一般人多，圈內是少。
- *  頂點標籤是名稱與數字，數字偏離 50 達 gap（預設 CONTRIB_GAP，表現分傳 PERF_GAP）才上勝／敗色（和 ContribScore 同一套）。
+ *  頂點標籤是名稱與數字，數字偏離 50 達 gap（預設 WORK_GAP）才上勝／敗色（和 ContribScore 同一套）。
  *  形狀用資料色，不用勝敗色：雷達整體不是「好壞」，好壞由虛線圈和數字顏色表達。 */
-export function ContribRadarChart({ data: all, height = 280, gap = CONTRIB_GAP }: { data: ContribRadarDatum[]; height?: number; gap?: number }) {
+export function ContribRadarChart({ data: all, height = 280, gap = WORK_GAP }: { data: ContribRadarDatum[]; height?: number; gap?: number }) {
   const theme = useTheme()
   // 沒有值的項目（例如沒有治療到隊友的場次沒有治療軸）直接略過那個頂點，畫成 0 會被讀成「完全沒做」
   const data = useMemo(() => all.filter((d) => d.value !== null), [all])

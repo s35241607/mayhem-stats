@@ -176,9 +176,9 @@ test.describe("對局紀錄：單場戰報", () => {
     await expect(meter).toHaveAttribute("aria-expanded", "true")
     const reveal = board.locator(".reveal")
     await expect(reveal).toHaveCount(1)
-    await expect(reveal.getByText(/當局表現：每分鐘的實際數值/)).toBeVisible()
+    await expect(reveal.getByText(/本場貢獻：每分鐘的輸出/)).toBeVisible()
     await expect(charts(reveal)).toHaveCount(1)
-    expect(await reveal.locator("[title*='百分位']").count()).toBeGreaterThanOrEqual(5)
+    expect(await reveal.locator("[title*='本場參考量']").count()).toBe(4) // 輸出、承傷、控場、治療護盾
     await meter.click()
     await expect(reveal).toHaveCount(0)
   })
@@ -197,8 +197,8 @@ test.describe("對局紀錄：單場戰報", () => {
     const table = page.locator("table").first()
     await expect(table).toBeVisible()
     for (const title of ["對戰", "造成傷害", "承受與生存", "資源"]) await expect(table.getByText(title, { exact: true })).toBeVisible()
-    await expect(table.getByText(/^當局表現（/)).toBeVisible()
-    await expect(table.getByText(/^隊內貢獻（/)).toBeVisible()
+    await expect(table.getByText(/^本場貢獻（/)).toBeVisible()
+    await expect(table.getByText("承傷合計（承受＋減免）", { exact: true })).toBeVisible()
     await expect(table.locator("thead th")).toHaveCount(11) // 項目 + 10 位
     await expect(table.locator("td.text-primary").first()).toBeVisible()
   })

@@ -10,7 +10,7 @@ const bucketOf = (s: number) => (s < 480 ? "< 8:00（重開）" : s < 820 ? "8:0
 /** 勝局／敗局各自的平均（先各自平均再相除的指標由呼叫端組合）。 */
 const byResult = () => {
   const rows = sql(
-    `SELECT p.win, COUNT(*) n, AVG(p.kills) k, AVG(p.deaths) d, AVG(p.assists) a, AVG(p.dmg_taken) taken,
+    `SELECT p.win, COUNT(*) n, AVG(p.kills) k, AVG(p.deaths) d, AVG(p.assists) a, AVG(p.dmg_taken + p.dmg_mitigated) taken,
             AVG(p.dmg_to_champions * 60.0 / m.game_duration) dpm, AVG(p.gold_earned * 60.0 / m.game_duration) gpm,
             AVG(m.game_duration) / 60.0 AS dur, AVG(p.longest_time_living) surv,
             AVG((p.kills + p.assists) * 100.0 / NULLIF(p.team_kills, 0)) kp
@@ -71,7 +71,7 @@ test.describe("敗因分析頁：勝局 vs 敗局", () => {
     expectBoth("我的 KDA", (r) => (num(r, "k") + num(r, "a")) / num(r, "d"))
     expectBoth("我的每分鐘傷害", (r) => num(r, "dpm"), 3)
     expectBoth("我的每分鐘經濟", (r) => num(r, "gpm"), 3)
-    expectBoth("我承受的傷害", (r) => num(r, "taken"), 3)
+    expectBoth("我的承傷（承受＋減免）", (r) => num(r, "taken"), 3)
     expectBoth("最長存活(秒)", (r) => num(r, "surv"), 3)
     expectBoth("我的參團率", (r) => num(r, "kp"), 3)
   })

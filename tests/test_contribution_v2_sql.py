@@ -135,7 +135,7 @@ class V2Tests(unittest.TestCase):
         self.assertLessEqual(r["wave_bonus"], 2)
         self.assertLessEqual(r["objective_bonus"], 4)
         self.assertLessEqual(r["cross_role_bonus"], 10)
-        self.assertEqual(r["score_version"], "v2.2")
+        self.assertEqual(r["score_version"], "v2.3")
 
     def test_build_mix_calibration_depends_only_on_own_items(self):
         # 裝備組成校正只看自己的裝備比例：同一場、同樣的數字，換成承傷裝，期望分（mix_expected）跟著換、工作量的分項不變
@@ -143,12 +143,12 @@ class V2Tests(unittest.TestCase):
         self.fx.game(2, items={3: [3, 4]})
         res = self.fx.result()
         a, b = self.at(res, 1, 3), self.at(res, 2, 3)
-        self.assertAlmostEqual(a["mix_expected"], 39.434 * (6000 / 6000) * 0.5 + 39.811 * 0.5)  # 一件 AD、一件 AP
-        self.assertAlmostEqual(b["mix_expected"], 39.228)  # 全是承傷裝
-        self.assertAlmostEqual(a["work_score_v2"], max(0, min(100, 50 + 20 * (a["work_raw"] + a["marksman_bonus"] - a["mix_expected"]) / 6.706)), places=6)
+        self.assertAlmostEqual(a["mix_expected"], 39.337 * (6000 / 6000) * 0.5 + 39.652 * 0.5)  # 一件 AD、一件 AP
+        self.assertAlmostEqual(b["mix_expected"], 39.79)  # 全是承傷裝
+        self.assertAlmostEqual(a["work_score_v2"], max(0, min(100, 50 + 20 * (a["work_raw"] + a["marksman_bonus"] - a["mix_expected"]) / 6.681)), places=6)
 
     def test_marksman_bonus_only_moves_marksman_champions(self):
-        # 英雄 1 在第二場改成官方定位有射手：只有他的分數變高（加 0.85 × AD 裝比例），同場其他人完全不變
+        # 英雄 1 在第二場改成官方定位有射手：只有他的分數變高（加 0.74 × AD 裝比例），同場其他人完全不變
         self.fx.game(1)
         before = self.fx.result()
         self.fx.conn.execute("INSERT INTO dim_champion_roles (champion_id, role) VALUES (1, 'marksman')")
@@ -156,9 +156,28 @@ class V2Tests(unittest.TestCase):
         after = self.fx.result()
         r0, r1 = self.at(before, 1, 3), self.at(after, 1, 3)
         self.assertEqual(r0["marksman_bonus"], 0)
-        self.assertAlmostEqual(r1["marksman_bonus"], 0.85 * r1["f_ad"])
-        self.assertAlmostEqual(r1["work_score_v2"] - r0["work_score_v2"], 20 * 0.85 * r1["f_ad"] / 6.706, places=6)
+        self.assertAlmostEqual(r1["marksman_bonus"], 0.74 * r1["f_ad"])
+        self.assertAlmostEqual(r1["work_score_v2"] - r0["work_score_v2"], 20 * 0.74 * r1["f_ad"] / 6.681, places=6)
         self.assertLessEqual(r1["work_score_v2"] - r0["work_score_v2"], 2.6)
+
+    def test_off_role_work_can_lift_the_base_score(self):
+        # 全防禦裝（承傷比例 1、輸出權重 0）的人這場傷害全場第一：裝備的主分很低，但「如果你是輸出位」的版本（打九折）更高，
+        # 主分取高的；同場其他人的裝備主分沒被超過，完全不變
+        self.fx.game(1, items={3: [3, 4]})
+        base = self.fx.result()
+        self.fx.game(2, items={3: [3, 4]}, over={3: {"dmg_to_champions": 120000}})
+        res = self.fx.result()
+        quiet, loud = self.at(base, 1, 3), self.at(res, 2, 3)
+        self.assertEqual(quiet["w_d"], 0)
+        self.assertEqual(loud["alt_role"], "D")
+        self.assertGreater(loud["base_score"], quiet["base_score"])  # 傷害越高，主分越高
+        self.assertAlmostEqual(loud["base_score"], loud["alt_base_score"])
+        self.assertGreater(loud["alt_base_score"], loud["plan_base_score"] + 10)
+        self.assertLessEqual(loud["alt_base_score"], 0.9 * 80)  # 打九折：不會超過主分滿額的 90%
+        # 其他人：base_score 至少等於自己裝備的主分
+        for i in (1, 2, 4, 5, 6, 7, 8, 9, 10):
+            r = self.at(res, 2, i)
+            self.assertGreaterEqual(r["base_score"], r["plan_base_score"] - 1e-9)
 
 
 if __name__ == "__main__":

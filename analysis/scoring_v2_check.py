@@ -18,11 +18,13 @@ APCAT = {"SpellDamage", "MagicPenetration", "SpellVamp"}
 DCAT = ADCAT | APCAT
 TCAT = {"Health", "Armor", "SpellBlock", "MagicResist"}
 EPS, K_EOG, K_FLAG = 0.05, 1250.0, 1100.0
-# v2.1：模板（輸出、承傷、保人 → D, T, C, H）與裝備組成校正的係數
+# v2.3：模板（輸出、承傷、保人 → D, T, C, H）與裝備組成校正的係數
 TPL = ((0.9, 0, 0.1, 0), (0, 0.7, 0.3, 0), (0, 0.2, 0.2, 0.6))
-BETA = (39.434, 39.811, 39.228, 37.535, 12.399, 9.217)  # AD, AP, 承傷, 保人, AD×承傷, AP×承傷
-SD0 = 6.706
-MK = 0.85  # v2.2 射手加分：官方定位有射手的英雄，原始分加 MK × AD 裝比例
+BETA = (39.337, 39.652, 39.79, 37.486, 11.848, 8.65)  # AD, AP, 承傷, 保人, AD×承傷, AP×承傷
+SD0 = 6.681
+MAIN = (0.9, 0.7, 0.2)  # 「如果你是這一種位置」用的主權重：輸出、承傷、控場
+ALT_DISCOUNT = 0.9
+MK = 0.74  # v2.2 射手加分（v2.3 重新擬合）：官方定位有射手的英雄，原始分加 MK × AD 裝比例
 marksman = {r[0] for r in c.execute("SELECT champion_id FROM dim_champion_roles WHERE role = 'marksman'")}
 
 cats = collections.defaultdict(set)
@@ -81,7 +83,17 @@ for key, ps in games.items():
             x = q["x"][k]
             P.append(0.0 if x == 0 else 100.0 if e == 0 else 100 * x / (x + e))
         P.append(100 * q["h"] / (q["h"] + (K_EOG if use_eog else K_FLAG)))
-        base = 80 * sum(q["w"][k] * P[k] for k in range(4)) / 100
+        plan_base = 80 * sum(q["w"][k] * P[k] for k in range(4)) / 100
+        # v2.3：把自己當成輸出位／承傷位／保人位各算一次（參考量用該模板的主權重），取最高的打九折，和裝備的主分取高
+        PF = []
+        for k in range(3):
+            others = [o for o in rows if o is not q]
+            e = sum(o["x"][k] for o in others) * (EPS + MAIN[k]) / sum(EPS + o["w"][k] for o in others)
+            x = q["x"][k]
+            PF.append(0.0 if x == 0 else 100.0 if e == 0 else 100 * x / (x + e))
+        alt = ALT_DISCOUNT * max(80 * (0.9 * PF[0] + 0.1 * PF[2]) / 100, 80 * (0.7 * PF[1] + 0.3 * PF[2]) / 100,
+                                 80 * (0.2 * PF[1] + 0.2 * PF[2] + 0.6 * P[3]) / 100 if use_eog else 0)
+        base = max(plan_base, alt)
         ks = range(4) if use_eog else range(3)
         cross = 10 * sum((1 - q["w"][k]) * max(0, (P[k] - 50) / 50) for k in ks) / sum(1 - q["w"][k] for k in ks)
         g = (2 * q["wv"] / (q["wv"] + ref_w) if ref_w else 0) + (4 * q["o"] / (q["o"] + ref_o) if ref_o else 0)

@@ -1111,7 +1111,7 @@ const TITLE_MEASURES = [
   "participants.max_damage",
   "participants.max_largest_spree",
   "participants.max_largest_multi_kill",
-  "participants.max_taken",
+  "participants.max_soak",
   "participants.max_duration",
   "participants.max_crit",
   "participants.max_turret_kills",
@@ -1428,7 +1428,7 @@ const FEATS: FeatDef[] = [
   { key: "助攻狂人", icon: Orbit, tier: "gold", hint: "單場助攻 50 以上", value: (r) => n0(r, "participants.max_assists"), threshold: 50, fmt: (v) => `單場 ${v} 助攻`, gap: (d) => `${d} 助攻` },
   { key: "十萬輸出", icon: Rocket, tier: "gold", hint: "單場對英雄傷害 100,000 以上", value: (r) => n0(r, "participants.max_damage"), threshold: 1e5, fmt: (v) => `單場 ${v.toLocaleString()} 傷害`, gap: (d) => `${d.toLocaleString()} 傷害` },
   { key: "勢不可擋", icon: Axe, tier: "gold", hint: "連殺 10 人以上（中途沒有陣亡）", value: (r) => n0(r, "participants.max_largest_spree"), threshold: 10, fmt: (v) => `最高 ${v} 連殺`, gap: (d) => `${d} 連殺` },
-  { key: "銅牆鐵壁", icon: ShieldHalf, tier: "gold", hint: "單場承受傷害 150,000 以上", value: (r) => n0(r, "participants.max_taken"), threshold: 1.5e5, fmt: (v) => `單場扛 ${v.toLocaleString()}`, gap: (d) => `${d.toLocaleString()} 承傷` },
+  { key: "銅牆鐵壁", icon: ShieldHalf, tier: "gold", hint: "單場承傷 500,000 以上（承受＋自身減免）", value: (r) => n0(r, "participants.max_soak"), threshold: 5e5, fmt: (v) => `單場承傷 ${v.toLocaleString()}`, gap: (d) => `${d.toLocaleString()} 承傷` },
   { key: "暴擊一刀", icon: Sword, tier: "gold", hint: "單次暴擊傷害 3,000 以上", value: (r) => n0(r, "participants.max_crit"), threshold: 3000, fmt: (v) => `最大暴擊 ${v.toLocaleString()}`, gap: (d) => `${d.toLocaleString()} 暴擊傷害` },
   { key: "拆遷專家", icon: Target, tier: "gold", hint: "單場拆掉 4 座防禦塔以上（最後一擊）", value: (r) => n0(r, "participants.max_turret_kills"), threshold: 4, fmt: (v) => `單場 ${v} 座塔`, gap: (d) => `${d} 座塔` },
   { key: "生生不息", icon: Droplets, tier: "gold", hint: "單場治療量 100,000 以上（含自補）", value: (r) => n0(r, "participants.max_heal"), threshold: 1e5, fmt: (v) => `單場治療 ${v.toLocaleString()}`, gap: (d) => `${d.toLocaleString()} 治療` },
@@ -2392,7 +2392,7 @@ function PlayerDrawerBody({
         </div>
         <div className="mb-2 flex items-center gap-1 text-[11px] text-muted-foreground">
           每一項和同一場另外九個人比，50＝參考量
-          <Hint text={"每一項都是每分鐘的量，和同一場另外九個人比：參考量是其他九人的量依裝備職責分到他的份，等於參考量是 50、兩倍約 67，雷達裡的虛線圈與橫條中間的刻度就是 50。\n權重看終場裝備的連續比例（輸出裝重輸出、坦裝重承傷、輔助裝重治療護盾，控場每種都有一點），不用英雄名稱（只有射手英雄依 AD 裝比例另加最多約 2.5 分，補控場少、站後排的落差）；權重低的工作做到超過參考量另有加分，清兵、推塔另有最多 6 分。\n死亡不扣分。治療護盾隊友的量只有賽後統計有，沒有的場次改用含自補的治療量（暫估）"} />
+          <Hint text={"每一項都是每分鐘的量，和同一場另外九個人比：參考量是其他九人的量依裝備職責分到他的份，等於參考量是 50、兩倍約 67，雷達裡的虛線圈與橫條中間的刻度就是 50。\n權重看終場裝備的連續比例（輸出裝重輸出、坦裝重承傷、輔助裝重治療護盾，控場每種都有一點），不用英雄名稱（只有射手英雄依 AD 裝比例另加最多約 2.5 分，補控場少、站後排的落差）；這場實際打出來的最好表現也算（把自己當成輸出位、承傷位、保人位各算一次，取最高的打九折，和裝備的版本取高：全防禦裝卻打出全場最高輸出的坦克會拿到高分），權重低的工作做到超過參考量另有加分，清兵、推塔另有最多 6 分。\n死亡不扣分。治療護盾隊友的量只有賽後統計有，沒有的場次改用含自補的治療量（暫估）"} />
         </div>
         {!settled || contrib.loading ? (
           <LoadingBlock height={300} label="載入貢獻分解…" />
@@ -2406,7 +2406,7 @@ function PlayerDrawerBody({
               gap={WORK_GAP}
               height={300}
             />
-            <ContribBars row={contrib.rows[0]} kind="work" />
+            <ContribBars row={contrib.rows[0]} />
           </div>
         )}
       </div>
@@ -2815,11 +2815,13 @@ const STAT_SETS: { id: string; label: string; caption: string; cols: StatCol[] }
   {
     id: "tank",
     label: "承傷與存活",
-    caption: "承受傷害高不一定是壞事：前排本來就要吃傷害，要和死亡一起看",
+    caption: "承傷高不一定是壞事：前排本來就要吃傷害，要和死亡一起看。承傷＝承受的傷害＋自身減免掉的（坦克擋下的多半是減免）",
     cols: [
-      { key: "participants.avg_taken", label: "平均承受傷害", fmt: int, hint: "每場平均承受的總傷害" },
-      { key: "participants.taken_per_min", label: "每分鐘承受傷害", fmt: int, hint: "每場承受傷害除以對局分鐘數再平均" },
-      { key: "participants.tank_share", label: "承傷占全隊", fmt: pctFmt, hint: "承受傷害占我方全隊的比例" },
+      { key: "participants.soak_per_min", label: "每分鐘承傷（承受＋減免）", fmt: int, hint: "每場（承受傷害＋自身減免）除以對局分鐘數再平均；本場貢獻的承傷就是這個量" },
+      { key: "participants.soak_share", label: "承傷占全隊（承受＋減免）", fmt: pctFmt, hint: "（承受傷害＋自身減免）占我方全隊的比例" },
+      { key: "participants.avg_taken", label: "平均承受傷害", fmt: int, hint: "每場平均承受的總傷害（不含減免）" },
+      { key: "participants.taken_per_min", label: "每分鐘承受傷害", fmt: int, hint: "每場承受傷害除以對局分鐘數再平均（不含減免）" },
+      { key: "participants.tank_share", label: "承受占全隊", fmt: pctFmt, hint: "只算承受傷害占我方全隊的比例（不含減免）" },
       { key: "participants.mitigated_per_min", label: "每分鐘減免傷害", fmt: int, hint: "護甲、魔抗、護盾等擋掉的傷害，每分鐘" },
       { key: "participants.avg_deaths", label: "平均死亡", fmt: (v) => v.toFixed(1), hint: "每場平均死亡次數（越少越好）", lower: true },
       { key: "participants.avg_time_dead", label: "平均死亡時間", fmt: mmssFmt, hint: "每場在死亡倒數裡的總時間（越少越好）。對局資料沒有，只算有賽後統計的場次（2026-10-03 起、採集器有抓到賽後畫面的）", lower: true },
@@ -2862,7 +2864,8 @@ const STAT_SETS: { id: string; label: string; caption: string; cols: StatCol[] }
       { key: "participants.max_largest_spree", label: "單場最高連殺", fmt: int, hint: "範圍內單場最高連續擊殺數", record: true },
       { key: "participants.max_largest_multi_kill", label: "單場最高多殺", fmt: (v) => `${Math.round(v)} 殺`, hint: "雙殺為 2、三殺為 3，依此類推", record: true },
       { key: "participants.max_duration", label: "單場最高時長", fmt: durationFmt, hint: "範圍內單場最長對局時間，顯示為 mm:ss", record: true },
-      { key: "participants.max_taken", label: "單場最高承受傷害", fmt: int, hint: "範圍內單場承受的最高總傷害", record: true },
+      { key: "participants.max_soak", label: "單場最高承傷（承受＋減免）", fmt: int, hint: "範圍內單場（承受傷害＋自身減免）的最高值", record: true },
+      { key: "participants.max_taken", label: "單場最高承受傷害", fmt: int, hint: "範圍內單場承受的最高總傷害（不含減免）", record: true },
       { key: "participants.max_mitigated", label: "單場最高減免傷害", fmt: int, hint: "範圍內單場透過防禦與其他效果減免的最高傷害", record: true },
       { key: "participants.max_heal", label: "單場最高治療量", fmt: int, hint: "範圍內單場最高總治療量，包含自我治療", record: true },
       { key: "participants.max_gpm", label: "單場最高每分鐘經濟", fmt: int, hint: "範圍內單場最高每分鐘獲得金錢", record: true },
@@ -3720,7 +3723,7 @@ export function Crew() {
                 <HowWeJudge>
                   <p>
                     本場貢獻：每場的輸出（對英雄傷害）、承傷（承受＋減免）、控場、治療護盾隊友，各自和同一場另外九個人比（參考量是其他九人的量依裝備職責分到他的份），
-                    依終場裝備的連續比例加權（不分固定定位；只有射手英雄依 AD 裝比例另加最多約 2.5 分，補控場少、站後排的落差），權重低的工作做到超過參考量另有加分，清兵、推塔另有最多 6 分；最後扣掉「同樣裝備組成的平均」再換成 0～100（係數定版時寫死，射手、坦克、輔助的平均都接近 50），50 是所有人的平均。
+                    依終場裝備的連續比例加權（不分固定定位；只有射手英雄依 AD 裝比例另加最多約 2.5 分，補控場少、站後排的落差），這場實際打出來的最好表現也算（把自己當成輸出位、承傷位、保人位各算一次，取最高的打九折，和裝備的版本取高：全防禦裝卻打出全場最高輸出的坦克會拿到高分），權重低的工作做到超過參考量另有加分，清兵、推塔另有最多 6 分；最後扣掉「同樣裝備組成的平均」再換成 0～100（係數定版時寫死，射手、坦克、輔助的平均都接近 50），50 是所有人的平均。
                     不用擊殺、金錢、勝負計算，死亡也不扣分；全隊都做得多可以全隊都高。這是「這場做了多少工作」，不是操作實力：同樣的數字在不同陣容下會不同分，跨場平均只是描述。
                     沒有賽後統計的場次（治療護盾隊友的量改用含自補的治療量）是暫估，也算進平均。
                   </p>
