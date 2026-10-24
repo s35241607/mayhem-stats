@@ -68,7 +68,9 @@ for (pl, gid), ps in games.items():
         p["_o"] = p["dmg_to_objectives"] / m
         p["_t"] = (p["dmg_taken"] + p["dmg_mitigated"]) / m
         p["_c"] = p["time_ccing_others"] / m
-        p["_k"] = (p["kills"] + p["assists"]) / m
+        # 參團率（v3.1）：擊殺＋助攻 ÷ 我方擊殺；我方 0 殺時是 0
+        team_kills = sum(q["kills"] for q in ps if q["team_id"] == p["team_id"])
+        p["_k"] = (p["kills"] + p["assists"]) / team_kills if team_kills else 0.0
         p["_death"] = p["deaths"] / m
         if has_eog:
             h, s = eog[(gid, p["puuid"])]

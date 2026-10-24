@@ -2,20 +2,22 @@ cubes:
   # 本場貢獻（work_score）：全站唯一的分數。計分板大數字、對局卡片、MVP／ACE、英雄頁、好友比較頁（含「打法」）都用它。
   # 規格與實測依據見 docs/contribution-scoring.md；基因的實測與組合比較在 analysis/scoring_v3_genes.py。
   #
-  # 規則版本 v3.0（2026-10-24）。改下面任何一個常數、權重或公式，都要把 score_version 往上升，並重跑
+  # 規則版本 v3.1（2026-10-24）。改下面任何一個常數、權重或公式，都要把 score_version 往上升，並重跑
   # analysis/scoring_v3_fit.py（重新產生校正常數）與 analysis/scoring_v3_check.py（獨立 Python 逐筆比對）。
   #   v3.0 取代 v2.3（contribution_v2.yml）與更早的 perf／score。使用者 2026-10-24 的要求：計分方式統一，
   #   拆成「基因」逐項算；不要再依定位挑項目（v2 依裝備決定哪幾項算分，全防禦裝卻打出全場最高輸出的坦克只拿 27 分），
   #   坦克輸出高就該高分；承傷要含自身減免；K/DA、功能裝也要算。
+  #   v3.0 → v3.1：K/DA 的「擊殺參與」從每分鐘擊殺＋助攻改成參團率（擊殺＋助攻 ÷ 我方擊殺）。回放：和勝負的相關 0.265 → 0.227（比較不像在算誰贏）、
+  #   個人 η² 0.118 → 0.124（更分得出人）；依據見 analysis/scoring-v3-review-2026-10-24.md。校正常數一併重新產生。
   #
   # 1. 計分範圍：queue 2400、非重開、≥ 360 秒、雙方各 5 人。其他場次留一列但分數是空值，unscored_reason 寫原因。
   # 2. 八個基因，每分鐘的量（本場十人時長相同）：
   #      D 對英雄輸出、W 對小兵傷害（總輸出 − 對英雄 − 對建築；大亂鬥沒有野怪）、O 對建築傷害、
   #      T 承傷（承受＋自身減免）、C 控場（time_ccing_others）、H 治療＋護盾隊友、
   #      A 功能裝：終場帶重創裝擋掉的敵方治療（敵方全隊每分鐘治療 × 40% ÷ 我方帶重創的人數）＋帶破盾裝擋掉的敵方護盾（同算法，只有賽後統計有護盾量），
-  #      KDA：擊殺參與（K＋A）與存活（死亡少）各半。
+  #      KDA：參團率（擊殺＋助攻 ÷ 我方擊殺，我方 0 殺時是 0）與存活（死亡少）各半。
   # 3. 每個基因先和同一場的人比，換成 0～100（rel_*）：
-  #      D、W、O、T、C、K：P = 100 × x ÷ (x + E)，E＝其他九人的平均；等於平均是 50、兩倍約 67。x = 0 → 0；其他九人都是 0 → 100。
+  #      D、W、O、T、C、參團率：P = 100 × x ÷ (x + E)，E＝其他九人的平均；等於平均是 50、兩倍約 67。x = 0 → 0；其他九人都是 0 → 100。
   #      存活：P = 100 × E ÷ (死亡 + E)（死得比別人少就高），沒死 → 100。KDA＝(P_K + P_存活) ÷ 2。
   #      H、A：同場常只有一兩個人有量，相對分會變成「量多量少同分」，改成固定換算 100 × x ÷ (x + K)：
   #        H 有賽後統計（十人都有）K＝1250，沒有的場次退回含自補的治療量（units_healed ≥ 2 的人才算）K＝1100，標暫估；A 的 K＝630（帶功能裝的人的中位數）。
@@ -27,7 +29,7 @@ cubes:
   #      work_score = 50 + 20 × raw ÷ SD（夾在 0～100）。pts_* 是每個基因讓總分加減幾分（20 × 權重 × z ÷ SD），加起來＝總分 − 50（夾之前）。
   #      權重怎麼定的見 docs/contribution-scoring.md：隊伍層級「兩隊差距 → 勝負」的迴歸會把 78% 給推塔（拆塔就是贏，是結果），不能直接用；
   #      所以輸出、承傷、治療、控場這些「工作」占大部分，K/DA 與推塔這種和勝負綁很緊的只給一點，功能裝看不出讓勝率變高、給最少。
-  # 6. 校正常數（各出裝定位的平均、各基因的標準差、總分的 SD）是 v3.0 定版時（2026-10-24，850 場）算出來寫死的：
+  # 6. 校正常數（各出裝定位的平均、各基因的標準差、總分的 SD）是 v3.1 定版時（2026-10-24，852 場）算出來寫死的：
   #      之後新增對局不會改舊分。所以 50 是「定版當時、同出裝定位的人的平均」，不是同英雄的中位數。
   #
   # 限制（畫面與說明要講清楚）：這是本場相對工作量，不是操作實力；同樣的數值在不同陣容下會不同分；承傷分不出有效開戰與無效吃傷；
@@ -59,7 +61,7 @@ cubes:
               mp.dmg_to_objectives * 60.0 / m.game_duration AS x_o,
               (mp.dmg_taken + mp.dmg_mitigated) * 60.0 / m.game_duration AS x_t,
               mp.time_ccing_others * 60.0 / m.game_duration AS x_c,
-              (mp.kills + mp.assists) * 60.0 / m.game_duration AS x_k,
+              mp.kills, mp.assists,
               mp.deaths * 60.0 / m.game_duration AS x_death,
               mp.total_heal * 60.0 / m.game_duration AS heal_all,
               (e.heal_on_teammates + e.shield_on_teammates) * 60.0 / m.game_duration AS h_eog,
@@ -79,7 +81,7 @@ cubes:
                    WHEN is_remake = 1 OR game_duration < 360 THEN 'remake_or_short_game'
                    WHEN COUNT(*) OVER g <> 10 OR SUM(team_id = 100) OVER g <> 5 THEN 'incomplete_5v5'
                    WHEN COUNT(x_d) OVER g < 10 OR COUNT(x_t) OVER g < 10 OR COUNT(x_c) OVER g < 10 OR COUNT(x_w) OVER g < 10
-                     OR COUNT(x_o) OVER g < 10 OR COUNT(x_k) OVER g < 10 OR COUNT(x_death) OVER g < 10 OR COUNT(heal_all) OVER g < 10 THEN 'missing_main_axis'
+                     OR COUNT(x_o) OVER g < 10 OR COUNT(kills) OVER g < 10 OR COUNT(assists) OVER g < 10 OR COUNT(x_death) OVER g < 10 OR COUNT(heal_all) OVER g < 10 THEN 'missing_main_axis'
               END AS unscored_reason,
               -- 本場十人都有賽後統計才用 eog，否則整場退回 flag（不混用：缺的人不能當 0）
               CASE WHEN COUNT(h_eog) OVER g = 10 THEN 'eog' WHEN COUNT(h_flag) OVER g = 10 THEN 'flag' END AS heal_src
@@ -92,7 +94,9 @@ cubes:
               -- 敵方＝整場減掉我方
               SUM(heal_all) OVER g - SUM(heal_all) OVER t AS foe_heal,
               CASE WHEN heal_src = 'eog' THEN SUM(shield_eog) OVER g - SUM(shield_eog) OVER t ELSE 0.0 END AS foe_shield,
-              SUM(anti_heal_item) OVER t AS team_anti_heal, SUM(anti_shield_item) OVER t AS team_anti_shield
+              SUM(anti_heal_item) OVER t AS team_anti_heal, SUM(anti_shield_item) OVER t AS team_anti_shield,
+              -- 參團率：擊殺＋助攻 ÷ 我方擊殺
+              CASE WHEN SUM(kills) OVER t = 0 THEN 0.0 ELSE (kills + assists) * 1.0 / SUM(kills) OVER t END AS x_kp
             FROM gate
             WHERE unscored_reason IS NULL AND heal_src IS NOT NULL
             WINDOW g AS (PARTITION BY platform_id, game_id), t AS (PARTITION BY platform_id, game_id, team_id)
@@ -103,7 +107,7 @@ cubes:
               CASE WHEN anti_heal_item = 1 THEN 0.4 * foe_heal / team_anti_heal ELSE 0.0 END
                 + CASE WHEN anti_shield_item = 1 THEN 0.4 * foe_shield / team_anti_shield ELSE 0.0 END AS x_a,
               (SUM(x_d) OVER g - x_d) / 9.0 AS e_d, (SUM(x_w) OVER g - x_w) / 9.0 AS e_w, (SUM(x_o) OVER g - x_o) / 9.0 AS e_o,
-              (SUM(x_t) OVER g - x_t) / 9.0 AS e_t, (SUM(x_c) OVER g - x_c) / 9.0 AS e_c, (SUM(x_k) OVER g - x_k) / 9.0 AS e_k,
+              (SUM(x_t) OVER g - x_t) / 9.0 AS e_t, (SUM(x_c) OVER g - x_c) / 9.0 AS e_c, (SUM(x_kp) OVER g - x_kp) / 9.0 AS e_k,
               (SUM(x_death) OVER g - x_death) / 9.0 AS e_death
             FROM team
             WINDOW g AS (PARTITION BY platform_id, game_id)
@@ -115,25 +119,25 @@ cubes:
               CASE WHEN x_o = 0 THEN 0.0 WHEN e_o = 0 THEN 100.0 ELSE 100.0 * x_o / (x_o + e_o) END AS p_o,
               CASE WHEN x_t = 0 THEN 0.0 WHEN e_t = 0 THEN 100.0 ELSE 100.0 * x_t / (x_t + e_t) END AS p_t,
               CASE WHEN x_c = 0 THEN 0.0 WHEN e_c = 0 THEN 100.0 ELSE 100.0 * x_c / (x_c + e_c) END AS p_c,
-              CASE WHEN x_k = 0 THEN 0.0 WHEN e_k = 0 THEN 100.0 ELSE 100.0 * x_k / (x_k + e_k) END AS p_k,
+              CASE WHEN x_kp = 0 THEN 0.0 WHEN e_k = 0 THEN 100.0 ELSE 100.0 * x_kp / (x_kp + e_k) END AS p_k,
               CASE WHEN x_death = 0 THEN 100.0 WHEN e_death = 0 THEN 0.0 ELSE 100.0 * e_death / (x_death + e_death) END AS p_s,
               100.0 * x_h / (x_h + CASE heal_src WHEN 'eog' THEN 1250.0 ELSE 1100.0 END) AS p_h,
               100.0 * x_a / (x_a + 630.0) AS p_a
             FROM genes
           ),
           calib(build_role, mu_d, mu_w, mu_o, mu_t, mu_c, mu_h_eog, mu_h_flag, mu_a, mu_kda) AS (
-            -- 校正常數開始（analysis/scoring_v3_fit.py 產生，v3.0 定版時 2026-10-24 的資料；寫死，新增對局不會改舊分）
+            -- 校正常數開始（analysis/scoring_v3_fit.py 產生，v3.1 定版時 2026-10-24 的資料；寫死，新增對局不會改舊分）
             VALUES
-              ('射手', 52.137, 57.391, 50.599, 36.853, 26.620, 1.764, 4.199, 8.453, 49.841),
-              ('法師', 49.933, 48.802, 37.201, 38.194, 51.313, 2.657, 3.243, 9.185, 51.262),
-              ('刺客', 51.152, 43.089, 38.550, 45.469, 32.988, 0.695, 2.244, 5.763, 48.547),
-              ('鬥士', 49.238, 48.571, 39.317, 52.710, 44.060, 1.596, 1.741, 9.573, 48.616),
-              ('坦克', 41.537, 33.245, 26.838, 66.964, 57.356, 4.967, 4.449, 18.666, 50.312),
-              ('輔助', 25.956, 20.446, 27.625, 35.436, 51.618, 45.452, 46.607, 5.043, 57.578),
-              ('未成形', 48.240, 46.341, 38.410, 46.572, 43.872, 3.903, 4.507, 10.026, 50.109)
+              ('射手', 52.138, 57.383, 50.593, 36.869, 26.621, 1.764, 4.216, 8.431, 49.992),
+              ('法師', 49.920, 48.811, 37.241, 38.201, 51.316, 2.657, 3.263, 9.182, 51.297),
+              ('刺客', 51.164, 43.078, 38.532, 45.461, 33.036, 0.695, 2.230, 5.792, 48.805),
+              ('鬥士', 49.244, 48.574, 39.322, 52.717, 44.067, 1.596, 1.740, 9.569, 48.939),
+              ('坦克', 41.528, 33.254, 26.851, 66.965, 57.365, 4.967, 4.435, 18.622, 50.543),
+              ('輔助', 25.956, 20.446, 27.625, 35.436, 51.618, 45.452, 46.607, 5.043, 57.089),
+              ('未成形', 48.241, 46.344, 38.421, 46.574, 43.878, 3.903, 4.508, 10.016, 50.274)
           ),
           sd(sd_d, sd_w, sd_o, sd_t, sd_c, sd_h_eog, sd_h_flag, sd_a, sd_kda, sd_work) AS (
-            VALUES (9.295, 12.793, 25.552, 9.136, 17.758, 17.493, 18.201, 20.601, 5.714, 0.4430)
+            VALUES (9.292, 12.789, 25.541, 9.135, 17.749, 17.493, 18.190, 20.597, 4.477, 0.4410)
             -- 校正常數結束
           ),
           z AS (
@@ -155,7 +159,7 @@ cubes:
               0.25 * z_d + 0.20 * z_t + 0.13 * z_h + 0.12 * z_c + 0.12 * z_kda + 0.08 * z_o + 0.06 * z_w + 0.04 * z_a AS work_raw
             FROM z
           )
-          SELECT g.participant_rowid, 'v3.0' AS score_version,
+          SELECT g.participant_rowid, 'v3.1' AS score_version,
             CASE WHEN g.unscored_reason IS NOT NULL OR g.heal_src IS NULL THEN 'unscored'
                  WHEN t.heal_src = 'eog' THEN 'complete' ELSE 'estimate' END AS score_status,
             COALESCE(g.unscored_reason, CASE WHEN g.heal_src IS NULL THEN 'missing_heal_data' END) AS unscored_reason,
@@ -173,7 +177,7 @@ cubes:
             ROUND(20.0 * 0.04 * t.z_a / t.sd_work, 9) AS pts_a, ROUND(20.0 * 0.12 * t.z_kda / t.sd_work, 9) AS pts_kda,
             -- 和同一場的人比（第 3 步）
             t.p_d, t.p_w, t.p_o, t.p_t, t.p_c, t.p_h, t.p_a, t.p_k, t.p_s, t.p_kda,
-            t.x_d, t.x_w, t.x_o, t.x_t, t.x_c, t.x_h, t.x_a, t.x_k, t.x_death, t.foe_heal, t.foe_shield,
+            t.x_d, t.x_w, t.x_o, t.x_t, t.x_c, t.x_h, t.x_a, t.x_kp, t.x_death, t.foe_heal, t.foe_shield,
             g.anti_heal_item, g.anti_shield_item
           FROM gate g LEFT JOIN total t ON t.participant_rowid = g.participant_rowid
 
@@ -205,7 +209,7 @@ cubes:
 
       - name: score_version
         title: 貢獻規則版本
-        description: "本場貢獻的規則版本（例如 v3.0）。跨場比較或聚合時要同版本。"
+        description: "本場貢獻的規則版本（例如 v3.1）。跨場比較或聚合時要同版本。"
         sql: score_version
         type: string
         meta:
@@ -280,7 +284,7 @@ cubes:
 
       - name: gene_kda
         title: 基因・K/DA
-        description: "擊殺參與（每分鐘擊殺＋助攻）與存活（每分鐘死亡越少越好）各半，比法同輸出。有一半是結果（贏的隊殺得多），所以只占總分 12%。"
+        description: "參團率（擊殺＋助攻 ÷ 我方擊殺）與存活（每分鐘死亡越少越好）各半，比法同輸出。死亡有一半是結果（輸的隊死得多），所以只占總分 12%。"
         sql: gene_kda
         type: avg
         meta:
@@ -422,7 +426,7 @@ cubes:
 
       - name: rel_kda
         title: 同場比・K/DA
-        description: "擊殺參與與存活（死得少）各自和同一場另外九人的平均比，再平均（同輸出）。"
+        description: "參團率與存活（死得少）各自和同一場另外九人的平均比，再平均（同輸出）。"
         sql: p_kda
         type: avg
         meta:

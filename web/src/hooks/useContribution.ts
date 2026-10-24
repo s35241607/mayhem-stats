@@ -19,7 +19,7 @@ export const WORK_PARTS = [
   { key: "contribution.gene_soak", pts: "contribution.pts_soak", label: "承傷", weight: 20, hint: "每分鐘承受＋自身減免的傷害（護甲、魔抗、護盾擋下的都算）；分不出有效開戰或無效吃傷" },
   { key: "contribution.gene_heal", pts: "contribution.pts_heal", label: "治療護盾", weight: 13, hint: "每分鐘治療＋護盾隊友；沒有賽後統計的場次改用含自補的治療量，是暫估" },
   { key: "contribution.gene_cc", pts: "contribution.pts_cc", label: "控場", weight: 12, hint: "每分鐘控制敵人的時間" },
-  { key: "contribution.gene_kda", pts: "contribution.pts_kda", label: "K/DA", weight: 12, hint: "擊殺參與（擊殺＋助攻）與存活（死得少）各半；有一半是結果，所以權重不高" },
+  { key: "contribution.gene_kda", pts: "contribution.pts_kda", label: "K/DA", weight: 12, hint: "參團率（擊殺＋助攻 ÷ 我方擊殺）與存活（死得少）各半；死亡有一半是結果，所以權重不高" },
   { key: "contribution.gene_obj", pts: "contribution.pts_obj", label: "推塔", weight: 8, hint: "每分鐘對建築的傷害；和勝負綁得最緊（拆塔就是贏），所以權重不高" },
   { key: "contribution.gene_wave", pts: "contribution.pts_wave", label: "清兵", weight: 6, hint: "每分鐘對小兵的傷害" },
   { key: "contribution.gene_anti", pts: "contribution.pts_anti", label: "功能裝", weight: 4, hint: "終場帶重創／破盾裝，估計擋掉的敵方治療與護盾；只看有沒有帶，不知道實際命中多少" },

@@ -154,6 +154,18 @@ class ContributionTests(unittest.TestCase):
         self.assertEqual(self.at(res, 1, 4)["x_a"], 0.0)
         self.assertGreater(self.at(res, 1, 3)["gene_a"], self.at(res, 1, 4)["gene_a"])
 
+    def test_kda_uses_kill_participation(self):
+        """v3.1：參團率＝擊殺＋助攻 ÷ 我方擊殺，所以全隊一起多殺時參團率不變、同一場的相對分數也不變"""
+        self.fx.game(1)
+        self.fx.game(2, over={i: {"kills": 6, "assists": 10} for i in range(1, 6)})
+        a, b = self.at(self.fx.result(), 1, 3), self.at(self.fx.result(), 2, 3)
+        self.assertAlmostEqual(a["x_kp"], (3 + 5) / 15)
+        self.assertAlmostEqual(b["x_kp"], (6 + 10) / 30)
+        self.assertAlmostEqual(a["p_k"], 50.0)
+        # 我方 0 殺：參團率是 0
+        self.fx.game(3, over={i: {"kills": 0, "assists": 0} for i in range(1, 6)})
+        self.assertEqual(self.at(self.fx.result(), 3, 3)["x_kp"], 0.0)
+
     def test_unscored_games(self):
         self.fx.game(1, minutes=5)
         self.fx.game(2, players=9)
