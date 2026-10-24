@@ -1,6 +1,6 @@
 import { Fragment, createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react"
 import { ArrowRight, Swords, HandHeart, Bomb, Crosshair, Castle, Orbit, Rocket, Axe, ShieldHalf, Sword, Target, Droplets, Hourglass, Gem, ChevronsUp, Lock, LoaderCircle, BookOpen, Check, ChevronDown, ChevronRight, ChevronsUpDown, Crown, Flame, Hammer, HeartHandshake, Infinity as InfinityIcon, Medal, Search, Shield, Handshake, Snowflake, Sparkles, Star, Trophy, Zap, Users, Skull, Award, Mountain, Heart, Moon, type LucideIcon } from "lucide-react"
-import { RecordCell } from "@/components/cells"
+import { RecordCell, StatCell } from "@/components/cells"
 import { ContribBars, ContribScore } from "@/components/Contribution"
 import { WORK, WORK_GAMES, WORK_GAP, WORK_MEASURES, WORK_PARTS } from "@/hooks/useContribution"
 import { Badge } from "@/components/ui/badge"
@@ -2611,6 +2611,37 @@ type LookupKind = {
   iconKey: string
 }
 
+/** 選了一個東西之後，每個人用它的細項（只查選中的那一個，切到這個分頁才查） */
+const LOOKUP_MEASURES = [
+  "participants.games",
+  "participants.kda",
+  "participants.avg_kills",
+  "participants.avg_deaths",
+  "participants.avg_assists",
+  "participants.dpm",
+  "participants.damage_share",
+  "participants.soak_per_min",
+  "participants.kill_participation",
+  "participants.mvp_games",
+  "participants.ace_games",
+  ...WORK_PARTS.map((c) => c.key),
+]
+const LOOKUP_GRID = "grid-cols-[minmax(9rem,1fr)_3.5rem_minmax(8rem,13rem)_4rem_3rem_5.5rem_5.5rem_4.5rem_3.5rem_3.5rem_minmax(7rem,9rem)]"
+
+/** 這幾場最突出與最弱的基因（50＝同出裝定位的平均）；差不到 WORK_GAP 的不算 */
+function geneExtremes(r: CubeRow | undefined) {
+  const genes = WORK_PARTS.flatMap((c) => {
+    const v = opt(r, c.key)
+    return v === null ? [] : [{ label: c.label as string, v }]
+  })
+  const best = genes.reduce<{ label: string; v: number } | null>((a, g) => (!a || g.v > a.v ? g : a), null)
+  const worst = genes.reduce<{ label: string; v: number } | null>((a, g) => (!a || g.v < a.v ? g : a), null)
+  return {
+    best: best && best.v >= 50 + WORK_GAP ? best : null,
+    worst: worst && worst.v <= 50 - WORK_GAP ? worst : null,
+  }
+}
+
 /** 選一個東西（一隻英雄、一個增幅），看這群人各自用它的戰績；點一列開抽屜看他用它的每一場。 */
 function LookupPanel({
   kind,
@@ -2621,6 +2652,7 @@ function LookupPanel({
   wrOf,
   active,
   onOpen,
+  detail,
 }: {
   kind: LookupKind
   rows: CubeRow[]
@@ -2631,6 +2663,8 @@ function LookupPanel({
   /** 抽屜開著的那一格，原頁面亮著它 */
   active: { puuid: string; key: string } | null
   onOpen: (games: GamesFocus) => void
+  /** 選中的東西的細項查詢（每人一列）；套用全域條件的 q() 由頁面給 */
+  detail: (query: CubeQuery) => CubeQuery | null
 }) {
   const [picked, setPicked] = useState<string | null>(null)
 
@@ -2649,6 +2683,11 @@ function LookupPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, puuids.join(), kind])
   const value = picked && options.some((o) => o.name === picked) ? picked : (options[0]?.name ?? null)
+  const details = useCube(
+    value
+      ? detail({ measures: LOOKUP_MEASURES, dimensions: ["participants.puuid"], filters: [{ member: kind.nameKey, operator: "equals", values: [value] }], limit: NO_LIMIT })
+      : null,
+  )
 
   const byPlayer = people
     .map((p) => {
@@ -2666,6 +2705,7 @@ function LookupPanel({
         base,
         delta: games && base !== null ? shrunk(games, wr, base) - base : null,
         perf: games ? dev(r) : null,
+        d: details.rows.find((x) => x["participants.puuid"] === p.puuid),
       }
     })
     .sort((a, b) => b.games - a.games || (b.winrate ?? 0) - (a.winrate ?? 0))
@@ -2688,19 +2728,28 @@ function LookupPanel({
       ) : !value ? (
         <EmptyState>這群人還沒有對局。</EmptyState>
       ) : (
-        <div className="space-y-1">
-          <div className="grid grid-cols-[minmax(0,1fr)_3.5rem_minmax(8rem,14rem)_4.5rem_4.5rem] gap-3 px-2 text-[11px] text-muted-foreground">
+        <div className="overflow-x-auto">
+        <div className="min-w-[1100px] space-y-1">
+          <div className={cn("grid gap-3 px-2 text-[11px] text-muted-foreground", LOOKUP_GRID)}>
             <span>玩家</span>
             <span>場次</span>
             <span>戰績</span>
             <span className="text-right">勝率</span>
             <span className="text-right">貢獻</span>
+            <span className="text-right" data-tip="平均擊殺／死亡／助攻，KDA＝（擊殺＋助攻）÷ 死亡">KDA</span>
+            <span className="text-right" data-tip="每分鐘對英雄傷害；下面是占我方五人傷害的比例">輸出</span>
+            <span className="text-right" data-tip="每分鐘承受＋自身減免的傷害">承傷</span>
+            <span className="text-right" data-tip="（擊殺＋助攻）÷ 我方擊殺">參團</span>
+            <span className="text-right" data-tip="贏的一隊本場貢獻最高是 MVP、輸的一隊是 ACE">MVP</span>
+            <span data-tip="本場貢獻八個基因裡最突出與最弱的一項（50＝同出裝定位的平均，差 4 分以上才列）">強項／弱項</span>
           </div>
           {byPlayer.map((r, i) => {
             const cellKey = `${kind.nameKey}=${value}`
             const isActive = active?.puuid === r.player.puuid && active.key === cellKey
             const name = splitId(r.player.riot_id, r.player.puuid).name
-            const rowClass = "slide-in grid grid-cols-[minmax(0,1fr)_3.5rem_minmax(8rem,14rem)_4.5rem_4.5rem] items-center gap-3 rounded-md px-2 py-1.5"
+            const rowClass = cn("slide-in grid items-center gap-3 rounded-md px-2 py-1.5", LOOKUP_GRID)
+            const ex = geneExtremes(r.d)
+            const right = "flex justify-end text-right"
             const style = { "--stagger": `${i * 35}ms` } as CSSProperties
             const cells = (
               <>
@@ -2723,6 +2772,34 @@ function LookupPanel({
                   {r.delta === null ? "" : `${signed(r.delta)}pp`}
                 </span>
                 <span className="text-right text-[12px]">{r.perf === null ? "" : <ContribScore dev={r.perf} gap={WORK_GAP} />}</span>
+                {r.games && r.d ? (
+                  <>
+                    <span className={right}>
+                      <StatCell
+                        main={opt(r.d, "participants.kda")?.toFixed(2) ?? "—"}
+                        sub={`${n0(r.d, "participants.avg_kills").toFixed(1)}/${n0(r.d, "participants.avg_deaths").toFixed(1)}/${n0(r.d, "participants.avg_assists").toFixed(1)}`}
+                      />
+                    </span>
+                    <span className={right}>
+                      <StatCell main={round0(n0(r.d, "participants.dpm")).toLocaleString()} sub={`佔隊 ${n0(r.d, "participants.damage_share").toFixed(0)}%`} />
+                    </span>
+                    <span className={right}>
+                      <StatCell main={round0(n0(r.d, "participants.soak_per_min")).toLocaleString()} sub="每分鐘" />
+                    </span>
+                    <span className="text-right font-mono text-[12px] tabular-nums">{n0(r.d, "participants.kill_participation").toFixed(0)}%</span>
+                    <span className={right}>
+                      <StatCell main={n0(r.d, "participants.mvp_games")} sub={`ACE ${n0(r.d, "participants.ace_games")}`} />
+                    </span>
+                    <span className="flex min-w-0 flex-col text-[11px] leading-tight">
+                      <span className={ex.best ? "text-win" : "text-muted-foreground"}>{ex.best ? `${ex.best.label} ${Math.round(ex.best.v)}` : "沒有特別突出"}</span>
+                      {ex.worst && <span className="text-loss">{`${ex.worst.label} ${Math.round(ex.worst.v)}`}</span>}
+                    </span>
+                  </>
+                ) : r.games && details.loading ? (
+                  <span className="col-span-6 text-[11px] text-muted-foreground">載入細項…</span>
+                ) : (
+                  <span className="col-span-6" />
+                )}
               </>
             )
             // 沒用過的人沒有東西可看，維持一般的列
@@ -2755,6 +2832,7 @@ function LookupPanel({
             )
           })}
         </div>
+        </div>
       )}
     </Panel>
   )
@@ -2764,7 +2842,7 @@ const CHAMPION_LOOKUP: LookupKind = {
   title: "查英雄",
   short: "選一隻英雄，看每個人玩它的戰績",
   caption:
-    "選一隻英雄，看每個人玩它的戰績；點一列開抽屜看他玩這隻英雄的每一場。「勝率」是和他自己整體勝率的差距（依場次收縮後），戰績條的刻度也是他自己的整體勝率；「貢獻」是這幾場的本場貢獻平均（50＝所有人的平均）",
+    "選一隻英雄，看每個人玩它的戰績；點一列開抽屜看他玩這隻英雄的每一場。「勝率」是和他自己整體勝率的差距（依場次收縮後），戰績條的刻度也是他自己的整體勝率；「貢獻」是這幾場的本場貢獻平均（50＝同出裝定位的平均）。右邊是這幾場的平均：KDA（下面是平均擊殺／死亡／助攻）、每分鐘輸出（下面是傷害占隊伍的比例）、每分鐘承傷（承受＋減免）、參團率、MVP 與 ACE 次數，以及本場貢獻八個基因裡最突出（綠）與最弱（紅）的一項",
   noun: "英雄",
   counter: "隻",
   verb: "玩",
@@ -3798,6 +3876,7 @@ export function Crew() {
             wrOf={wrOf}
             active={focusCell}
             onOpen={openGames}
+            detail={q}
           />
         </TabsContent>
         <TabsContent value="augment">
@@ -3810,6 +3889,7 @@ export function Crew() {
             wrOf={wrOf}
             active={focusCell}
             onOpen={openGames}
+            detail={q}
           />
         </TabsContent>
         <TabsContent value="badges">
