@@ -1042,18 +1042,37 @@ const styleLine = (s: PlayStyle) => {
   return top.length ? `${s.position}・${top.join('、')}` : s.position
 }
 
-// ── 稱號：比較對象裡某一項數據第一名的人，以及每個人自己達到的里程碑 ─────────────────────
-// 稱號是「這群朋友之間」的第一名：比的是目前畫面上的比較對象（拿掉誰、篩選照套），所以換了篩選可能換人。
-// 值全部來自語意層（participants 的指標，和數據總表同一份定義），這裡只決定「誰最多」。同分的都拿。
-// 場次不到 TITLE_MIN_GAMES 的人不參加；要賽後統計的兩項（守護天使、不死之身）另外要求那種場次至少 TITLE_MIN_EOG 場；
-// 合格的人不到 2 位就不頒——一個人自己跟自己比沒有意義。
+// ── 稱號：累積到門檻就有 ─────────────────────────────────────────────────────
+// 每個稱號有一條固定的門檻（下面的 T），誰達標誰拿，不跟別人比：一個人可以同時有好幾個，也可能一個都沒有；
+// 換篩選只會因為數字變了而得失，不會因為「別人比較強」。值全部來自語意層（participants 的指標，和數據總表同一份定義）。
+// 門檻是看 2026-10-24 好友 9 人（場次 ≥ 20 的）的實際分布訂的整數：每個稱號大約 1～3 位達標，要改直接改 T。
+// 場次不到 TITLE_MIN_GAMES 的人不參加（比率太不準）；要賽後統計的兩項（守護天使、不死之身）另外要求那種場次至少 TITLE_MIN_EOG 場。
 
 const TITLE_MIN_GAMES = 20
 const TITLE_MIN_EOG = 10
 /** 逆風支柱：敗場（有本場貢獻的）至少這麼多場 */
 const TITLE_MIN_LOSSES = 10
-/** 夜貓子：0～5 點開打的場次至少占這麼多 %（不然人人都能是「最常熬夜」的那個） */
-const NIGHT_MIN_SHARE = 10
+/** 各稱號的門檻（達標＝拿到）。改了要把 hint 的字一起看一下；hint 是用這裡的數字組出來的，不會不同步 */
+const T = {
+  pentas: 5, // 次
+  dpm: 2200, // 每分鐘對英雄傷害
+  soak: 5300, // 每分鐘承受＋減免
+  cc: 2.1, // 每分鐘控場秒數
+  obj: 130, // 每分鐘對建築與中立目標傷害
+  heal: 80, // 每分鐘治療＋護盾隊友
+  mvp: 14, // MVP 率 %
+  ace: 12, // ACE 率 %
+  dead: 25, // 死亡時間占全場 %（越低越好）
+  fb: 12, // 首殺率 %
+  kp: 70, // 參團率 %
+  multi: 72, // 多殺場次 %
+  loss: 48, // 敗場平均本場貢獻
+  top: 20, // 最常玩的那隻英雄的場次
+  night: 20, // 0～5 點開打的場次占 %
+  champs: 90, // 玩過的英雄數
+  duoWr: 55, // 最佳拍檔：同隊勝率 %
+} as const
+
 /** 里程碑：場次的門檻，由高到低找第一個達到的 */
 const GAME_MILESTONES = [
   { games: 500, name: "五百場老將" },
@@ -1096,9 +1115,11 @@ type TitleDef = {
   name: string
   icon: LucideIcon
   tier: TitleTier
-  /** 滑過時的說明：比的是什麼 */
+  /** 滑過時的說明：要達到什麼 */
   hint: string
   value: (r: CubeRow) => number | null
+  /** 門檻；lower 的是「不超過」，其餘是「至少」 */
+  threshold: number
   fmt: (v: number) => string
   /** 除了場次以外的參加條件（例如要有賽後統計） */
   eligible?: (r: CubeRow) => boolean
@@ -1107,13 +1128,14 @@ type TitleDef = {
 }
 
 const TITLES: TitleDef[] = [
-  { name: "五殺之王", icon: Crown, tier: "legend", hint: "五殺次數最多", value: (r) => n0(r, "participants.pentas") || null, fmt: (v) => `${v} 次五殺` },
-  { name: "輸出擔當", icon: Flame, tier: "gold", hint: "每分鐘對英雄傷害最高", value: (r) => opt(r, "participants.dpm"), fmt: (v) => `每分鐘 ${Math.round(v).toLocaleString()} 傷害` },
+  { name: "五殺之王", icon: Crown, tier: "legend", hint: `累積 ${T.pentas} 次五殺`, threshold: T.pentas, value: (r) => n0(r, "participants.pentas") || null, fmt: (v) => `${v} 次五殺` },
+  { name: "輸出擔當", icon: Flame, tier: "gold", hint: `每分鐘對英雄傷害 ${T.dpm.toLocaleString()} 以上`, threshold: T.dpm, value: (r) => opt(r, "participants.dpm"), fmt: (v) => `每分鐘 ${Math.round(v).toLocaleString()} 傷害` },
   {
     name: "鋼鐵前排",
     icon: Shield,
     tier: "gold",
-    hint: "每分鐘承受＋減免的傷害最多",
+    hint: `每分鐘承受＋減免的傷害 ${T.soak.toLocaleString()} 以上`,
+    threshold: T.soak,
     value: (r) => {
       const a = opt(r, "participants.taken_per_min")
       const b = opt(r, "participants.mitigated_per_min")
@@ -1121,13 +1143,14 @@ const TITLES: TitleDef[] = [
     },
     fmt: (v) => `每分鐘扛 ${Math.round(v).toLocaleString()}`,
   },
-  { name: "控場大師", icon: Snowflake, tier: "gold", hint: "每分鐘控制敵人的時間最長", value: (r) => opt(r, "participants.cc_time_per_min"), fmt: (v) => `每分鐘控場 ${v.toFixed(1)} 秒` },
-  { name: "拆遷大隊", icon: Hammer, tier: "gold", hint: "每分鐘對建築與中立目標的傷害最多", value: (r) => opt(r, "participants.objective_damage_per_min"), fmt: (v) => `每分鐘拆 ${Math.round(v).toLocaleString()}` },
+  { name: "控場大師", icon: Snowflake, tier: "gold", hint: `每分鐘控制敵人 ${T.cc} 秒以上`, threshold: T.cc, value: (r) => opt(r, "participants.cc_time_per_min"), fmt: (v) => `每分鐘控場 ${v.toFixed(1)} 秒` },
+  { name: "拆遷大隊", icon: Hammer, tier: "gold", hint: `每分鐘對建築與中立目標的傷害 ${T.obj} 以上`, threshold: T.obj, value: (r) => opt(r, "participants.objective_damage_per_min"), fmt: (v) => `每分鐘拆 ${Math.round(v).toLocaleString()}` },
   {
     name: "守護天使",
     icon: HeartHandshake,
     tier: "gold",
-    hint: `每分鐘治療＋護盾隊友最多（不含自補；只算有賽後統計的場次，至少 ${TITLE_MIN_EOG} 場）`,
+    hint: `每分鐘治療＋護盾隊友 ${T.heal} 以上（不含自補；只算有賽後統計的場次，至少 ${TITLE_MIN_EOG} 場）`,
+    threshold: T.heal,
     value: (r) => opt(r, "participants.ally_heal_shield_per_min"),
     eligible: (r) => n0(r, "participants.ally_heal_games") >= TITLE_MIN_EOG,
     fmt: (v) => `每分鐘補 ${Math.round(v).toLocaleString()}`,
@@ -1136,7 +1159,8 @@ const TITLES: TitleDef[] = [
     name: "MVP 常客",
     icon: Trophy,
     tier: "legend",
-    hint: "拿到 MVP（贏的一隊裡本場貢獻最高）的場次比例最高",
+    hint: `拿到 MVP（贏的一隊裡本場貢獻最高）的場次占 ${T.mvp}% 以上`,
+    threshold: T.mvp,
     value: (r) => {
       const g = n0(r, "participants.games")
       return g ? (100 * n0(r, "participants.mvp_games")) / g : null
@@ -1147,20 +1171,22 @@ const TITLES: TitleDef[] = [
     name: "不死之身",
     icon: InfinityIcon,
     tier: "gold",
-    hint: `死亡時間占全場的比例最低（只算有賽後統計的場次，至少 ${TITLE_MIN_EOG} 場）`,
+    hint: `死亡時間占全場 ${T.dead}% 以下（只算有賽後統計的場次，至少 ${TITLE_MIN_EOG} 場）`,
+    threshold: T.dead,
     value: (r) => opt(r, "participants.time_dead_share"),
     eligible: (r) => n0(r, "participants.time_dead_games") >= TITLE_MIN_EOG,
     lower: true,
     fmt: (v) => `死亡時間只占 ${v.toFixed(1)}%`,
   },
-  { name: "先馳得點", icon: Zap, tier: "gold", hint: "親自拿到首殺的場次比例最高", value: (r) => opt(r, "participants.first_blood_rate"), fmt: (v) => `首殺率 ${v.toFixed(1)}%` },
-  { name: "團戰核心", icon: Users, tier: "gold", hint: "參團率（擊殺＋助攻占全隊擊殺）最高", value: (r) => opt(r, "participants.kill_participation"), fmt: (v) => `參團率 ${v.toFixed(1)}%` },
-  { name: "多殺專家", icon: Skull, tier: "gold", hint: "拿到雙殺以上的場次比例最高", value: (r) => opt(r, "participants.multikill_rate"), fmt: (v) => `多殺場次 ${v.toFixed(1)}%` },
+  { name: "先馳得點", icon: Zap, tier: "gold", hint: `親自拿到首殺的場次占 ${T.fb}% 以上`, threshold: T.fb, value: (r) => opt(r, "participants.first_blood_rate"), fmt: (v) => `首殺率 ${v.toFixed(1)}%` },
+  { name: "團戰核心", icon: Users, tier: "gold", hint: `參團率（擊殺＋助攻占全隊擊殺）${T.kp}% 以上`, threshold: T.kp, value: (r) => opt(r, "participants.kill_participation"), fmt: (v) => `參團率 ${v.toFixed(1)}%` },
+  { name: "多殺專家", icon: Skull, tier: "gold", hint: `拿到雙殺以上的場次占 ${T.multi}% 以上`, threshold: T.multi, value: (r) => opt(r, "participants.multikill_rate"), fmt: (v) => `多殺場次 ${v.toFixed(1)}%` },
   {
     name: "逆境王牌",
     icon: Award,
     tier: "legend",
-    hint: "拿到 ACE（輸的一隊裡本場貢獻最高）的場次比例最高",
+    hint: `拿到 ACE（輸的一隊裡本場貢獻最高）的場次占 ${T.ace}% 以上`,
+    threshold: T.ace,
     value: (r) => {
       const g = n0(r, "participants.games")
       return g ? (100 * n0(r, "participants.ace_games")) / g : null
@@ -1171,47 +1197,34 @@ const TITLES: TitleDef[] = [
     name: "逆風支柱",
     icon: Mountain,
     tier: "gold",
-    hint: `輸掉的場次裡平均本場貢獻最高（至少 ${TITLE_MIN_LOSSES} 場敗場）：輸了也有扛起工作`,
+    hint: `輸掉的場次裡平均本場貢獻 ${T.loss} 以上（至少 ${TITLE_MIN_LOSSES} 場敗場）：輸了也有扛起工作`,
+    threshold: T.loss,
     value: (r) => opt(r, X_LOSS_WORK),
     eligible: (r) => n0(r, X_LOSS_GAMES) >= TITLE_MIN_LOSSES,
     fmt: (v) => `敗場平均貢獻 ${v.toFixed(1)}`,
   },
-  { name: "本命專精", icon: Heart, tier: "gold", hint: "最常玩的那隻英雄玩得最多場", value: (r) => n0(r, X_TOP_CHAMP) || null, fmt: (v) => `最常玩的英雄 ${v} 場` },
+  { name: "本命專精", icon: Heart, tier: "gold", hint: `同一隻英雄玩了 ${T.top} 場以上`, threshold: T.top, value: (r) => n0(r, X_TOP_CHAMP) || null, fmt: (v) => `最常玩的英雄 ${v} 場` },
   {
     name: "夜貓子",
     icon: Moon,
     tier: "gold",
-    hint: `0～5 點開打的場次占比最高（至少 ${NIGHT_MIN_SHARE}%）`,
+    hint: `0～5 點開打的場次占 ${T.night}% 以上`,
+    threshold: T.night,
     value: (r) => {
       const g = n0(r, "participants.games")
       return g ? (100 * n0(r, X_NIGHT_GAMES)) / g : null
     },
-    eligible: (r) => {
-      const g = n0(r, "participants.games")
-      return g > 0 && (100 * n0(r, X_NIGHT_GAMES)) / g >= NIGHT_MIN_SHARE
-    },
     fmt: (v) => `深夜場 ${v.toFixed(1)}%`,
   },
-  { name: "英雄百科", icon: BookOpen, tier: "gold", hint: "玩過的英雄最多", value: (r) => opt(r, "participants.champion_count"), fmt: (v) => `玩過 ${Math.round(v)} 隻英雄` },
+  { name: "英雄百科", icon: BookOpen, tier: "gold", hint: `玩過 ${T.champs} 隻以上的英雄`, threshold: T.champs, value: (r) => opt(r, "participants.champion_count"), fmt: (v) => `玩過 ${Math.round(v)} 隻英雄` },
 ]
 
 type Title = { name: string; kind: "title" | "milestone"; tier: TitleTier; icon: LucideIcon; tip: string }
 
-/** 一個稱號：頒給誰、多少、第二名是誰 */
-type BoardEntry = {
-  name: string
-  icon: LucideIcon
-  tier: TitleTier
-  hint: string
-  winners: { players: Player[]; text: string }
-  runnerUp: { players: Player[]; text: string } | null
-  entrants: number
-}
-
 /** 同隊的一組好友（兩人一起、同一隊）。games／wins 來自語意層的 teammates */
 type DuoPair = { a: Player; b: Player; games: number; wins: number }
 
-/** 最佳拍檔：同隊至少 DUO_TITLE_MIN 場的組合裡勝率最高的（同勝率比場次多的）。勝率在矩陣裡照樣標誤差 */
+/** 最佳拍檔：同隊至少 DUO_TITLE_MIN 場、勝率達 T.duoWr% 的組合（兩個人都拿到）。勝率在矩陣裡照樣標誤差 */
 const DUO_TITLE_MIN = 30
 /** 矩陣裡少於這個場次的格子只寫場次、不上色 */
 const DUO_MIN_GAMES = 20
@@ -1220,69 +1233,45 @@ const DUO_NEUTRAL_PP = 2
 
 const nameOf = (p: Player) => splitRiotId(p.riot_id, p.puuid).name
 
-/** 每個稱號頒給誰、多少、第二名是誰（畫面上不另外列成一張榜，只拿來替每個人掛徽章）。rows 是 TITLE_MEASURES 以 participants.puuid 分組的結果 */
-function titleBoardOf(people: Player[], rows: CubeRow[], duos: DuoPair[]): BoardEntry[] {
-  const rowOf = (puuid: string) => rows.find((r) => r["participants.puuid"] === puuid)
-  const board: BoardEntry[] = []
-  for (const t of TITLES) {
-    const entries = people
-      .map((p) => ({ p, r: rowOf(p.puuid) }))
-      .filter((e): e is { p: Player; r: CubeRow } => !!e.r && n0(e.r, "participants.games") >= TITLE_MIN_GAMES && (t.eligible?.(e.r) ?? true))
-      .map((e) => ({ p: e.p, v: t.value(e.r) }))
-      .filter((e): e is { p: Player; v: number } => e.v !== null)
-      .sort((a, b) => (t.lower ? a.v - b.v : b.v - a.v))
-    if (entries.length < 2) continue
-    const best = entries[0].v
-    const second = entries.find((e) => e.v !== best)
-    board.push({
-      name: t.name,
-      icon: t.icon,
-      tier: t.tier,
-      hint: t.hint,
-      winners: { players: entries.filter((e) => e.v === best).map((e) => e.p), text: t.fmt(best) },
-      runnerUp: second ? { players: entries.filter((e) => e.v === second.v).map((e) => e.p), text: t.fmt(second.v) } : null,
-      entrants: entries.length,
-    })
-  }
-  const eligible = duos
-    .filter((d) => d.games >= DUO_TITLE_MIN)
-    .sort((x, y) => y.wins / y.games - x.wins / x.games || y.games - x.games)
-  if (eligible.length >= 2) {
-    const [top, next] = eligible
-    const fmt = (d: DuoPair) => `同隊 ${d.games} 場・勝率 ${((100 * d.wins) / d.games).toFixed(1)}%`
-    board.push({
-      name: "最佳拍檔",
-      icon: Handshake,
-      tier: "gold",
-      hint: `同隊至少 ${DUO_TITLE_MIN} 場的組合裡，一起時勝率最高`,
-      winners: { players: [top.a, top.b], text: fmt(top) },
-      runnerUp: next ? { players: [next.a, next.b], text: fmt(next) } : null,
-      entrants: eligible.length,
-    })
-  }
-  return board
-}
-
-/** 每個人拿到的稱號與里程碑 */
-function titlesOf(people: Player[], rows: CubeRow[], board: BoardEntry[]): Map<string, Title[]> {
+/** 每個人拿到的稱號與里程碑：達標就有，不跟別人比。rows 是 TITLE_MEASURES 以 participants.puuid 分組的結果（再併上敗場貢獻等） */
+function titlesOf(people: Player[], rows: CubeRow[], duos: DuoPair[]): Map<string, Title[]> {
   const out = new Map<string, Title[]>(people.map((p) => [p.puuid, []]))
-  const names = (ps: Player[]) => ps.map(nameOf).join("＋")
-  for (const b of board) {
-    for (const w of b.winners.players) {
-      const pair = b.name === "最佳拍檔"
-      out.get(w.puuid)?.push({
-        name: b.name,
+  const rowOf = (puuid: string) => rows.find((r) => r["participants.puuid"] === puuid)
+  // 提示框用的排版標記見 lib/tip.ts：標題是稱號名，「條件」是要達到什麼，「目前」是他的數字（門檻放在下一行）
+  const m = (kind: string, text: string) => `{{${kind}|${text}}}`
+  for (const p of people) {
+    const r = rowOf(p.puuid)
+    if (!r) continue
+    const mine = out.get(p.puuid)!
+    const games = n0(r, "participants.games")
+    for (const t of TITLES) {
+      if (games < TITLE_MIN_GAMES || !(t.eligible?.(r) ?? true)) continue
+      const v = t.value(r)
+      if (v === null || (t.lower ? v > t.threshold : v < t.threshold)) continue
+      mine.push({
+        name: t.name,
         kind: "title",
-        tier: b.tier,
-        icon: b.icon,
-        tip:
-          `${b.name}：${b.hint}\n` +
-          (pair ? `和 ${names(b.winners.players.filter((x) => x.puuid !== w.puuid))}，${b.winners.text}` : `${b.winners.text}，比較的 ${b.entrants} 人裡第一`) +
-          (b.runnerUp ? `（第二是 ${names(b.runnerUp.players)}，${b.runnerUp.text}）` : ""),
+        tier: t.tier,
+        icon: t.icon,
+        tip: `${t.name}\n${m("lab", "條件")}${t.hint}\n${m("lab", "目前")}${m("big", t.fmt(v))}\n> 門檻 ${t.fmt(t.threshold)}${t.lower ? " 以下" : " 以上"}・${games} 場`,
       })
     }
   }
-  const rowOf = (puuid: string) => rows.find((r) => r["participants.puuid"] === puuid)
+  // 最佳拍檔：兩個人都有
+  for (const d of duos) {
+    if (d.games < DUO_TITLE_MIN || (100 * d.wins) / d.games < T.duoWr) continue
+    const wr = ((100 * d.wins) / d.games).toFixed(1)
+    for (const [me, other] of [[d.a, d.b], [d.b, d.a]] as const) {
+      out.get(me.puuid)?.push({
+        name: "最佳拍檔",
+        kind: "title",
+        tier: "gold",
+        icon: Handshake,
+        tip: `最佳拍檔：和 ${nameOf(other)}\n${m("lab", "條件")}同隊至少 ${DUO_TITLE_MIN} 場，一起打的勝率 ${T.duoWr}% 以上\n${m("lab", "目前")}${m("big", `${wr}%`)} ${m("win", `${d.wins} 勝`)} ${m("loss", `${d.games - d.wins} 敗`)}\n> 和 ${nameOf(other)} 同隊 ${d.games} 場`,
+      })
+    }
+  }
+  // 里程碑
   for (const p of people) {
     const r = rowOf(p.puuid)
     if (!r) continue
@@ -1291,8 +1280,8 @@ function titlesOf(people: Player[], rows: CubeRow[], board: BoardEntry[]): Map<s
     // 已經是五殺之王就不再重複寫五殺達成
     if (pentas > 0 && !mine.some((t) => t.name === "五殺之王")) mine.push({ name: "五殺達成", kind: "milestone", tier: "silver", icon: Sparkles, tip: `里程碑：拿過五殺（${pentas} 次）` })
     const games = n0(r, "participants.games")
-    const m = GAME_MILESTONES.find((x) => games >= x.games)
-    if (m) mine.push({ name: m.name, kind: "milestone", tier: "silver", icon: Medal, tip: `里程碑：大亂鬥 ${m.games} 場以上（目前 ${games} 場）` })
+    const g = GAME_MILESTONES.find((x) => games >= x.games)
+    if (g) mine.push({ name: g.name, kind: "milestone", tier: "silver", icon: Medal, tip: `里程碑：大亂鬥 ${g.games} 場以上（目前 ${games} 場）` })
   }
   return out
 }
@@ -1762,7 +1751,7 @@ function PlayerDrawerBody({
           <div className="flex flex-wrap items-center gap-2 rounded-lg border p-3">
             <span className="text-[11px] text-muted-foreground">稱號</span>
             <TitleBadges titles={titles} size="lg" />
-            <span className="text-[11px] text-muted-foreground">滑過看數字；稱號是目前比較對象之間的第一名</span>
+            <span className="text-[11px] text-muted-foreground">滑過看數字；稱號是累積到門檻就有，滑過看條件</span>
           </div>
         )}
         <StyleCard style={profile.style} scored={ov.scored} />
@@ -2850,16 +2839,11 @@ export function Crew() {
       } as CubeRow
     })
   }, [titleStats.rows, lossStats.rows, nightStats.rows, champs.rows])
-  // 稱號只在目前的比較對象之間比：拿掉一個人，第一名可能換人
-  const board = useMemo(
-    () => titleBoardOf(ordered, titleRows, duoPairs),
+  // 稱號：數字達到門檻就有，不跟別人比（門檻見 T）
+  const titles = useMemo(
+    () => titlesOf(ordered, titleRows, duoPairs),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [puuids.join(), titleRows, duoPairs],
-  )
-  const titles = useMemo(
-    () => titlesOf(ordered, titleRows, board),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [puuids.join(), titleRows, board],
   )
   // D：全員一覽的排序。預設依場次（場次多的判斷比較可信）
   const [rowSort, setRowSort] = useState<RowSort>("games")
