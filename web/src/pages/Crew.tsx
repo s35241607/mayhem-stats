@@ -1641,76 +1641,6 @@ const TIER_CLASS: Record<TitleTier, { badge: string; icon: string }> = {
 const TIER_ORDER: Record<TitleTier, number> = { legend: 0, gold: 1, silver: 2 }
 
 /** 稱號（傳說／金）與里程碑（銀）。一個都沒有就不畫。size="lg" 給抽屜用 */
-// ── 最近趨勢與穩定度 ─────────────────────────────
-// 趨勢：這段期間最後 RECENT_N 場的本場貢獻平均，和更早的場次比。差距的標準誤用單場標準差 WORK_SD：
-//   WORK_SD × √(1/最近場數 ＋ 1/更早場數)，差距超過 1.96 倍才算「看得出」（實心箭頭），否則只是起伏（淡色）。更早的場次不到 FORM_MIN_PREV 場不比。
-// 穩定度（單場分數的標準差）2026-10-25 拿掉：30～40 場時估計本身就差 ±2.3，好友 8 人裡 7 人落在「一般」，沒有分辨力。
-const RECENT_N = 10
-const FORM_MIN_PREV = 5
-/** 走勢小圖畫最近幾場 */
-const SPARK_N = 20
-
-type Form = { n: number; recent: number | null; prev: number | null; diff: number | null; clear: boolean; series: number[] }
-
-/** scores 依開打時間由舊到新 */
-function formOf(scores: number[]): Form {
-  const n = scores.length
-  const mean = (xs: number[]) => xs.reduce((a, x) => a + x, 0) / xs.length
-  const out: Form = { n, recent: null, prev: null, diff: null, clear: false, series: scores.slice(-SPARK_N) }
-  if (n >= RECENT_N + FORM_MIN_PREV) {
-    out.recent = mean(scores.slice(-RECENT_N))
-    out.prev = mean(scores.slice(0, -RECENT_N))
-    out.diff = out.recent - out.prev
-    out.clear = Math.abs(out.diff) > 1.96 * WORK_SD * Math.sqrt(1 / RECENT_N + 1 / (n - RECENT_N))
-  }
-  return out
-}
-
-/** 最近幾場的走勢：中間的橫線是 50 */
-function Sparkline({ values }: { values: number[] }) {
-  if (values.length < 2) return null
-  const w = 56
-  const h = 14
-  const pts = values.map((v, i) => `${((i / (values.length - 1)) * w).toFixed(1)},${(h - (Math.max(0, Math.min(100, v)) / 100) * h).toFixed(1)}`).join(" ")
-  return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="h-3.5 w-14 shrink-0 overflow-visible" aria-hidden>
-      <line x1={0} x2={w} y1={h / 2} y2={h / 2} className="stroke-muted-foreground/40" strokeWidth={0.75} strokeDasharray="2 2" />
-      <polyline points={pts} fill="none" className="stroke-primary" strokeWidth={1.25} strokeLinejoin="round" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-/** 全員一覽名字底下的一行：最近 10 場的平均與箭頭、走勢小圖 */
-function FormLine({ form }: { form: Form | undefined }) {
-  // 資料還沒到或場次不夠也佔同樣的高度，晚到的時候版面不會往下推
-  if (!form || form.n < RECENT_N) return <span className="mt-0.5 block h-3.5" aria-hidden />
-  const tip =
-    `{{lab|最近}}{{big|${form.recent === null ? "—" : Math.round(form.recent)}}} 最後 ${RECENT_N} 場的本場貢獻平均` +
-    (form.prev === null ? `\n> 更早的場次不到 ${FORM_MIN_PREV} 場，不比較` : `\n> 更早的 ${form.n - RECENT_N} 場平均 ${Math.round(form.prev)}；${form.clear ? "差距超過誤差範圍，看得出變化" : "差距還在單場起伏的範圍內"}`) +
-    `\n> 小圖是最近 ${Math.min(SPARK_N, form.n)} 場，虛線是 50`
-  const arrow =
-    form.diff === null ? null : (
-      <span
-        className={cn(
-          "font-mono tabular-nums",
-          Math.abs(form.diff) < WORK_GAP ? "text-muted-foreground" : form.diff > 0 ? "text-win" : "text-loss",
-          !form.clear && "opacity-70",
-        )}
-      >
-        {form.diff >= 0 ? "▲" : "▼"}
-        {Math.abs(form.diff).toFixed(0)}
-      </span>
-    )
-  return (
-    <span className="mt-0.5 flex h-3.5 items-center gap-1.5 text-[11px] text-muted-foreground" data-tip={tip} data-testid="crew-form">
-      <span>最近 {RECENT_N} 場</span>
-      <span className="font-mono font-semibold tabular-nums text-foreground">{form.recent === null ? "—" : Math.round(form.recent)}</span>
-      {arrow}
-      <Sparkline values={form.series} />
-    </span>
-  )
-}
-
 function TitleBadges({ titles, className, size = "sm" }: { titles: Title[] | undefined; className?: string; size?: "sm" | "lg" }) {
   if (!titles?.length) return null
   const sorted = [...titles].sort((a, b) => TIER_ORDER[a.tier] - TIER_ORDER[b.tier])
@@ -3500,20 +3430,6 @@ export function Crew() {
   const titleStats = useCube(lifetime({ measures: TITLE_MEASURES, dimensions: ["participants.puuid"], limit: NO_LIMIT }))
   const titleChamps = useCube(lifetime({ measures: ["participants.games"], dimensions: ["participants.puuid", "champions.name"], limit: NO_LIMIT }))
   const lossStats = useCube(lifetime({ measures: [WORK, WORK_GAMES], dimensions: ["participants.puuid"], segments: ["participants.losses_only"], limit: NO_LIMIT }))
-  // 最近趨勢與穩定度：每人每場的本場貢獻，依開打時間排好後在前端算（最近幾場、標準差 SQLite 沒有現成的聚合）
-  const perGame = useCube(q({ measures: [WORK], dimensions: ["participants.puuid", "participants.game_key", "matches.played_at"], limit: NO_LIMIT }))
-  const forms = useMemo(() => {
-    const by = new Map<string, { t: string; v: number }[]>()
-    for (const r of perGame.rows) {
-      const v = num(r[WORK])
-      if (v === null) continue
-      const key = String(r["participants.puuid"])
-      const list = by.get(key) ?? []
-      list.push({ t: String(r["matches.played_at"]), v })
-      by.set(key, list)
-    }
-    return new Map([...by].map(([k, list]) => [k, formOf(list.sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0)).map((x) => x.v))]))
-  }, [perGame.rows])
   const nightStats = useCube(
     lifetime({ measures: ["participants.games"], dimensions: ["participants.puuid"], filters: [{ member: "matches.hour_of_day", operator: "lt", values: ["6"] }], limit: NO_LIMIT }),
   )
@@ -3853,7 +3769,6 @@ export function Crew() {
                                 <span className={cn(CHIP, "ml-1", levelClass(ov))}>{labelOf(ov)}</span>
                               )}
                             </span>
-                            <FormLine form={forms.get(p.puuid)} />
                             <span className="block truncate text-[11px]" data-tip={prof.style.archetypeNote ?? undefined} data-testid="crew-style-line">
                               {styleLine(prof.style)}
                             </span>
