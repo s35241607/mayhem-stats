@@ -234,6 +234,14 @@ cubes:
         meta:
           group: 貢獻
 
+      - name: top_games
+        title: 90 分以上的場次
+        description: "本場貢獻 90 分以上的場數（好友比較的「高光時刻」徽章用）。"
+        sql: "CASE WHEN {CUBE}.work_score >= 90 THEN {CUBE}.participant_rowid END"
+        type: count_distinct
+        meta:
+          group: 貢獻
+
       - name: estimate_games
         title: 暫估的場次
         description: "本場貢獻是暫估（score_status = estimate，沒有賽後統計）的場數。"

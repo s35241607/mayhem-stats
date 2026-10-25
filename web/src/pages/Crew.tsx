@@ -1,5 +1,5 @@
 import { Fragment, createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react"
-import { ArrowRight, Swords, HandHeart, Bomb, Crosshair, Castle, Orbit, Rocket, Axe, ShieldHalf, Sword, Target, Droplets, Hourglass, Gem, ChevronsUp, Lock, LoaderCircle, BookOpen, Check, ChevronDown, ChevronRight, ChevronsUpDown, Crown, Flame, Hammer, HeartHandshake, Infinity as InfinityIcon, Medal, Search, Shield, Handshake, Snowflake, Sparkles, Star, Trophy, Zap, Users, Skull, Award, Mountain, Heart, Moon, type LucideIcon } from "lucide-react"
+import { ArrowRight, Swords, HandHeart, Bomb, Crosshair, Castle, Orbit, Rocket, Axe, ShieldHalf, Sword, Target, Droplets, Hourglass, ChevronsUp, Lock, LoaderCircle, BookOpen, Check, ChevronDown, ChevronRight, ChevronsUpDown, Crown, Flame, Hammer, HeartHandshake, Infinity as InfinityIcon, Medal, Search, Shield, Snowflake, Sparkles, Star, Trophy, Zap, Users, Skull, Award, Mountain, Heart, Moon, type LucideIcon } from "lucide-react"
 import { RecordCell, StatCell } from "@/components/cells"
 import { ContribBars, ContribScore } from "@/components/Contribution"
 import { WORK, WORK_GAMES, WORK_GAP, WORK_MEASURES, WORK_PARTS } from "@/hooks/useContribution"
@@ -1081,7 +1081,6 @@ const T = {
   top: 20, // 最常玩的那隻英雄的場次
   night: 20, // 0～5 點開打的場次占 %
   champs: 90, // 玩過的英雄數
-  duoWr: 55, // 最佳拍檔：同隊勝率 %
 } as const
 
 /** 里程碑：場次的門檻，由高到低找第一個達到的 */
@@ -1126,6 +1125,14 @@ const TITLE_MEASURES = [
   "participants.max_crit",
   "participants.max_turret_kills",
   "participants.max_heal",
+  "participants.max_cc",
+  "participants.max_objective_damage",
+  "participants.avg_soak",
+  "participants.avg_heal",
+  "participants.avg_cc",
+  "participants.avg_objective_damage",
+  "participants.avg_minion_damage",
+  "contribution.top_games",
 ]
 
 /** 稱號另外要的三份資料，併進 TITLE_MEASURES 那一列（鍵名是這裡自訂的，不是語意層的成員）：
@@ -1259,8 +1266,6 @@ type Title = { name: string; kind: "title" | "milestone"; tier: TitleTier; icon:
 /** 同隊的一組好友（兩人一起、同一隊）。games／wins 來自語意層的 teammates */
 type DuoPair = { a: Player; b: Player; games: number; wins: number }
 
-/** 最佳拍檔：同隊至少 DUO_TITLE_MIN 場、勝率達 T.duoWr% 的組合（兩個人都拿到）。勝率在矩陣裡照樣標誤差 */
-const DUO_TITLE_MIN = 30
 /** 矩陣裡少於這個場次的格子只寫場次、不上色 */
 const DUO_MIN_GAMES = 20
 /** 勝率和 50% 差不到這麼多百分點的格子不分勝敗色 */
@@ -1321,39 +1326,6 @@ function titleStatus(t: TitleDef, r: CubeRow | undefined): BadgeStatus {
   }
 }
 
-/** 最佳拍檔的進度：看他和每位好友同隊的紀錄，拿最接近的那一組 */
-function duoStatus(p: Player, duos: DuoPair[]): BadgeStatus {
-  const target = `同隊 ${DUO_TITLE_MIN} 場以上、勝率 ${T.duoWr}% 以上`
-  const base = { tier: null, points: 0, nextPoints: TIER_POINTS.gold }
-  const mine = duos.filter((d) => d.a.puuid === p.puuid || d.b.puuid === p.puuid)
-  const other = (d: DuoPair) => nameOf(d.a.puuid === p.puuid ? d.b : d.a)
-  const wr = (d: DuoPair) => (100 * d.wins) / d.games
-  const best = mine.filter((d) => d.games >= DUO_TITLE_MIN).sort((x, y) => wr(y) - wr(x))[0]
-  if (best) {
-    const earned = wr(best) >= T.duoWr
-    return {
-      state: earned ? "earned" : "progress",
-      ratio: earned ? 1 : wr(best) / T.duoWr,
-      now: `和 ${other(best)} ${wr(best).toFixed(1)}%（${best.games} 場）`,
-      target,
-      note: earned ? "已解鎖" : `和 ${other(best)} 一起的勝率還差 ${PP(T.duoWr - wr(best))}`,
-      tier: earned ? "gold" : null,
-      points: earned ? TIER_POINTS.gold : 0,
-      nextPoints: earned ? 0 : TIER_POINTS.gold,
-    }
-  }
-  const most = [...mine].sort((x, y) => y.games - x.games)[0]
-  if (!most?.games) return { ...base, state: "locked", ratio: 0, now: null, target, note: "還沒有和比較對象裡的好友同隊過" }
-  return {
-    ...base,
-    state: "locked",
-    ratio: most.games / DUO_TITLE_MIN,
-    now: `和 ${other(most)} 同隊 ${most.games} 場`,
-    target,
-    note: `和 ${other(most)} 同隊還差 ${DUO_TITLE_MIN - most.games} 場才開始計算`,
-  }
-}
-
 /** 累積量的數字：一萬以上寫「x 萬」 */
 const wan = (v: number) => (v >= 1e4 ? `${(v / 1e4).toLocaleString(undefined, { maximumFractionDigits: 1 })} 萬` : Math.round(v).toLocaleString())
 /** 平均 × 場次還原成總數（平均是同一批列的算術平均，乘回去就是總和） */
@@ -1374,6 +1346,8 @@ type LadderDef = {
   steps: readonly [number, number, number]
   /** 每一級自己的名字；沒給就是「名稱 I／II／III」 */
   names?: readonly [string, string, string]
+  /** 累積（越打越多）或壯舉（單場最佳紀錄分三級）；沒給是累積 */
+  category?: BadgeCategory
 }
 const VETERAN = [...GAME_MILESTONES].sort((a, b) => a.games - b.games)
 const LADDERS: LadderDef[] = [
@@ -1383,6 +1357,37 @@ const LADDERS: LadderDef[] = [
   { key: "傷害製造機", name: "傷害製造機", icon: Bomb, what: "累積對英雄傷害", value: (r) => totalOf(r, "participants.avg_damage"), fmt: (v) => `${wan(v)} 傷害`, short: wan, steps: [1e6, 5e6, 1.5e7] },
   { key: "連殺達人", name: "連殺達人", icon: Crosshair, what: "累積多殺（雙殺以上）次數", value: (r) => n0(r, "participants.multikills"), fmt: (v) => `${v.toLocaleString()} 次多殺`, short: (v) => `${v}`, steps: [100, 500, 1000] },
   { key: "推塔機器", name: "推塔機器", icon: Castle, what: "累積拆掉的防禦塔（最後一擊）", value: (r) => n0(r, "participants.total_turret_kills"), fmt: (v) => `${v} 座塔`, short: (v) => `${v}`, steps: [30, 100, 250] },
+  // 2026-10-25 新增的累積型：門檻同樣看好友 9 人全部版本的累積量（第一級多數人有、第二級約三分之一、第三級一位）
+  { key: "不動如山", name: "不動如山", icon: Shield, what: "累積承傷（承受＋自身減免）", value: (r) => totalOf(r, "participants.avg_soak"), fmt: (v) => `${wan(v)} 承傷`, short: wan, steps: [5e6, 2e7, 4e7] },
+  { key: "妙手回春", name: "妙手回春", icon: HeartHandshake, what: "累積治療量（含自補）", value: (r) => totalOf(r, "participants.avg_heal"), fmt: (v) => `${wan(v)} 治療`, short: wan, steps: [1e6, 3e6, 5e6] },
+  { key: "控場專家", name: "控場專家", icon: Snowflake, what: "累積控制敵人的時間（秒）", value: (r) => totalOf(r, "participants.avg_cc"), fmt: (v) => `${wan(v)} 秒控場`, short: wan, steps: [2e4, 5e4, 1e5] },
+  { key: "攻城槌", name: "攻城槌", icon: Hammer, what: "累積對建築傷害", value: (r) => totalOf(r, "participants.avg_objective_damage"), fmt: (v) => `${wan(v)} 建築傷害`, short: wan, steps: [2e5, 5e5, 1e6] },
+  { key: "清兵機器", name: "清兵機器", icon: Swords, what: "累積對小兵傷害", value: (r) => totalOf(r, "participants.avg_minion_damage"), fmt: (v) => `${wan(v)} 清兵傷害`, short: wan, steps: [5e6, 1.2e7, 2e7] },
+  { key: "MVP 收藏家", name: "MVP 收藏家", icon: Trophy, what: "累積拿到 MVP（贏的一隊本場貢獻最高）", value: (r) => n0(r, "participants.mvp_games"), fmt: (v) => `${v} 次 MVP`, short: (v) => `${v}`, steps: [10, 30, 80] },
+  { key: "逆境英雄", name: "逆境英雄", icon: Award, what: "累積拿到 ACE（輸的一隊本場貢獻最高）", value: (r) => n0(r, "participants.ace_games"), fmt: (v) => `${v} 次 ACE`, short: (v) => `${v}`, steps: [10, 30, 60] },
+  { key: "高光時刻", name: "高光時刻", icon: Sparkles, what: "累積本場貢獻 90 分以上的場次", value: (r) => n0(r, "contribution.top_games"), fmt: (v) => `${v} 場 90 分以上`, short: (v) => `${v}`, steps: [1, 5, 20] },
+  // 單場紀錄分三級（壯舉）：打出一次就到那一級；第一級多數人有、第二級約一半、第三級一兩位
+  { key: "殺神降臨", name: "殺神降臨", icon: Skull, what: "單場擊殺", category: "壯舉", value: (r) => n0(r, "participants.max_kills"), fmt: (v) => `單場 ${v} 殺`, short: (v) => `${v}`, steps: [20, 30, 35] },
+  { key: "助攻狂人", name: "助攻狂人", icon: Orbit, what: "單場助攻", category: "壯舉", value: (r) => n0(r, "participants.max_assists"), fmt: (v) => `單場 ${v} 助攻`, short: (v) => `${v}`, steps: [35, 50, 60] },
+  {
+    key: "爆發輸出",
+    name: "爆發輸出",
+    icon: Rocket,
+    what: "單場對英雄傷害",
+    category: "壯舉",
+    value: (r) => n0(r, "participants.max_damage"),
+    fmt: (v) => `單場 ${v.toLocaleString()} 傷害`,
+    short: wan,
+    steps: [6e4, 1e5, 1.5e5],
+    names: ["火力全開", "十萬輸出", "毀天滅地"],
+  },
+  { key: "勢不可擋", name: "勢不可擋", icon: Axe, what: "連殺（中途沒有陣亡）", category: "壯舉", value: (r) => n0(r, "participants.max_largest_spree"), fmt: (v) => `${v} 連殺`, short: (v) => `${v}`, steps: [5, 8, 12] },
+  { key: "銅牆鐵壁", name: "銅牆鐵壁", icon: ShieldHalf, what: "單場承傷（承受＋自身減免）", category: "壯舉", value: (r) => n0(r, "participants.max_soak"), fmt: (v) => `單場承傷 ${v.toLocaleString()}`, short: wan, steps: [2.5e5, 4e5, 5.5e5] },
+  { key: "暴擊一刀", name: "暴擊一刀", icon: Sword, what: "單次暴擊傷害", category: "壯舉", value: (r) => n0(r, "participants.max_crit"), fmt: (v) => `暴擊 ${v.toLocaleString()}`, short: (v) => v.toLocaleString(), steps: [1500, 2500, 4000] },
+  { key: "拆遷專家", name: "拆遷專家", icon: Target, what: "單場拆掉的防禦塔（最後一擊）", category: "壯舉", value: (r) => n0(r, "participants.max_turret_kills"), fmt: (v) => `單場 ${v} 座塔`, short: (v) => `${v}`, steps: [3, 4, 5] },
+  { key: "生生不息", name: "生生不息", icon: Droplets, what: "單場治療量（含自補）", category: "壯舉", value: (r) => n0(r, "participants.max_heal"), fmt: (v) => `單場治療 ${v.toLocaleString()}`, short: wan, steps: [5e4, 8e4, 1.2e5] },
+  { key: "冰封全場", name: "冰封全場", icon: Snowflake, what: "單場控制敵人的時間（秒）", category: "壯舉", value: (r) => n0(r, "participants.max_cc"), fmt: (v) => `單場控場 ${v.toLocaleString()} 秒`, short: (v) => v.toLocaleString(), steps: [700, 1000, 1500] },
+  { key: "兵臨城下", name: "兵臨城下", icon: Castle, what: "單場對建築傷害", category: "壯舉", value: (r) => n0(r, "participants.max_objective_damage"), fmt: (v) => `單場 ${v.toLocaleString()} 建築傷害`, short: wan, steps: [6000, 9000, 12000] },
   {
     key: "老將",
     name: "老將",
@@ -1416,7 +1421,7 @@ function ladderStatus(l: LadderDef, r: CubeRow | undefined): BadgeStatus {
   }
 }
 
-/** 壯舉：單場紀錄，打出一次就算（不看場次門檻）。門檻看好友 9 人全部版本的最佳紀錄：大多是一半左右的人做到過 */
+/** 一次性壯舉：做到一次就算（不看場次門檻）。有數字可以分級的單場紀錄在 LADDERS（category 壯舉） */
 type FeatDef = {
   key: string
   icon: LucideIcon
@@ -1434,15 +1439,6 @@ const FEATS: FeatDef[] = [
   { key: "四殺達成", icon: Star, tier: "silver", hint: "拿過一次四殺", value: (r) => n0(r, "participants.max_largest_multi_kill"), threshold: 4, fmt: (v) => `最高 ${MULTI_NAME[Math.min(5, v)] || "單殺"}`, gap: () => "一次四殺", todo: "再拿一次四殺就解鎖" },
   { key: "五殺達成", icon: Sparkles, tier: "silver", hint: "拿過一次五殺", value: (r) => n0(r, "participants.pentas"), threshold: 1, fmt: (v) => `${v} 次五殺`, gap: () => "一次五殺", todo: "再拿一次五殺就解鎖" },
   { key: "持久戰", icon: Hourglass, tier: "silver", hint: "打過一場 30 分鐘以上的對局", value: (r) => opt(r, "participants.max_duration") ?? 0, threshold: 30, fmt: (v) => `最長 ${v.toFixed(1)} 分鐘`, gap: (d) => `${d.toFixed(1)} 分鐘` },
-  { key: "殺神降臨", icon: Skull, tier: "gold", hint: "單場擊殺 30 以上", value: (r) => n0(r, "participants.max_kills"), threshold: 30, fmt: (v) => `單場 ${v} 殺`, gap: (d) => `${d} 殺` },
-  { key: "助攻狂人", icon: Orbit, tier: "gold", hint: "單場助攻 50 以上", value: (r) => n0(r, "participants.max_assists"), threshold: 50, fmt: (v) => `單場 ${v} 助攻`, gap: (d) => `${d} 助攻` },
-  { key: "十萬輸出", icon: Rocket, tier: "gold", hint: "單場對英雄傷害 100,000 以上", value: (r) => n0(r, "participants.max_damage"), threshold: 1e5, fmt: (v) => `單場 ${v.toLocaleString()} 傷害`, gap: (d) => `${d.toLocaleString()} 傷害` },
-  { key: "勢不可擋", icon: Axe, tier: "gold", hint: "連殺 10 人以上（中途沒有陣亡）", value: (r) => n0(r, "participants.max_largest_spree"), threshold: 10, fmt: (v) => `最高 ${v} 連殺`, gap: (d) => `${d} 連殺` },
-  { key: "銅牆鐵壁", icon: ShieldHalf, tier: "gold", hint: "單場承傷 500,000 以上（承受＋自身減免）", value: (r) => n0(r, "participants.max_soak"), threshold: 5e5, fmt: (v) => `單場承傷 ${v.toLocaleString()}`, gap: (d) => `${d.toLocaleString()} 承傷` },
-  { key: "暴擊一刀", icon: Sword, tier: "gold", hint: "單次暴擊傷害 3,000 以上", value: (r) => n0(r, "participants.max_crit"), threshold: 3000, fmt: (v) => `最大暴擊 ${v.toLocaleString()}`, gap: (d) => `${d.toLocaleString()} 暴擊傷害` },
-  { key: "拆遷專家", icon: Target, tier: "gold", hint: "單場拆掉 4 座防禦塔以上（最後一擊）", value: (r) => n0(r, "participants.max_turret_kills"), threshold: 4, fmt: (v) => `單場 ${v} 座塔`, gap: (d) => `${d} 座塔` },
-  { key: "生生不息", icon: Droplets, tier: "gold", hint: "單場治療量 100,000 以上（含自補）", value: (r) => n0(r, "participants.max_heal"), threshold: 1e5, fmt: (v) => `單場治療 ${v.toLocaleString()}`, gap: (d) => `${d.toLocaleString()} 治療` },
-  { key: "毀天滅地", icon: Gem, tier: "legend", hint: "單場對英雄傷害 200,000 以上", value: (r) => n0(r, "participants.max_damage"), threshold: 2e5, fmt: (v) => `單場 ${v.toLocaleString()} 傷害`, gap: (d) => `${d.toLocaleString()} 傷害` },
 ]
 
 function featStatus(f: FeatDef, r: CubeRow | undefined): BadgeStatus {
@@ -1464,7 +1460,7 @@ type BadgeCategory = "戰鬥" | "團隊" | "壯舉" | "累積" | "風格"
 const CATEGORIES: { key: BadgeCategory; icon: LucideIcon; note: string }[] = [
   { key: "戰鬥", icon: Swords, note: "每分鐘的輸出、承傷、控場與多殺" },
   { key: "團隊", icon: Users, note: "幫隊友、拿 MVP、逆風也扛得住" },
-  { key: "壯舉", icon: Star, note: "單場紀錄：打出一次就解鎖" },
+  { key: "壯舉", icon: Star, note: "單場紀錄：打出一次就解鎖；有數字的分三級（銀 → 金 → 傳說）" },
   { key: "累積", icon: ChevronsUp, note: "越打越多：銀 → 金 → 傳說，每一級都是一枚" },
   { key: "風格", icon: Heart, note: "怎麼玩、什麼時候玩" },
 ]
@@ -1488,7 +1484,7 @@ const TITLE_CATEGORY: Record<string, BadgeCategory> = {
   英雄百科: "風格",
 }
 
-/** 徽章一覽的目錄：稱號、最佳拍檔、壯舉、階梯。tier 是這枚徽章最高拿得到的等級 */
+/** 徽章一覽的目錄：稱號、壯舉、階梯（累積與分級的單場紀錄）。tier 是這枚徽章最高拿得到的等級 */
 type BadgeCard = {
   key: string
   name: string
@@ -1500,22 +1496,12 @@ type BadgeCard = {
   status: (p: Player) => BadgeStatus
 }
 
-function badgeCatalog(rows: CubeRow[], duos: DuoPair[]): BadgeCard[] {
+function badgeCatalog(rows: CubeRow[]): BadgeCard[] {
   const rowOf = (puuid: string) => rows.find((r) => r["participants.puuid"] === puuid)
   return [
     ...TITLES.map(
       (t): BadgeCard => ({ key: t.name, name: t.name, icon: t.icon, tier: t.tier, kind: "title", category: TITLE_CATEGORY[t.name] ?? "風格", hint: t.hint, status: (p) => titleStatus(t, rowOf(p.puuid)) }),
     ),
-    {
-      key: "最佳拍檔",
-      name: "最佳拍檔",
-      icon: Handshake,
-      tier: "gold",
-      kind: "title",
-      category: "團隊",
-      hint: `和某位好友同隊至少 ${DUO_TITLE_MIN} 場，一起打的勝率 ${T.duoWr}% 以上`,
-      status: (p) => duoStatus(p, duos),
-    },
     ...FEATS.map((f): BadgeCard => ({ key: f.key, name: f.key, icon: f.icon, tier: f.tier, kind: "feat", category: "壯舉", hint: f.hint, status: (p) => featStatus(f, rowOf(p.puuid)) })),
     ...LADDERS.map(
       (l): BadgeCard => ({
@@ -1524,8 +1510,8 @@ function badgeCatalog(rows: CubeRow[], duos: DuoPair[]): BadgeCard[] {
         icon: l.icon,
         tier: "legend",
         kind: "ladder",
-        category: "累積",
-        hint: `${l.what}：${l.steps.map((x, i) => `${TIER_NAME[LADDER_TIERS[i]]} ${l.short(x)}`).join(" → ")}`,
+        category: l.category ?? "累積",
+        hint: `${l.what}${l.category === "壯舉" ? "（單場最佳紀錄）" : ""}：${l.steps.map((x, i) => `${TIER_NAME[LADDER_TIERS[i]]} ${l.short(x)}`).join(" → ")}`,
         status: (p) => ladderStatus(l, rowOf(p.puuid)),
       }),
     ),
@@ -1540,7 +1526,7 @@ function levelOf(points: number) {
 const levelTier = (level: number): TitleTier => (level >= 10 ? "legend" : level >= 5 ? "gold" : "silver")
 
 /** 每個人拿到的稱號與里程碑：達標就有，不跟別人比。rows 是 TITLE_MEASURES 以 participants.puuid 分組的結果（再併上敗場貢獻等） */
-function titlesOf(people: Player[], rows: CubeRow[], duos: DuoPair[]): Map<string, Title[]> {
+function titlesOf(people: Player[], rows: CubeRow[]): Map<string, Title[]> {
   const out = new Map<string, Title[]>(people.map((p) => [p.puuid, []]))
   const rowOf = (puuid: string) => rows.find((r) => r["participants.puuid"] === puuid)
   // 提示框用的排版標記見 lib/tip.ts：標題是稱號名，「條件」是要達到什麼，「目前」是他的數字（門檻放在下一行）
@@ -1559,20 +1545,6 @@ function titlesOf(people: Player[], rows: CubeRow[], duos: DuoPair[]): Map<strin
         tier: t.tier,
         icon: t.icon,
         tip: `${t.name}\n${m("lab", "條件")}${t.hint}\n${m("lab", "目前")}${m("big", t.fmt(v))}\n> 門檻 ${t.fmt(t.threshold)}${t.lower ? " 以下" : " 以上"}・${games} 場`,
-      })
-    }
-  }
-  // 最佳拍檔：兩個人都有
-  for (const d of duos) {
-    if (d.games < DUO_TITLE_MIN || (100 * d.wins) / d.games < T.duoWr) continue
-    const wr = ((100 * d.wins) / d.games).toFixed(1)
-    for (const [me, other] of [[d.a, d.b], [d.b, d.a]] as const) {
-      out.get(me.puuid)?.push({
-        name: "最佳拍檔",
-        kind: "title",
-        tier: "gold",
-        icon: Handshake,
-        tip: `最佳拍檔：和 ${nameOf(other)}\n${m("lab", "條件")}同隊至少 ${DUO_TITLE_MIN} 場，一起打的勝率 ${T.duoWr}% 以上\n${m("lab", "目前")}${m("big", `${wr}%`)} ${m("win", `${d.wins} 勝`)} ${m("loss", `${d.games - d.wins} 敗`)}\n> 和 ${nameOf(other)} 同隊 ${d.games} 場`,
       })
     }
   }
@@ -1672,27 +1644,19 @@ const TIER_ORDER: Record<TitleTier, number> = { legend: 0, gold: 1, silver: 2 }
 // ── 最近趨勢與穩定度 ─────────────────────────────
 // 趨勢：這段期間最後 RECENT_N 場的本場貢獻平均，和更早的場次比。差距的標準誤用單場標準差 WORK_SD：
 //   WORK_SD × √(1/最近場數 ＋ 1/更早場數)，差距超過 1.96 倍才算「看得出」（實心箭頭），否則只是起伏（淡色）。更早的場次不到 FORM_MIN_PREV 場不比。
-// 穩定度：這段期間單場分數的標準差。全體追蹤玩家合併是 18.2（2026-10-24），33 場時估計本身約 ±2.3，
-//   所以只分三級：≤ FORM_STEADY 穩定、≥ FORM_SWINGY 起伏大，中間一般；不到 RECENT_N 場不判斷。
+// 穩定度（單場分數的標準差）2026-10-25 拿掉：30～40 場時估計本身就差 ±2.3，好友 8 人裡 7 人落在「一般」，沒有分辨力。
 const RECENT_N = 10
 const FORM_MIN_PREV = 5
-const FORM_STEADY = 15
-const FORM_SWINGY = 21.5
 /** 走勢小圖畫最近幾場 */
 const SPARK_N = 20
 
-type Form = { n: number; recent: number | null; prev: number | null; diff: number | null; clear: boolean; sd: number | null; series: number[] }
+type Form = { n: number; recent: number | null; prev: number | null; diff: number | null; clear: boolean; series: number[] }
 
 /** scores 依開打時間由舊到新 */
 function formOf(scores: number[]): Form {
   const n = scores.length
   const mean = (xs: number[]) => xs.reduce((a, x) => a + x, 0) / xs.length
-  let sd: number | null = null
-  if (n >= RECENT_N) {
-    const m = mean(scores)
-    sd = Math.sqrt(scores.reduce((a, x) => a + (x - m) ** 2, 0) / (n - 1))
-  }
-  const out: Form = { n, recent: null, prev: null, diff: null, clear: false, sd, series: scores.slice(-SPARK_N) }
+  const out: Form = { n, recent: null, prev: null, diff: null, clear: false, series: scores.slice(-SPARK_N) }
   if (n >= RECENT_N + FORM_MIN_PREV) {
     out.recent = mean(scores.slice(-RECENT_N))
     out.prev = mean(scores.slice(0, -RECENT_N))
@@ -1701,8 +1665,6 @@ function formOf(scores: number[]): Form {
   }
   return out
 }
-
-const steadiness = (sd: number) => (sd <= FORM_STEADY ? "穩定" : sd >= FORM_SWINGY ? "起伏大" : "一般")
 
 /** 最近幾場的走勢：中間的橫線是 50 */
 function Sparkline({ values }: { values: number[] }) {
@@ -1718,14 +1680,13 @@ function Sparkline({ values }: { values: number[] }) {
   )
 }
 
-/** 全員一覽名字底下的一行：最近 10 場的平均與箭頭、走勢小圖、穩定度 */
+/** 全員一覽名字底下的一行：最近 10 場的平均與箭頭、走勢小圖 */
 function FormLine({ form }: { form: Form | undefined }) {
   // 資料還沒到或場次不夠也佔同樣的高度，晚到的時候版面不會往下推
   if (!form || form.n < RECENT_N) return <span className="mt-0.5 block h-3.5" aria-hidden />
   const tip =
     `{{lab|最近}}{{big|${form.recent === null ? "—" : Math.round(form.recent)}}} 最後 ${RECENT_N} 場的本場貢獻平均` +
     (form.prev === null ? `\n> 更早的場次不到 ${FORM_MIN_PREV} 場，不比較` : `\n> 更早的 ${form.n - RECENT_N} 場平均 ${Math.round(form.prev)}；${form.clear ? "差距超過誤差範圍，看得出變化" : "差距還在單場起伏的範圍內"}`) +
-    `\n{{lab|穩定度}}{{big|${form.sd === null ? "—" : form.sd.toFixed(1)}}} 單場分數的標準差（一般約 18；≤ ${FORM_STEADY} 穩定、≥ ${FORM_SWINGY} 起伏大）` +
     `\n> 小圖是最近 ${Math.min(SPARK_N, form.n)} 場，虛線是 50`
   const arrow =
     form.diff === null ? null : (
@@ -1746,11 +1707,6 @@ function FormLine({ form }: { form: Form | undefined }) {
       <span className="font-mono font-semibold tabular-nums text-foreground">{form.recent === null ? "—" : Math.round(form.recent)}</span>
       {arrow}
       <Sparkline values={form.series} />
-      {form.sd !== null && (
-        <span className={cn(steadiness(form.sd) === "穩定" ? "text-win" : steadiness(form.sd) === "起伏大" ? "text-loss" : "")}>
-          {steadiness(form.sd)}
-        </span>
-      )}
     </span>
   )
 }
@@ -1842,11 +1798,11 @@ function Crest({ icon: Icon, tier, size = "md", dim, children }: { icon?: Lucide
 
 /** 徽章一覽：選一個人，看他的成就等級、已解鎖的徽章（獎盃架），以及每一枚還差多少。
  *  版面參考 LoL 的挑戰：六角徽框＋等級色、角落的等級緞帶、進度條上的段位刻度、依類別分區。 */
-function BadgesPanel({ people, rows, duos, loading }: { people: Player[]; rows: CubeRow[]; duos: DuoPair[]; loading: boolean }) {
+function BadgesPanel({ people, rows, loading }: { people: Player[]; rows: CubeRow[]; loading: boolean }) {
   const [who, setWho] = useState<string | null>(null)
   const [show, setShow] = useState<"all" | "earned" | "todo">("all")
   const sel = people.find((p) => p.puuid === who) ?? people.find((p) => p.is_me) ?? people[0]
-  const cards = useMemo(() => badgeCatalog(rows, duos), [rows, duos])
+  const cards = useMemo(() => badgeCatalog(rows), [rows])
   // 每個人的狀態一次算好：選人列的等級、卡片下面的「誰解鎖了」都用同一份
   const table = useMemo(() => new Map(people.map((p) => [p.puuid, cards.map((c) => c.status(p))])), [cards, people])
   const pointsOf = (puuid: string) => (table.get(puuid) ?? []).reduce((a, st) => a + st.points, 0)
@@ -1879,7 +1835,7 @@ function BadgesPanel({ people, rows, duos, loading }: { people: Player[]; rows: 
     <Panel
       title="徽章"
       caption="累積到門檻就解鎖；每一枚都有成就點數，點數決定成就等級"
-      hint={`稱號（戰鬥、團隊、風格）、單場壯舉、累積階梯（銀 → 金 → 傳說，每一級都算一枚）。成就點數：銀 ${TIER_POINTS.silver}、金 ${TIER_POINTS.gold}、傳說 ${TIER_POINTS.legend}，每 ${LEVEL_XP} 點升一級。數字照上面的篩選與比較範圍算；場次不到 ${TITLE_MIN_GAMES} 場的人，稱號先不算（比率太不準），壯舉與累積照算`}
+      hint={`稱號（戰鬥、團隊、風格）、單場壯舉、累積階梯（銀 → 金 → 傳說，每一級都算一枚）。成就點數：銀 ${TIER_POINTS.silver}、金 ${TIER_POINTS.gold}、傳說 ${TIER_POINTS.legend}，每 ${LEVEL_XP} 點升一級。徽章與稱號是成就，一律看全部期間、所有版本（不跟著頁首的期間、版本篩選，換版本不會歸零），模式與比較對象照上面；場次不到 ${TITLE_MIN_GAMES} 場的人，稱號先不算（比率太不準），壯舉與累積照算`}
     >
       <div className="space-y-5" data-testid="crew-badges">
         {/* 選人：像選角畫面的名牌，帶各自的成就等級 */}
@@ -3530,8 +3486,20 @@ export function Crew() {
   //   數據總表分頁專用（冷快取 1.5 秒），同樣切過去才查
   const stats = useCube(section === "stats" ? q({ measures: STAT_MEASURES_ALL, dimensions: ["participants.puuid"], limit: NO_LIMIT }) : null)
   // 稱號用的幾項數據（每人一列）
-  const titleStats = useCube(q({ measures: TITLE_MEASURES, dimensions: ["participants.puuid"], limit: NO_LIMIT }))
-  const lossStats = useCube(q({ measures: [WORK, WORK_GAMES], dimensions: ["participants.puuid"], segments: ["participants.losses_only"], limit: NO_LIMIT }))
+  // 稱號與徽章是成就：不跟著頁首的期間、版本篩選重算（換版本後累積型徽章不會歸零、單場紀錄不會消失）；模式、比較對象、中心照套
+  const lifetime = (query: CubeQuery): CubeQuery | null => {
+    const x = q(query)
+    if (!x) return null
+    const own = new Set((query.timeDimensions ?? []).map((t) => t.dimension))
+    return {
+      ...x,
+      filters: (x.filters ?? []).filter((f) => f.member !== "matches.patch"),
+      timeDimensions: (x.timeDimensions ?? []).filter((t) => own.has(t.dimension)),
+    }
+  }
+  const titleStats = useCube(lifetime({ measures: TITLE_MEASURES, dimensions: ["participants.puuid"], limit: NO_LIMIT }))
+  const titleChamps = useCube(lifetime({ measures: ["participants.games"], dimensions: ["participants.puuid", "champions.name"], limit: NO_LIMIT }))
+  const lossStats = useCube(lifetime({ measures: [WORK, WORK_GAMES], dimensions: ["participants.puuid"], segments: ["participants.losses_only"], limit: NO_LIMIT }))
   // 最近趨勢與穩定度：每人每場的本場貢獻，依開打時間排好後在前端算（最近幾場、標準差 SQLite 沒有現成的聚合）
   const perGame = useCube(q({ measures: [WORK], dimensions: ["participants.puuid", "participants.game_key", "matches.played_at"], limit: NO_LIMIT }))
   const forms = useMemo(() => {
@@ -3547,7 +3515,7 @@ export function Crew() {
     return new Map([...by].map(([k, list]) => [k, formOf(list.sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0)).map((x) => x.v))]))
   }, [perGame.rows])
   const nightStats = useCube(
-    q({ measures: ["participants.games"], dimensions: ["participants.puuid"], filters: [{ member: "matches.hour_of_day", operator: "lt", values: ["6"] }], limit: NO_LIMIT }),
+    lifetime({ measures: ["participants.games"], dimensions: ["participants.puuid"], filters: [{ member: "matches.hour_of_day", operator: "lt", values: ["6"] }], limit: NO_LIMIT }),
   )
   // 搭檔：兩人同隊的場次與勝場。teammates 和 participants 沒有 join 路徑，不能走 apply()——
   // 模式、版本、期間照全域條件自己帶（都是 matches 的欄位），「中心」不套用（中心是 participants 那邊的條件）
@@ -3580,7 +3548,7 @@ export function Crew() {
   // 增幅、數據總表不在這裡：那是別的分頁的資料
   const loading =
     summary.loading || roles.loading || champs.loading || everyone.loading || everyoneRoles.loading ||
-    dmgTypes.loading || titleStats.loading || lossStats.loading || nightStats.loading
+    dmgTypes.loading || titleStats.loading || titleChamps.loading || lossStats.loading || nightStats.loading
 
   const sumOf = (puuid: string) => summary.rows.find((r) => r["participants.puuid"] === puuid)
   const gamesOf = (puuid: string) => n0(sumOf(puuid), "participants.games")
@@ -3635,7 +3603,7 @@ export function Crew() {
     return titleStats.rows.map((r) => {
       const puuid = String(r["participants.puuid"])
       const loss = by(lossStats.rows, puuid)
-      const champGames = champs.rows.filter((c) => c["participants.puuid"] === puuid).map((c) => n0(c, "participants.games"))
+      const champGames = titleChamps.rows.filter((c) => c["participants.puuid"] === puuid).map((c) => n0(c, "participants.games"))
       return {
         ...r,
         [X_LOSS_WORK]: loss?.[WORK] ?? null,
@@ -3644,12 +3612,12 @@ export function Crew() {
         [X_TOP_CHAMP]: champGames.length ? Math.max(...champGames) : 0,
       } as CubeRow
     })
-  }, [titleStats.rows, lossStats.rows, nightStats.rows, champs.rows])
+  }, [titleStats.rows, lossStats.rows, nightStats.rows, titleChamps.rows])
   // 稱號：數字達到門檻就有，不跟別人比（門檻見 T）
   const titles = useMemo(
-    () => titlesOf(ordered, titleRows, duoPairs),
+    () => titlesOf(ordered, titleRows),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [puuids.join(), titleRows, duoPairs],
+    [puuids.join(), titleRows],
   )
   // D：全員一覽的排序。預設依場次（場次多的判斷比較可信）
   const [rowSort, setRowSort] = useState<RowSort>("games")
@@ -4003,7 +3971,7 @@ export function Crew() {
           />
         </TabsContent>
         <TabsContent value="badges">
-          <BadgesPanel people={ordered} rows={titleRows} duos={duoPairs} loading={loading || duo.loading} />
+          <BadgesPanel people={ordered} rows={titleRows} loading={loading} />
         </TabsContent>
       </Tabs>
 

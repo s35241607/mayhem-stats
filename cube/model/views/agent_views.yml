@@ -278,6 +278,8 @@ views:
             alias: work_scored_games
           - name: estimate_games
             alias: work_estimate_games
+          - name: top_games
+            alias: work_top_games
           - name: score_status
             alias: work_score_status
           - name: score_version
