@@ -107,6 +107,9 @@ views:
           - champion_count
           - mvp_games
           - ace_games
+          - deathless_wins
+          - quick_wins
+          - first_bloods
           - total_turret_kills
           - avg_inhibitor_kills
           - objective_damage_share
@@ -280,6 +283,8 @@ views:
             alias: work_estimate_games
           - name: top_games
             alias: work_top_games
+          - name: perfect_games
+            alias: work_perfect_games
           - name: score_status
             alias: work_score_status
           - name: score_version

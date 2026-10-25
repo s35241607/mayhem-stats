@@ -807,6 +807,33 @@ cubes:
           group: 基本
           decimals: 0
 
+      - name: deathless_wins
+        title: 零死亡勝場
+        description: "一次都沒有陣亡又贏下的場次（好友比較的「毫髮無傷」徽章用）。"
+        sql: "CASE WHEN {CUBE}.win = 1 AND {CUBE}.deaths = 0 THEN {CUBE}.rowid END"
+        type: count_distinct
+        meta:
+          group: 對局
+          decimals: 0
+
+      - name: quick_wins
+        title: 12 分鐘內的勝場
+        description: "對局 12 分鐘內結束而且贏下的場次（好友比較的「速戰速決」徽章用）。"
+        sql: "CASE WHEN {CUBE}.win = 1 AND {CUBE}.game_duration < 720 THEN {CUBE}.rowid END"
+        type: count_distinct
+        meta:
+          group: 對局
+          decimals: 0
+
+      - name: first_bloods
+        title: 首殺次數
+        description: "親自拿到全場第一殺的場次（好友比較的「一血獵人」徽章用）。"
+        sql: "CASE WHEN {CUBE}.first_blood = 1 THEN {CUBE}.rowid END"
+        type: count_distinct
+        meta:
+          group: 對局
+          decimals: 0
+
       - name: mvp_games
         title: MVP 場次
         description: "拿到 MVP 的場次：贏的那一隊裡本場貢獻最高（同分都算），和計分板、對局卡片的 MVP 同一個定義。沒有分數的場次（重開、不足 6 分鐘）不算。"

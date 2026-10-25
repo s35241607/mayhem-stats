@@ -242,6 +242,14 @@ cubes:
         meta:
           group: 貢獻
 
+      - name: perfect_games
+        title: 滿分的場次
+        description: "本場貢獻 100 分（量尺頂端）的場數（好友比較的「滿分演出」徽章用）。"
+        sql: "CASE WHEN {CUBE}.work_score >= 100 THEN {CUBE}.participant_rowid END"
+        type: count_distinct
+        meta:
+          group: 貢獻
+
       - name: estimate_games
         title: 暫估的場次
         description: "本場貢獻是暫估（score_status = estimate，沒有賽後統計）的場數。"

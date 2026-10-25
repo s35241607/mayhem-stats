@@ -1133,6 +1133,10 @@ const TITLE_MEASURES = [
   "participants.avg_objective_damage",
   "participants.avg_minion_damage",
   "contribution.top_games",
+  "contribution.perfect_games",
+  "participants.deathless_wins",
+  "participants.quick_wins",
+  "participants.first_bloods",
 ]
 
 /** 稱號另外要的三份資料，併進 TITLE_MEASURES 那一列（鍵名是這裡自訂的，不是語意層的成員）：
@@ -1141,6 +1145,8 @@ const X_LOSS_WORK = "x.loss_work"
 const X_LOSS_GAMES = "x.loss_games"
 const X_NIGHT_GAMES = "x.night_games"
 const X_TOP_CHAMP = "x.top_champ_games"
+/** 這段範圍內最長的連勝（依開打時間排每一場的勝負算） */
+const X_STREAK = "x.best_win_streak"
 
 /** 徽章的等級：傳說（五殺之王、MVP 常客，最難拿的兩個）用增幅稜鏡色，其餘稱號用金色，里程碑用銀色。
  *  顏色都是主題變數（--prismatic／--gold／--silver），亮色主題有各自加深的版本 */
@@ -1365,6 +1371,11 @@ const LADDERS: LadderDef[] = [
   { key: "清兵機器", name: "清兵機器", icon: Swords, what: "累積對小兵傷害", value: (r) => totalOf(r, "participants.avg_minion_damage"), fmt: (v) => `${wan(v)} 清兵傷害`, short: wan, steps: [5e6, 1.2e7, 2e7] },
   { key: "MVP 收藏家", name: "MVP 收藏家", icon: Trophy, what: "累積拿到 MVP（贏的一隊本場貢獻最高）", value: (r) => n0(r, "participants.mvp_games"), fmt: (v) => `${v} 次 MVP`, short: (v) => `${v}`, steps: [10, 30, 80] },
   { key: "逆境英雄", name: "逆境英雄", icon: Award, what: "累積拿到 ACE（輸的一隊本場貢獻最高）", value: (r) => n0(r, "participants.ace_games"), fmt: (v) => `${v} 次 ACE`, short: (v) => `${v}`, steps: [10, 30, 60] },
+  // 2026-10-25 第二批：門檻同樣看好友 9 人的紀錄
+  { key: "滿分演出", name: "滿分演出", icon: Crown, what: "累積本場貢獻 100 分（量尺頂端）的場次", value: (r) => n0(r, "contribution.perfect_games"), fmt: (v) => `${v} 場滿分`, short: (v) => `${v}`, steps: [1, 3, 6] },
+  { key: "速戰速決", name: "速戰速決", icon: Zap, what: "累積 12 分鐘內贏下的場次", value: (r) => n0(r, "participants.quick_wins"), fmt: (v) => `${v} 場速勝`, short: (v) => `${v}`, steps: [3, 8, 20] },
+  { key: "一血獵人", name: "一血獵人", icon: Crosshair, what: "累積親自拿到全場第一殺", value: (r) => n0(r, "participants.first_bloods"), fmt: (v) => `${v} 次首殺`, short: (v) => `${v}`, steps: [5, 15, 40] },
+  { key: "連勝狂潮", name: "連勝狂潮", icon: Flame, what: "最長連勝（依開打時間連續贏下的場數）", category: "壯舉", value: (r) => n0(r, X_STREAK), fmt: (v) => `最長 ${v} 連勝`, short: (v) => `${v}`, steps: [4, 6, 8] },
   { key: "高光時刻", name: "高光時刻", icon: Sparkles, what: "累積本場貢獻 90 分以上的場次", value: (r) => n0(r, "contribution.top_games"), fmt: (v) => `${v} 場 90 分以上`, short: (v) => `${v}`, steps: [1, 5, 20] },
   // 單場紀錄分三級（壯舉）：打出一次就到那一級；第一級多數人有、第二級約一半、第三級一兩位
   { key: "殺神降臨", name: "殺神降臨", icon: Skull, what: "單場擊殺", category: "壯舉", value: (r) => n0(r, "participants.max_kills"), fmt: (v) => `單場 ${v} 殺`, short: (v) => `${v}`, steps: [20, 30, 35] },
@@ -1438,6 +1449,7 @@ const MULTI_NAME = ["", "", "雙殺", "三殺", "四殺", "五殺"]
 const FEATS: FeatDef[] = [
   { key: "四殺達成", icon: Star, tier: "silver", hint: "拿過一次四殺", value: (r) => n0(r, "participants.max_largest_multi_kill"), threshold: 4, fmt: (v) => `最高 ${MULTI_NAME[Math.min(5, v)] || "單殺"}`, gap: () => "一次四殺", todo: "再拿一次四殺就解鎖" },
   { key: "五殺達成", icon: Sparkles, tier: "silver", hint: "拿過一次五殺", value: (r) => n0(r, "participants.pentas"), threshold: 1, fmt: (v) => `${v} 次五殺`, gap: () => "一次五殺", todo: "再拿一次五殺就解鎖" },
+  { key: "毫髮無傷", icon: Heart, tier: "gold", hint: "一次都沒有陣亡又贏下一場", value: (r) => n0(r, "participants.deathless_wins"), threshold: 1, fmt: (v) => `${v} 場零死亡勝利`, gap: () => "一場零死亡的勝利", todo: "贏一場、而且全場沒有陣亡就解鎖" },
   { key: "持久戰", icon: Hourglass, tier: "silver", hint: "打過一場 30 分鐘以上的對局", value: (r) => opt(r, "participants.max_duration") ?? 0, threshold: 30, fmt: (v) => `最長 ${v.toFixed(1)} 分鐘`, gap: (d) => `${d.toFixed(1)} 分鐘` },
 ]
 
@@ -1511,7 +1523,7 @@ function badgeCatalog(rows: CubeRow[]): BadgeCard[] {
         tier: "legend",
         kind: "ladder",
         category: l.category ?? "累積",
-        hint: `${l.what}${l.category === "壯舉" ? "（單場最佳紀錄）" : ""}：${l.steps.map((x, i) => `${TIER_NAME[LADDER_TIERS[i]]} ${l.short(x)}`).join(" → ")}`,
+        hint: `${l.what}${l.category === "壯舉" ? "（最佳紀錄）" : ""}：${l.steps.map((x, i) => `${TIER_NAME[LADDER_TIERS[i]]} ${l.short(x)}`).join(" → ")}`,
         status: (p) => ladderStatus(l, rowOf(p.puuid)),
       }),
     ),
@@ -1733,6 +1745,22 @@ function Crest({ icon: Icon, tier, size = "md", dim, children }: { icon?: Lucide
 function BadgesPanel({ people, rows, loading }: { people: Player[]; rows: CubeRow[]; loading: boolean }) {
   const [who, setWho] = useState<string | null>(null)
   const [show, setShow] = useState<"all" | "earned" | "todo">("all")
+  // 精簡／卡片：記在這台瀏覽器（只是顯示偏好，拿不到也照預設的卡片）
+  const [dense, setDense] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("mayhem-badge-dense") === "1"
+    } catch {
+      return false
+    }
+  })
+  const setDensity = (v: boolean) => {
+    setDense(v)
+    try {
+      localStorage.setItem("mayhem-badge-dense", v ? "1" : "0")
+    } catch {
+      /* 私密視窗等情況存不了，只影響下次開啟 */
+    }
+  }
   const sel = people.find((p) => p.puuid === who) ?? people.find((p) => p.is_me) ?? people[0]
   const cards = useMemo(() => badgeCatalog(rows), [rows])
   // 每個人的狀態一次算好：選人列的等級、卡片下面的「誰解鎖了」都用同一份
@@ -1758,7 +1786,12 @@ function BadgesPanel({ people, rows, loading }: { people: Player[]; rows: CubeRo
   const { level, xp } = levelOf(points)
   const got = view.filter((v) => v.st.state === "earned")
   const tierCount = (t: TitleTier) => got.filter((v) => v.st.tier === t).length
-  const next = view.filter((v) => v.st.state === "progress" && v.st.nextPoints > 0 && v.c.kind !== "ladder").sort((a, b) => b.st.ratio - a.st.ratio)[0]
+  // 即將解鎖：還沒拿到的、或階梯還能升級的，依「到下一級的進度」排，取最接近的幾枚
+  const soon = view
+    .filter((v) => v.st.state !== "locked" && v.st.nextPoints > 0)
+    .map((v) => ({ ...v, toNext: toNextRatio(v.st) }))
+    .sort((a, b) => b.toNext - a.toNext)
+    .slice(0, SOON_N)
   const shown = view.filter((v) => (show === "all" ? true : show === "earned" ? v.st.state === "earned" : v.st.state !== "earned" || v.st.nextPoints > 0))
   const units = view.reduce((a, v) => a + (v.st.steps ? v.st.steps.length : 1), 0)
   const unlocked = view.reduce((a, v) => a + (v.st.steps ? v.st.steps.filter((x) => x.done).length : v.st.state === "earned" ? 1 : 0), 0)
@@ -1838,20 +1871,18 @@ function BadgesPanel({ people, rows, loading }: { people: Player[]; rows: CubeRo
                   </span>
                 ))}
               </div>
-              {next && (
-                <div className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
-                  <Target className="size-3.5 text-primary" />
-                  下一個目標：<span className="font-semibold text-foreground">{next.c.name}</span>
-                  <span>——{next.st.note}</span>
-                  <span className={cn("font-mono font-bold", CREST[next.c.tier].text)}>+{next.st.nextPoints}</span>
-                </div>
-              )}
             </div>
-            <ToggleGroup type="single" size="sm" variant="outline" value={show} onValueChange={(v) => v && setShow(v as typeof show)}>
-              <ToggleGroupItem value="all" className="h-7 px-2 text-xs">全部</ToggleGroupItem>
-              <ToggleGroupItem value="earned" className="h-7 px-2 text-xs">已解鎖</ToggleGroupItem>
-              <ToggleGroupItem value="todo" className="h-7 px-2 text-xs">還能拿</ToggleGroupItem>
-            </ToggleGroup>
+            <div className="flex flex-col items-end gap-1.5">
+              <ToggleGroup type="single" size="sm" variant="outline" value={show} onValueChange={(v) => v && setShow(v as typeof show)}>
+                <ToggleGroupItem value="all" className="h-7 px-2 text-xs">全部</ToggleGroupItem>
+                <ToggleGroupItem value="earned" className="h-7 px-2 text-xs">已解鎖</ToggleGroupItem>
+                <ToggleGroupItem value="todo" className="h-7 px-2 text-xs">還能拿</ToggleGroupItem>
+              </ToggleGroup>
+              <ToggleGroup type="single" size="sm" variant="outline" value={dense ? "dense" : "cards"} onValueChange={(v) => v && setDensity(v === "dense")}>
+                <ToggleGroupItem value="cards" className="h-7 px-2 text-xs" data-tip="每一枚一張卡片：條件、進度、誰解鎖了">卡片</ToggleGroupItem>
+                <ToggleGroupItem value="dense" className="h-7 px-2 text-xs" data-tip="一枚一行：徽框、名稱、進度條，一眼看完全部">精簡</ToggleGroupItem>
+              </ToggleGroup>
+            </div>
           </div>
           {/* 獎盃架：已解鎖的徽章排成一排，滑過看是哪一枚 */}
           <div className="mt-3 flex min-h-9 flex-wrap items-center gap-1 border-t border-border/60 pt-3" data-testid="badge-shelf">
@@ -1867,6 +1898,66 @@ function BadgesPanel({ people, rows, loading }: { people: Player[]; rows: CubeRo
           </div>
         </div>
 
+        {/* 即將解鎖：離下一級最近的幾枚 */}
+        {soon.length > 0 && (
+          <section data-testid="badge-soon">
+            <div className="mb-2 flex items-center gap-2">
+              <span className="grid size-6 place-items-center rounded-md bg-primary/15 text-primary">
+                <Target className="size-3.5" />
+              </span>
+              <h3 className="text-sm font-bold tracking-wider">即將解鎖</h3>
+              <span className="h-px flex-1 bg-linear-90 from-border to-transparent" />
+              <span className="hidden text-[11px] text-muted-foreground sm:inline">離下一級最近的 {soon.length} 枚</span>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              {soon.map(({ c, st, toNext }, i) => (
+                <div
+                  key={`${sel.puuid}:${c.key}`}
+                  className="rise flex items-center gap-2.5 rounded-lg border bg-card px-2.5 py-2"
+                  style={{ "--stagger": `${i * 40}ms` } as CSSProperties}
+                  data-tip={`${c.name}\n${c.hint}\n{{lab|目前}}{{big|${st.now ?? "—"}}}\n> ${st.note}`}
+                >
+                  <Crest icon={c.icon} tier={st.tier} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="truncate text-[13px] font-semibold">{nextName(c, st)}</span>
+                      <span className="shrink-0 font-mono text-[11px] font-bold text-primary">+{st.nextPoints}</span>
+                    </div>
+                    <div className="relative mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div className="bar-grow absolute inset-y-0 left-0 rounded-full bg-linear-90 from-primary/50 to-primary" style={{ width: `${Math.round(toNext * 100)}%` }} />
+                    </div>
+                    <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{st.note}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* 分類捷徑：點了捲到那一區 */}
+        <nav className="flex flex-wrap gap-1.5" aria-label="徽章分類" data-testid="badge-nav">
+          {CATEGORIES.map((cat) => {
+            const all = view.filter((v) => v.c.category === cat.key)
+            if (!all.length) return null
+            const CatIcon = cat.icon
+            const done = all.filter((v) => v.st.state === "earned").length
+            return (
+              <button
+                key={cat.key}
+                type="button"
+                onClick={() => document.getElementById(`badge-cat-${cat.key}`)?.scrollIntoView({ block: "start", behavior: prefersReducedMotion() ? "auto" : "smooth" })}
+                className="flex items-center gap-1.5 rounded-full border bg-card px-2.5 py-1 text-xs transition-colors hover:border-primary hover:text-primary"
+              >
+                <CatIcon className="size-3.5" />
+                {cat.key}
+                <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                  {done}/{all.length}
+                </span>
+              </button>
+            )
+          })}
+        </nav>
+
         {/* 依類別分區 */}
         {shown.length === 0 && <EmptyState>{show === "earned" ? `${nameOf(sel)} 目前還沒有解鎖徽章。` : `${nameOf(sel)} 已經拿到全部的徽章。`}</EmptyState>}
         {CATEGORIES.map((cat) => {
@@ -1875,7 +1966,7 @@ function BadgesPanel({ people, rows, loading }: { people: Player[]; rows: CubeRo
           const all = view.filter((v) => v.c.category === cat.key)
           const CatIcon = cat.icon
           return (
-            <section key={cat.key} data-testid="badge-category">
+            <section key={cat.key} id={`badge-cat-${cat.key}`} className="scroll-mt-28" data-testid="badge-category">
               <div className="mb-2.5 flex items-center gap-2">
                 <span className="grid size-6 place-items-center rounded-md bg-primary/15 text-primary">
                   <CatIcon className="size-3.5" />
@@ -1887,16 +1978,84 @@ function BadgesPanel({ people, rows, loading }: { people: Player[]; rows: CubeRo
                 <span className="h-px flex-1 bg-linear-90 from-border to-transparent" />
                 <span className="hidden text-[11px] text-muted-foreground sm:inline">{cat.note}</span>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                {items.map(({ c, st, holders }) => (
-                  <BadgeTile key={`${sel.puuid}:${c.key}`} card={c} st={st} holders={holders} total={people.length} index={n++} />
-                ))}
-              </div>
+              {dense ? (
+                <div className="grid gap-x-4 gap-y-1 sm:grid-cols-2 xl:grid-cols-3">
+                  {items.map(({ c, st, holders }) => (
+                    <BadgeRow key={`${sel.puuid}:${c.key}`} card={c} st={st} holders={holders} total={people.length} index={n++} />
+                  ))}
+                </div>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                  {items.map(({ c, st, holders }) => (
+                    <BadgeTile key={`${sel.puuid}:${c.key}`} card={c} st={st} holders={holders} total={people.length} index={n++} />
+                  ))}
+                </div>
+              )}
             </section>
           )
         })}
       </div>
     </Panel>
+  )
+}
+
+/** 「即將解鎖」放幾枚 */
+const SOON_N = 4
+
+/** 到下一級的進度（0～1）：階梯型看目前這一段（上一級 → 下一級），其他就是本身的進度 */
+function toNextRatio(st: BadgeStatus) {
+  if (!st.steps) return Math.min(1, Math.max(0, st.ratio))
+  const i = st.steps.findIndex((x) => !x.done)
+  if (i < 0) return 1
+  const from = i === 0 ? 0 : st.steps[i - 1].at
+  const to = st.steps[i].at
+  return to > from ? Math.min(1, Math.max(0, (st.ratio - from) / (to - from))) : 0
+}
+
+/** 下一級的名字：階梯型寫要升到的那一級（「不動如山 II」），其他就是徽章名 */
+function nextName(c: BadgeCard, st: BadgeStatus) {
+  const i = st.steps?.findIndex((x) => !x.done) ?? -1
+  if (i < 0) return c.name
+  const l = LADDERS.find((x) => x.key === c.key)
+  return l ? levelName(l, i) : c.name
+}
+
+/** 精簡顯示的一行：徽框、名稱與等級、進度條、目前的數字；滑過看條件與還差多少 */
+function BadgeRow({ card, st, holders, total, index }: { card: BadgeCard; st: BadgeStatus; holders: Player[]; total: number; index: number }) {
+  const got = st.state === "earned"
+  const locked = st.state === "locked"
+  const c = st.tier ? CREST[st.tier] : null
+  const maxed = got && st.nextPoints === 0
+  return (
+    <div
+      data-testid="badge-row"
+      data-state={st.state}
+      data-badge={card.key}
+      style={{ "--stagger": `${Math.min(index * 15, 300)}ms` } as CSSProperties}
+      className="rise flex items-center gap-2.5 rounded-lg px-1.5 py-1 transition-colors hover:bg-accent/60"
+      data-tip={`${st.level ?? card.name}\n${card.hint}\n{{lab|目前}}{{big|${st.now ?? "—"}}}\n> ${st.note}\n> ${holders.length}／${total} 位好友解鎖`}
+    >
+      <Crest icon={card.icon} tier={st.tier} size="sm" dim={locked} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-1.5">
+          <span className={cn("truncate text-[13px] font-semibold", !got && "text-foreground/75")}>{st.level ?? card.name}</span>
+          {locked && <Lock className="size-3 shrink-0 text-muted-foreground" />}
+          <span className={cn("ml-auto shrink-0 font-mono text-[11px] tabular-nums", got ? c?.text : "text-muted-foreground")}>
+            {got ? `+${st.points}` : `${st.nextPoints} 點`}
+          </span>
+        </div>
+        <div className="relative mt-1 h-1.5 rounded-full bg-muted">
+          <div
+            className={cn("bar-grow absolute inset-y-0 left-0 rounded-full", locked ? "bg-muted-foreground/45" : c && maxed ? c.bar : "bg-linear-90 from-primary/50 to-primary")}
+            style={{ width: `${Math.round(Math.min(1, Math.max(0, st.ratio)) * 100)}%` }}
+          />
+          {st.steps?.map((x) => (
+            <span key={x.label} className={cn("absolute top-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rotate-45 ring-2 ring-card", x.done ? CREST[x.tier].dot : "bg-muted-foreground/45")} style={{ left: `${x.at * 100}%` }} />
+          ))}
+        </div>
+        <div className="mt-0.5 truncate font-mono text-[10px] tabular-nums text-muted-foreground">{got && maxed ? st.now : `${st.now ?? "—"}・${st.note}`}</div>
+      </div>
+    </div>
   )
 }
 
@@ -3420,6 +3579,28 @@ export function Crew() {
   // 稱號用的幾項數據（每人一列）
   const titleStats = useCube(q({ measures: TITLE_MEASURES, dimensions: ["participants.puuid"], limit: NO_LIMIT }))
   const lossStats = useCube(q({ measures: [WORK, WORK_GAMES], dimensions: ["participants.puuid"], segments: ["participants.losses_only"], limit: NO_LIMIT }))
+  // 連勝徽章：每人每場的勝負，依開打時間排好後算最長連勝（SQLite 沒有現成的聚合；全部約 2,500 列、0.3 秒）
+  const streakRows = useCube(q({ measures: ["participants.wins"], dimensions: ["participants.puuid", "participants.game_key", "matches.played_at"], limit: NO_LIMIT }))
+  const streaks = useMemo(() => {
+    const by = new Map<string, { t: string; w: number }[]>()
+    for (const r of streakRows.rows) {
+      const key = String(r["participants.puuid"])
+      const list = by.get(key) ?? []
+      list.push({ t: String(r["matches.played_at"]), w: n0(r, "participants.wins") })
+      by.set(key, list)
+    }
+    return new Map(
+      [...by].map(([k, list]) => {
+        let best = 0
+        let cur = 0
+        for (const g of list.sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0))) {
+          cur = g.w > 0 ? cur + 1 : 0
+          best = Math.max(best, cur)
+        }
+        return [k, best]
+      }),
+    )
+  }, [streakRows.rows])
   const nightStats = useCube(
     q({ measures: ["participants.games"], dimensions: ["participants.puuid"], filters: [{ member: "matches.hour_of_day", operator: "lt", values: ["6"] }], limit: NO_LIMIT }),
   )
@@ -3454,7 +3635,7 @@ export function Crew() {
   // 增幅、數據總表不在這裡：那是別的分頁的資料
   const loading =
     summary.loading || roles.loading || champs.loading || everyone.loading || everyoneRoles.loading ||
-    dmgTypes.loading || titleStats.loading || lossStats.loading || nightStats.loading
+    dmgTypes.loading || titleStats.loading || lossStats.loading || nightStats.loading || streakRows.loading
 
   const sumOf = (puuid: string) => summary.rows.find((r) => r["participants.puuid"] === puuid)
   const gamesOf = (puuid: string) => n0(sumOf(puuid), "participants.games")
@@ -3516,9 +3697,10 @@ export function Crew() {
         [X_LOSS_GAMES]: loss?.[WORK_GAMES] ?? 0,
         [X_NIGHT_GAMES]: by(nightStats.rows, puuid)?.["participants.games"] ?? 0,
         [X_TOP_CHAMP]: champGames.length ? Math.max(...champGames) : 0,
+        [X_STREAK]: streaks.get(puuid) ?? 0,
       } as CubeRow
     })
-  }, [titleStats.rows, lossStats.rows, nightStats.rows, champs.rows])
+  }, [titleStats.rows, lossStats.rows, nightStats.rows, champs.rows, streaks])
   // 徽章：數字達到門檻就有，不跟別人比（門檻見 T 與各階梯）；名字底下、抽屜、徽章頁同一份
   const badges = useMemo(
     () => badgesOf(ordered, titleRows),
