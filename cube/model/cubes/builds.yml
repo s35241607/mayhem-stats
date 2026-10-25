@@ -7,8 +7,12 @@ cubes:
   # 為什麼需要：官方定位看不出實際出裝。官方「鬥士」有一半出純輸出裝、「輔助」常出法師裝——
   # 用官方定位問「適不適合鬥士」，其實混了兩種完全不同的玩法。
   #
-  # 怎麼算：終場 6 格裝備（不含飾品），排除鞋子與總價 1500 以下的零件，依各裝備的類別把「總價」分給
-  # AD／AP／坦度三堆（一件裝備同時屬於幾堆就平分），輔助裝另成一堆。再看各堆佔的金額比例，依序：
+  # 怎麼算：終場 6 格裝備（不含飾品），排除鞋子與總價 1500 以下的零件，把每件的「總價」分給
+  # AD／AP／坦度三堆，輔助裝另成一堆。混合裝依能力值的金錢價值拆（dim_item_stats，見 SQL 的 stat_gold）：
+  #   黎安卓的折磨（60 魔攻＋300 生命）AP 60%、坦度 40%；烏莉特的法帽 AP 86%、坦度 14%；黑色切割者 AD 60%、坦度 40%。
+  #   沒有能力值資料的裝備才退回「屬於幾堆就平分」。2026-10-25 以前全部都是平分：法師出黎安卓、中婭就被算成一半坦裝，
+  #   官方主定位是法師的人有 20% 被判成鬥士（改後 12%，剩下的多半是斯溫、賽勒斯、雷茲疊瑞萊、時光之杖、峽谷製造者這種戰鬥法師）。
+  # 再看各堆佔的金額比例，依序：
   #   1. 輔助裝 ≥ 35%                                        → 輔助
   #   2. 坦度 ≥ 50%，且 AD、AP 都 < 25%（幾乎純坦裝）          → 坦克
   #   3. 坦度 ≥ 30%（一半肉一半輸出）                         → 鬥士
@@ -52,11 +56,22 @@ cubes:
       materialize:
         table: mat_builds
         sql: >
-          WITH item_groups AS (
+          WITH stat_gold AS (
+            -- 一件裝備的能力值換成金錢價值（召喚峽谷基本零件的單價：長劍 35／攻擊力、增幅典籍 20／魔法攻擊、布甲 20／護甲、
+            -- 抗魔斗篷 18／魔法抗性、紅水晶 2.67／生命、短劍 25／1% 攻速、敏捷斗篷 40／1% 暴擊…），用來把混合裝的總價依能力值拆給 AD／AP／坦度
+            SELECT item_id,
+              SUM(CASE stat WHEN 'AttackDamage' THEN value * 35 WHEN 'AttackSpeed' THEN value * 25 WHEN 'CritChance' THEN value * 40
+                            WHEN 'Lethality' THEN value * 30 WHEN 'ArmorPenetration' THEN value * 41.67 WHEN 'LifeSteal' THEN value * 55 ELSE 0 END) AS g_ad,
+              SUM(CASE stat WHEN 'AbilityPower' THEN value * 20 WHEN 'MagicPenetration' THEN value * 31 WHEN 'MagicPenetrationPercent' THEN value * 46 ELSE 0 END) AS g_ap,
+              SUM(CASE stat WHEN 'Armor' THEN value * 20 WHEN 'MagicResist' THEN value * 18 WHEN 'Health' THEN value * 2.67 ELSE 0 END) AS g_tank
+            FROM dim_item_stats GROUP BY item_id
+          ),
+          item_groups AS (
             SELECT di.id AS item_id, di.price_total AS price,
               MAX(c.category IN ('Damage','CriticalStrike','AttackSpeed','ArmorPenetration','LifeSteal','OnHit')) AS is_ad,
               MAX(c.category IN ('SpellDamage','MagicPenetration','SpellVamp')) AS is_ap,
               MAX(c.category IN ('Health','Armor','SpellBlock','MagicResist')) AS is_tank,
+              MAX(sg.g_ad) AS g_ad, MAX(sg.g_ap) AS g_ap, MAX(sg.g_tank) AS g_tank,
               MAX(c.category = 'Boots') AS is_boots,
               di.id IN (6617, 4005, 2530, 3504, 6621, 3107, 6616, 3222, 6620, 2065, 2526) AS is_sup,
               -- AD 的細分，依序判斷：暴擊 → 穿甲 → 攻速 → 其他
@@ -67,6 +82,7 @@ cubes:
                 ELSE 'other'
               END AS ad_kind
             FROM dim_items di JOIN dim_item_categories c ON c.item_id = di.id
+            LEFT JOIN stat_gold sg ON sg.item_id = di.id
             GROUP BY di.id
           ),
           primary_role AS (
@@ -77,21 +93,29 @@ cubes:
             SELECT DISTINCT champion_id FROM dim_champion_roles WHERE role = 'marksman'
           ),
           per_item AS (
+            -- 每件裝備分給三堆的比例 w_*（加起來 1）：有可辨識的能力值就依能力值的金錢價值拆，
+            -- 例如黎安卓的折磨（60 魔攻＋300 生命）是 AP 60%、坦度 40%，烏莉特的法帽（300 魔攻＋50 護甲）AP 86%、坦度 14%；
+            -- 沒有能力值資料的才退回「屬於幾堆就平分」（2026-10-25 以前全部都是平分，法師出黎安卓、中婭就被算成一半坦裝）
             SELECT pi.platform_id, pi.game_id, pi.participant_id, g.price, g.is_sup, g.ad_kind,
-                   g.is_ad, g.is_ap, g.is_tank, (g.is_ad + g.is_ap + g.is_tank) AS n
+                   CASE WHEN COALESCE(g.g_ad + g.g_ap + g.g_tank, 0) > 0 THEN g.g_ad / (g.g_ad + g.g_ap + g.g_tank)
+                        WHEN g.is_ad + g.is_ap + g.is_tank > 0 THEN g.is_ad * 1.0 / (g.is_ad + g.is_ap + g.is_tank) ELSE 0 END AS w_ad,
+                   CASE WHEN COALESCE(g.g_ad + g.g_ap + g.g_tank, 0) > 0 THEN g.g_ap / (g.g_ad + g.g_ap + g.g_tank)
+                        WHEN g.is_ad + g.is_ap + g.is_tank > 0 THEN g.is_ap * 1.0 / (g.is_ad + g.is_ap + g.is_tank) ELSE 0 END AS w_ap,
+                   CASE WHEN COALESCE(g.g_ad + g.g_ap + g.g_tank, 0) > 0 THEN g.g_tank / (g.g_ad + g.g_ap + g.g_tank)
+                        WHEN g.is_ad + g.is_ap + g.is_tank > 0 THEN g.is_tank * 1.0 / (g.is_ad + g.is_ap + g.is_tank) ELSE 0 END AS w_tank
             FROM participant_items pi JOIN item_groups g ON g.item_id = pi.item_id
             WHERE pi.slot < 6 AND g.price >= 1500 AND g.is_boots = 0
           ),
           gold AS (
             SELECT platform_id, game_id, participant_id,
-              SUM(CASE WHEN is_sup = 0 AND n > 0 THEN price * is_ad * 1.0 / n ELSE 0 END) AS ad,
-              SUM(CASE WHEN is_sup = 0 AND n > 0 THEN price * is_ap * 1.0 / n ELSE 0 END) AS ap,
-              SUM(CASE WHEN is_sup = 0 AND n > 0 THEN price * is_tank * 1.0 / n ELSE 0 END) AS tank,
+              SUM(CASE WHEN is_sup = 0 THEN price * w_ad ELSE 0 END) AS ad,
+              SUM(CASE WHEN is_sup = 0 THEN price * w_ap ELSE 0 END) AS ap,
+              SUM(CASE WHEN is_sup = 0 THEN price * w_tank ELSE 0 END) AS tank,
               SUM(CASE WHEN is_sup = 1 THEN price ELSE 0 END) AS sup,
-              SUM(CASE WHEN is_sup = 0 AND n > 0 AND ad_kind = 'crit' THEN price * is_ad * 1.0 / n ELSE 0 END) AS ad_crit,
-              SUM(CASE WHEN is_sup = 0 AND n > 0 AND ad_kind = 'pen' THEN price * is_ad * 1.0 / n ELSE 0 END) AS ad_pen,
-              SUM(CASE WHEN is_sup = 0 AND n > 0 AND ad_kind = 'as' THEN price * is_ad * 1.0 / n ELSE 0 END) AS ad_as,
-              SUM(CASE WHEN is_sup = 0 AND n > 0 AND ad_kind = 'other' THEN price * is_ad * 1.0 / n ELSE 0 END) AS ad_other
+              SUM(CASE WHEN is_sup = 0 AND ad_kind = 'crit' THEN price * w_ad ELSE 0 END) AS ad_crit,
+              SUM(CASE WHEN is_sup = 0 AND ad_kind = 'pen' THEN price * w_ad ELSE 0 END) AS ad_pen,
+              SUM(CASE WHEN is_sup = 0 AND ad_kind = 'as' THEN price * w_ad ELSE 0 END) AS ad_as,
+              SUM(CASE WHEN is_sup = 0 AND ad_kind = 'other' THEN price * w_ad ELSE 0 END) AS ad_other
             FROM per_item GROUP BY 1, 2, 3
           ),
           team_taken AS (
