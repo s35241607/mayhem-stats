@@ -326,7 +326,7 @@ const NUM_CLASS: Record<Strength, string> = {
  *  用容器查詢（@container）而不是視窗寬度，側欄展開或收合時排版跟著實際可用的寬度走。 */
 const ROW_COLS =
   "grid-cols-[minmax(0,1fr)_6rem] gap-3 @[1000px]:grid-cols-[14rem_6rem_minmax(14rem,0.8fr)_11rem_minmax(0,1.2fr)] @[1000px]:gap-4 @[1400px]:grid-cols-[18rem_6rem_minmax(16rem,0.7fr)_12rem_minmax(0,1.3fr)]"
-/** 全員一覽載入中的佔位：每人一列，欄位和真正的列（ROW_COLS）一樣——名字與稱號、雷達、出裝橫條、英雄頭像——
+/** 全員一覽載入中的佔位：每人一列，欄位和真正的列（ROW_COLS）一樣——名字與徽章、雷達、出裝橫條、英雄頭像——
  *  換上內容時版面不會跳。上面一行是轉圈圈與說明，讓人知道不是壞了；列本身是呼吸的淡色塊（只動 opacity）。 */
 function MatrixSkeleton({ rows, label }: { rows: number; label: string }) {
   const bar = "rounded bg-muted"
@@ -1083,7 +1083,7 @@ const T = {
   champs: 90, // 玩過的英雄數
 } as const
 
-/** 里程碑：場次的門檻，由高到低找第一個達到的 */
+/** 老將階梯的三級（場次） */
 const GAME_MILESTONES = [
   { games: 500, name: "五百場老將" },
   { games: 300, name: "三百場老將" },
@@ -1261,7 +1261,7 @@ const TITLES: TitleDef[] = [
   { name: "英雄百科", icon: BookOpen, tier: "gold", hint: `玩過 ${T.champs} 隻以上的英雄`, threshold: T.champs, gap: (d) => `${Math.ceil(d)} 隻英雄`, value: (r) => opt(r, "participants.champion_count"), fmt: (v) => `玩過 ${Math.round(v)} 隻英雄` },
 ]
 
-type Title = { name: string; kind: "title" | "milestone"; tier: TitleTier; icon: LucideIcon; tip: string }
+type Title = { name: string; tier: TitleTier; icon: LucideIcon; tip: string }
 
 /** 同隊的一組好友（兩人一起、同一隊）。games／wins 來自語意層的 teammates */
 type DuoPair = { a: Player; b: Player; games: number; wins: number }
@@ -1525,42 +1525,31 @@ function levelOf(points: number) {
 /** 成就等級的徽框顏色：10 級以上傳說、5 級以上金，其餘銀 */
 const levelTier = (level: number): TitleTier => (level >= 10 ? "legend" : level >= 5 ? "gold" : "silver")
 
-/** 每個人拿到的稱號與里程碑：達標就有，不跟別人比。rows 是 TITLE_MEASURES 以 participants.puuid 分組的結果（再併上敗場貢獻等） */
-function titlesOf(people: Player[], rows: CubeRow[]): Map<string, Title[]> {
-  const out = new Map<string, Title[]>(people.map((p) => [p.puuid, []]))
-  const rowOf = (puuid: string) => rows.find((r) => r["participants.puuid"] === puuid)
-  // 提示框用的排版標記見 lib/tip.ts：標題是稱號名，「條件」是要達到什麼，「目前」是他的數字（門檻放在下一行）
+/** 每個人已解鎖的徽章（名字底下、抽屜用）與成就點數：和徽章頁同一份目錄、同一套狀態，不另外寫一份。
+ *  階梯型只放目前到的那一級（「不動如山 III」、「十萬輸出」）。rows 是 TITLE_MEASURES 以 participants.puuid 分組的結果 */
+function badgesOf(people: Player[], rows: CubeRow[]): Map<string, { items: Title[]; points: number }> {
+  const cards = badgeCatalog(rows)
+  // 提示框用的排版標記見 lib/tip.ts：標題是徽章名，「條件」是要達到什麼，「目前」是他的數字
   const m = (kind: string, text: string) => `{{${kind}|${text}}}`
-  for (const p of people) {
-    const r = rowOf(p.puuid)
-    if (!r) continue
-    const mine = out.get(p.puuid)!
-    const games = n0(r, "participants.games")
-    for (const t of TITLES) {
-      if (titleStatus(t, r).state !== "earned") continue
-      const v = t.value(r)!
-      mine.push({
-        name: t.name,
-        kind: "title",
-        tier: t.tier,
-        icon: t.icon,
-        tip: `${t.name}\n${m("lab", "條件")}${t.hint}\n${m("lab", "目前")}${m("big", t.fmt(v))}\n> 門檻 ${t.fmt(t.threshold)}${t.lower ? " 以下" : " 以上"}・${games} 場`,
-      })
-    }
-  }
-  // 里程碑
-  for (const p of people) {
-    const r = rowOf(p.puuid)
-    if (!r) continue
-    const mine = out.get(p.puuid)!
-    const pentas = n0(r, "participants.pentas")
-    // 已經是五殺之王就不再重複寫五殺達成
-    if (pentas > 0 && !mine.some((t) => t.name === "五殺之王")) mine.push({ name: "五殺達成", kind: "milestone", tier: "silver", icon: Sparkles, tip: `里程碑：拿過五殺（${pentas} 次）` })
-    const games = n0(r, "participants.games")
-    const g = GAME_MILESTONES.find((x) => games >= x.games)
-    if (g) mine.push({ name: g.name, kind: "milestone", tier: "silver", icon: Medal, tip: `里程碑：大亂鬥 ${g.games} 場以上（目前 ${games} 場）` })
-  }
-  return out
+  return new Map(
+    people.map((p) => {
+      const items: Title[] = []
+      let points = 0
+      for (const c of cards) {
+        const st = c.status(p)
+        points += st.points
+        if (!st.tier) continue
+        const name = st.level ?? c.name
+        items.push({
+          name,
+          tier: st.tier,
+          icon: c.icon,
+          tip: `${name}\n${m("lab", "條件")}${c.hint}\n${m("lab", "目前")}${m("big", st.now ?? "—")}\n> ${st.note}・${TIER_NAME[st.tier]}・${st.points} 點`,
+        })
+      }
+      return [p.puuid, { items, points }]
+    }),
+  )
 }
 
 /** 搭檔矩陣：兩人同隊的場次與勝率。顏色依勝率和 50% 的差（勝／敗兩色），區間整段在一邊才加粗外框；
@@ -1640,26 +1629,31 @@ const TIER_CLASS: Record<TitleTier, { badge: string; icon: string }> = {
 /** 傳說 → 金 → 銀，同一級照原本的順序 */
 const TIER_ORDER: Record<TitleTier, number> = { legend: 0, gold: 1, silver: 2 }
 
-/** 稱號（傳說／金）與里程碑（銀）。一個都沒有就不畫。size="lg" 給抽屜用 */
+/** 名字底下最多放幾枚（傳說 → 金 → 銀），其餘收成「＋N」，滑過看是哪些 */
+const ROW_BADGES = 6
+
+/** 已解鎖的徽章，傳說 → 金 → 銀。一個都沒有就不畫。size="lg" 給抽屜用（全部列出） */
 function TitleBadges({ titles, className, size = "sm" }: { titles: Title[] | undefined; className?: string; size?: "sm" | "lg" }) {
   if (!titles?.length) return null
   const sorted = [...titles].sort((a, b) => TIER_ORDER[a.tier] - TIER_ORDER[b.tier])
   const lg = size === "lg"
+  const shown = lg ? sorted : sorted.slice(0, ROW_BADGES)
+  const rest = sorted.slice(shown.length)
   return (
     <span className={cn("flex flex-wrap", lg ? "gap-2" : "gap-1.5", className)} data-testid="crew-titles">
-      {sorted.map((t, i) => {
+      {shown.map((t, i) => {
         const tier = TIER_CLASS[t.tier]
         const Icon = t.icon
         return (
           <span
             key={t.name}
             data-tip={t.tip}
-            data-testid={t.kind === "title" ? "crew-title" : "crew-milestone"}
+            data-testid="crew-title"
             data-tier={t.tier}
             style={{ "--stagger": `${i * 120}ms` } as CSSProperties}
             className={cn(
               "inline-flex items-center rounded-full border font-semibold whitespace-nowrap",
-              t.kind === "title" && "title-shine",
+              t.tier !== "silver" && "title-shine",
               lg ? "gap-1.5 py-0.5 pr-2.5 pl-0.5 text-xs" : "gap-1 py-px pr-2 pl-px text-[11px]",
               tier.badge,
             )}
@@ -1671,6 +1665,14 @@ function TitleBadges({ titles, className, size = "sm" }: { titles: Title[] | und
           </span>
         )
       })}
+      {rest.length > 0 && (
+        <span
+          className={cn("inline-flex items-center rounded-full border border-dashed px-2 text-muted-foreground", lg ? "text-xs" : "text-[11px]")}
+          data-tip={`還有 ${rest.length} 枚\n${rest.map((t) => `${t.name}（${TIER_NAME[t.tier]}）`).join("、")}\n-- 點這一列看全部`}
+        >
+          ＋{rest.length}
+        </span>
+      )}
     </span>
   )
 }
@@ -1765,7 +1767,7 @@ function BadgesPanel({ people, rows, loading }: { people: Player[]; rows: CubeRo
     <Panel
       title="徽章"
       caption="累積到門檻就解鎖；每一枚都有成就點數，點數決定成就等級"
-      hint={`稱號（戰鬥、團隊、風格）、單場壯舉、累積階梯（銀 → 金 → 傳說，每一級都算一枚）。成就點數：銀 ${TIER_POINTS.silver}、金 ${TIER_POINTS.gold}、傳說 ${TIER_POINTS.legend}，每 ${LEVEL_XP} 點升一級。數字照上面的模式、版本、期間與比較範圍算；場次不到 ${TITLE_MIN_GAMES} 場的人，稱號先不算（比率太不準），壯舉與累積照算`}
+      hint={`比率型（戰鬥、團隊、風格：場次夠了看平均或比率）、單場壯舉、累積階梯（銀 → 金 → 傳說，每一級都算一枚）。成就點數：銀 ${TIER_POINTS.silver}、金 ${TIER_POINTS.gold}、傳說 ${TIER_POINTS.legend}，每 ${LEVEL_XP} 點升一級。數字照上面的模式、版本、期間與比較範圍算；場次不到 ${TITLE_MIN_GAMES} 場的人，比率型先不算（比率太不準），壯舉與累積照算`}
     >
       <div className="space-y-5" data-testid="crew-badges">
         {/* 選人：像選角畫面的名牌，帶各自的成就等級 */}
@@ -2203,7 +2205,7 @@ function PlayerDrawerBody({
 }: {
   player: Player
   profile: Profile
-  /** 這個人在目前比較對象裡拿到的稱號與里程碑 */
+  /** 這個人已解鎖的徽章 */
   titles?: Title[]
   role: string | null
   onRole: (role: string | null) => void
@@ -2346,9 +2348,9 @@ function PlayerDrawerBody({
         </p>
         {!!titles?.length && (
           <div className="flex flex-wrap items-center gap-2 rounded-lg border p-3">
-            <span className="text-[11px] text-muted-foreground">稱號</span>
+            <span className="text-[11px] text-muted-foreground">徽章</span>
             <TitleBadges titles={titles} size="lg" />
-            <span className="text-[11px] text-muted-foreground">滑過看數字；稱號是累積到門檻就有，滑過看條件</span>
+            <span className="text-[11px] text-muted-foreground">滑過看條件與目前的數字；還差多少看「徽章」分頁</span>
           </div>
         )}
         <StyleCard style={profile.style} scored={ov.scored} />
@@ -3517,9 +3519,9 @@ export function Crew() {
       } as CubeRow
     })
   }, [titleStats.rows, lossStats.rows, nightStats.rows, champs.rows])
-  // 稱號：數字達到門檻就有，不跟別人比（門檻見 T）
-  const titles = useMemo(
-    () => titlesOf(ordered, titleRows),
+  // 徽章：數字達到門檻就有，不跟別人比（門檻見 T 與各階梯）；名字底下、抽屜、徽章頁同一份
+  const badges = useMemo(
+    () => badgesOf(ordered, titleRows),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [puuids.join(), titleRows],
   )
@@ -3530,12 +3532,12 @@ export function Crew() {
       const prof = profiles.get(p.puuid)
       if (rowSort === "score") return prof?.overall.score ?? -1
       if (rowSort === "winrate") return prof?.overall.winrate ?? -1
-      if (rowSort === "titles") return (titles.get(p.puuid) ?? []).filter((t) => t.kind === "title").length * 1000 + gamesOf(p.puuid) / 1000
+      if (rowSort === "titles") return (badges.get(p.puuid)?.points ?? 0) * 1000 + gamesOf(p.puuid) / 1000
       return gamesOf(p.puuid)
     }
     return [...ordered].sort((a, b) => key(b) - key(a))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ordered.map((p) => p.puuid).join(), rowSort, profiles, titles, summary.rows])
+  }, [ordered.map((p) => p.puuid).join(), rowSort, profiles, badges, summary.rows])
   // B：出裝小森林所有人共用一把尺：取所有區間最遠的一端，進位到 5，介於 10～30
   const roleReach = useMemo(() => {
     const far = ordered.flatMap((p) => (profiles.get(p.puuid)?.roles ?? []).flatMap((j) => (j.g?.interval ? [Math.abs(j.g.interval[0]), Math.abs(j.g.interval[1])] : [])))
@@ -3665,7 +3667,7 @@ export function Crew() {
                 <ToggleGroupItem value="games" className="h-7 px-2 text-xs">依場次</ToggleGroupItem>
                 <ToggleGroupItem value="score" className="h-7 px-2 text-xs">依貢獻</ToggleGroupItem>
                 <ToggleGroupItem value="winrate" className="h-7 px-2 text-xs">依勝率</ToggleGroupItem>
-                <ToggleGroupItem value="titles" className="h-7 px-2 text-xs">依稱號數</ToggleGroupItem>
+                <ToggleGroupItem value="titles" className="h-7 px-2 text-xs">依成就點數</ToggleGroupItem>
               </ToggleGroup>
             }
             caption="每人一列；滑過看數字，點一列看完整分析"
@@ -3760,7 +3762,7 @@ export function Crew() {
                             <span className="block truncate text-[11px]" data-tip={prof.style.archetypeNote ?? undefined} data-testid="crew-style-line">
                               {styleLine(prof.style)}
                             </span>
-                            <TitleBadges titles={titles.get(p.puuid)} className="mt-1" />
+                            <TitleBadges titles={badges.get(p.puuid)?.items} className="mt-1" />
                           </span>
                           <MiniHex data={prof.roles.map((j) => ({ label: j.label, games: j.games, strength: j.strength }))} total={ov.games} />
                           <span className={SECTION_SPAN}>
@@ -3902,7 +3904,7 @@ export function Crew() {
             onTab={(tab) => setFocus((f) => (f?.kind === "player" ? { ...f, tab } : f))}
             jumpChamp={focus.champ}
             crewFilter={crewFilter}
-            titles={titles.get(focusPlayer.puuid)}
+            titles={badges.get(focusPlayer.puuid)?.items}
           />
         )}
       </DetailDrawer>
