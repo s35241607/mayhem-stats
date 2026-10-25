@@ -1765,7 +1765,7 @@ function BadgesPanel({ people, rows, loading }: { people: Player[]; rows: CubeRo
     <Panel
       title="徽章"
       caption="累積到門檻就解鎖；每一枚都有成就點數，點數決定成就等級"
-      hint={`稱號（戰鬥、團隊、風格）、單場壯舉、累積階梯（銀 → 金 → 傳說，每一級都算一枚）。成就點數：銀 ${TIER_POINTS.silver}、金 ${TIER_POINTS.gold}、傳說 ${TIER_POINTS.legend}，每 ${LEVEL_XP} 點升一級。徽章與稱號是成就，一律看全部期間、所有版本（不跟著頁首的期間、版本篩選，換版本不會歸零），模式與比較對象照上面；場次不到 ${TITLE_MIN_GAMES} 場的人，稱號先不算（比率太不準），壯舉與累積照算`}
+      hint={`稱號（戰鬥、團隊、風格）、單場壯舉、累積階梯（銀 → 金 → 傳說，每一級都算一枚）。成就點數：銀 ${TIER_POINTS.silver}、金 ${TIER_POINTS.gold}、傳說 ${TIER_POINTS.legend}，每 ${LEVEL_XP} 點升一級。數字照上面的模式、版本、期間與比較範圍算；場次不到 ${TITLE_MIN_GAMES} 場的人，稱號先不算（比率太不準），壯舉與累積照算`}
     >
       <div className="space-y-5" data-testid="crew-badges">
         {/* 選人：像選角畫面的名牌，帶各自的成就等級 */}
@@ -3416,22 +3416,10 @@ export function Crew() {
   //   數據總表分頁專用（冷快取 1.5 秒），同樣切過去才查
   const stats = useCube(section === "stats" ? q({ measures: STAT_MEASURES_ALL, dimensions: ["participants.puuid"], limit: NO_LIMIT }) : null)
   // 稱號用的幾項數據（每人一列）
-  // 稱號與徽章是成就：不跟著頁首的期間、版本篩選重算（換版本後累積型徽章不會歸零、單場紀錄不會消失）；模式、比較對象、中心照套
-  const lifetime = (query: CubeQuery): CubeQuery | null => {
-    const x = q(query)
-    if (!x) return null
-    const own = new Set((query.timeDimensions ?? []).map((t) => t.dimension))
-    return {
-      ...x,
-      filters: (x.filters ?? []).filter((f) => f.member !== "matches.patch"),
-      timeDimensions: (x.timeDimensions ?? []).filter((t) => own.has(t.dimension)),
-    }
-  }
-  const titleStats = useCube(lifetime({ measures: TITLE_MEASURES, dimensions: ["participants.puuid"], limit: NO_LIMIT }))
-  const titleChamps = useCube(lifetime({ measures: ["participants.games"], dimensions: ["participants.puuid", "champions.name"], limit: NO_LIMIT }))
-  const lossStats = useCube(lifetime({ measures: [WORK, WORK_GAMES], dimensions: ["participants.puuid"], segments: ["participants.losses_only"], limit: NO_LIMIT }))
+  const titleStats = useCube(q({ measures: TITLE_MEASURES, dimensions: ["participants.puuid"], limit: NO_LIMIT }))
+  const lossStats = useCube(q({ measures: [WORK, WORK_GAMES], dimensions: ["participants.puuid"], segments: ["participants.losses_only"], limit: NO_LIMIT }))
   const nightStats = useCube(
-    lifetime({ measures: ["participants.games"], dimensions: ["participants.puuid"], filters: [{ member: "matches.hour_of_day", operator: "lt", values: ["6"] }], limit: NO_LIMIT }),
+    q({ measures: ["participants.games"], dimensions: ["participants.puuid"], filters: [{ member: "matches.hour_of_day", operator: "lt", values: ["6"] }], limit: NO_LIMIT }),
   )
   // 搭檔：兩人同隊的場次與勝場。teammates 和 participants 沒有 join 路徑，不能走 apply()——
   // 模式、版本、期間照全域條件自己帶（都是 matches 的欄位），「中心」不套用（中心是 participants 那邊的條件）
@@ -3464,7 +3452,7 @@ export function Crew() {
   // 增幅、數據總表不在這裡：那是別的分頁的資料
   const loading =
     summary.loading || roles.loading || champs.loading || everyone.loading || everyoneRoles.loading ||
-    dmgTypes.loading || titleStats.loading || titleChamps.loading || lossStats.loading || nightStats.loading
+    dmgTypes.loading || titleStats.loading || lossStats.loading || nightStats.loading
 
   const sumOf = (puuid: string) => summary.rows.find((r) => r["participants.puuid"] === puuid)
   const gamesOf = (puuid: string) => n0(sumOf(puuid), "participants.games")
@@ -3519,7 +3507,7 @@ export function Crew() {
     return titleStats.rows.map((r) => {
       const puuid = String(r["participants.puuid"])
       const loss = by(lossStats.rows, puuid)
-      const champGames = titleChamps.rows.filter((c) => c["participants.puuid"] === puuid).map((c) => n0(c, "participants.games"))
+      const champGames = champs.rows.filter((c) => c["participants.puuid"] === puuid).map((c) => n0(c, "participants.games"))
       return {
         ...r,
         [X_LOSS_WORK]: loss?.[WORK] ?? null,
@@ -3528,7 +3516,7 @@ export function Crew() {
         [X_TOP_CHAMP]: champGames.length ? Math.max(...champGames) : 0,
       } as CubeRow
     })
-  }, [titleStats.rows, lossStats.rows, nightStats.rows, titleChamps.rows])
+  }, [titleStats.rows, lossStats.rows, nightStats.rows, champs.rows])
   // 稱號：數字達到門檻就有，不跟別人比（門檻見 T）
   const titles = useMemo(
     () => titlesOf(ordered, titleRows),
