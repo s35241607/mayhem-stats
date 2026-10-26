@@ -321,6 +321,55 @@ const NUM_CLASS: Record<Strength, string> = {
   不強勢: "text-loss",
 }
 
+/** 全員一覽每人一列的賽後統計平均（只算有賽後統計的場次；閃現只算帶閃現的場次） */
+const ROSTER_EOG_MEASURES = [
+  "participants.eog_games",
+  "participants.spell_casts_avg",
+  "participants.flash_avg",
+  "participants.items_avg",
+  "participants.ally_heal_avg",
+  "participants.ally_shield_avg",
+  "participants.pings_avg",
+  "participants.consumables_avg",
+  "participants.avg_killing_sprees",
+]
+
+const intOrNull = (v: number | null) => (v === null ? null : Math.round(v).toLocaleString())
+
+/** 一行小字：每場的施法、閃現、買裝、幫隊友治療、幫隊友護盾；訊號、消耗品、連殺收在滑過的說明裡，免得一列太擠 */
+function EogAverages({ r, testId }: { r: CubeRow | undefined; testId: string }) {
+  if (n0(r, "participants.eog_games") === 0) {
+    return (
+      <span className="mt-0.5 block text-[11px] text-muted-foreground" data-testid={testId} data-tip="這個人沒有賽後統計的場次，施法、閃現、買裝與隊友治療／護盾都沒有資料">
+        賽後統計：無資料
+      </span>
+    )
+  }
+  const items: { label: string; value: string | null }[] = [
+    { label: "施法", value: opt(r, "participants.spell_casts_avg")?.toFixed(0) ?? null },
+    { label: "閃現", value: opt(r, "participants.flash_avg")?.toFixed(1) ?? null },
+    { label: "買裝", value: opt(r, "participants.items_avg")?.toFixed(1) ?? null },
+    { label: "治療隊友", value: intOrNull(opt(r, "participants.ally_heal_avg")) },
+    { label: "護盾隊友", value: intOrNull(opt(r, "participants.ally_shield_avg")) },
+  ]
+  const more = [
+    `訊號 ${opt(r, "participants.pings_avg")?.toFixed(1) ?? "—"}`,
+    `消耗品 ${opt(r, "participants.consumables_avg")?.toFixed(1) ?? "—"}`,
+    `連殺 ${opt(r, "participants.avg_killing_sprees")?.toFixed(1) ?? "—"}`,
+  ]
+  const tip = `每場平均（只算 ${n0(r, "participants.eog_games")} 場有賽後統計的場次）；閃現只算帶閃現的場次
+${more.join("　")}`
+  return (
+    <span className="mt-0.5 flex flex-wrap gap-x-2 font-mono text-[11px] tabular-nums text-muted-foreground" data-testid={testId} data-tip={tip}>
+      {items.map((it) => (
+        <span key={it.label}>
+          {it.label} <span className="text-foreground">{it.value ?? "—"}</span>
+        </span>
+      ))}
+    </span>
+  )
+}
+
 /** 一人一列的格線，class 寫成完整字串（Tailwind 掃不到拼出來的） */
 /** 寬的時候五欄（名字、雷達、出裝、貢獻分解、英雄）；窄的時候兩欄：名字與雷達在上，出裝、英雄各佔整行堆疊。
  *  用容器查詢（@container）而不是視窗寬度，側欄展開或收合時排版跟著實際可用的寬度走。 */
@@ -3606,7 +3655,7 @@ export function Crew() {
     puuids.length && centerFilters ? apply({ ...query, filters: [crewFilter(puuids), ...centerFilters, ...(query.filters ?? [])] }, "all") : null
 
   const summary = useCube(
-    q({ measures: [...STAT_MEASURES, "participants.kda", ...AXES.map((c) => c.key), ...WORK_PARTS.map((c) => c.pts)], dimensions: ["participants.puuid"], limit: NO_LIMIT }),
+    q({ measures: [...STAT_MEASURES, "participants.kda", ...ROSTER_EOG_MEASURES, ...AXES.map((c) => c.key), ...WORK_PARTS.map((c) => c.pts)], dimensions: ["participants.puuid"], limit: NO_LIMIT }),
   )
   const roles = useCube(q({ measures: STAT_MEASURES, dimensions: ["participants.puuid", "builds.build_role"], limit: NO_LIMIT }))
   const champs = useCube(
@@ -3678,7 +3727,7 @@ export function Crew() {
   // 出裝的傷害類型（AD／AP）：玩家類型與數據總表的出裝比例用
   const dmgTypes = useCube(q({ measures: ["participants.games"], dimensions: ["participants.puuid", "builds.damage_type"], limit: NO_LIMIT }))
   // 參照列：所有參賽者的出裝比例（不鎖玩家，也不受上方「拿掉誰」影響）
-  const everyone = useCube(centerFilters === null ? null : apply({ measures: ["participants.games", "participants.winrate", "participants.kda"], filters: centerFilters }, "all"))
+  const everyone = useCube(centerFilters === null ? null : apply({ measures: ["participants.games", "participants.winrate", "participants.kda", ...ROSTER_EOG_MEASURES], filters: centerFilters }, "all"))
   const everyoneRoles = useCube(centerFilters === null ? null : apply({ measures: ["participants.games"], dimensions: ["builds.build_role"], filters: centerFilters, limit: NO_LIMIT }, "all"))
   const error = summary.error ?? roles.error ?? champs.error ?? augments.error ?? everyone.error ?? everyoneRoles.error ?? stats.error ?? dmgTypes.error ?? titleStats.error ?? lossStats.error ?? nightStats.error ?? duo.error ?? together.error
   // 全員一覽要等的：核心數字，加上稱號與玩法用的幾支（不等的話，稱號會在畫面出來之後才一個個冒出來、版面往下推）。
@@ -3943,6 +3992,7 @@ export function Crew() {
                           {everyoneTotal} 場・{opt(everyone.rows[0], "participants.winrate")?.toFixed(1) ?? "—"}%・KDA{" "}
                           {opt(everyone.rows[0], "participants.kda")?.toFixed(2) ?? "—"}
                         </span>
+                        <EogAverages r={everyone.rows[0]} testId="crew-reference-eog" />
                       </span>
                       <MiniHex
                         data={BUILD_ROLES.map((label) => ({
@@ -3982,6 +4032,7 @@ export function Crew() {
                             <span className="mt-0.5 block font-mono text-[11px] tabular-nums text-muted-foreground">
                               {ov.games} 場・{ownWr?.toFixed(1) ?? "—"}%・KDA {opt(sumOf(p.puuid), "participants.kda")?.toFixed(2) ?? "—"}
                             </span>
+                            <EogAverages r={sumOf(p.puuid)} testId="crew-row-eog" />
                             <span className="block text-[11px] text-muted-foreground" data-tip={tipOf(ov, null)} data-testid="crew-overall" data-strength={ov.strength}>
                               本場貢獻{" "}
                               <span className={cn("font-mono font-semibold", ov.g?.interval ? NUM_CLASS[ov.strength] : "text-muted-foreground")}>
