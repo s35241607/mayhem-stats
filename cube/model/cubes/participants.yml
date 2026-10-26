@@ -6,7 +6,8 @@ cubes:
     # 開始擷取賽後統計之前的場次是空值（治療護盾隊友的量 ally_heal_shield 同理）
     sql: >
       SELECT mp.rowid AS rowid, mp.*, e.time_spent_dead AS time_spent_dead,
-             e.heal_on_teammates + e.shield_on_teammates AS ally_heal_shield
+             e.heal_on_teammates + e.shield_on_teammates AS ally_heal_shield,
+             e.spell_casts AS eog_spell_casts, e.items_purchased AS eog_items_purchased, e.pings_total AS eog_pings
       FROM match_participants mp
       LEFT JOIN eog_player_stats e ON e.game_id = mp.game_id AND e.puuid = mp.puuid
       WHERE NOT EXISTS (
@@ -789,6 +790,95 @@ cubes:
         meta:
           group: 生存
           decimals: 0
+
+      - name: eog_games
+        title: 有賽後統計的場次
+        description: "有賽後統計（施法、買裝、訊號）的場次數。下面三種量都只算這些場次。"
+        sql: "CASE WHEN {CUBE}.eog_spell_casts IS NOT NULL THEN {CUBE}.rowid END"
+        type: count_distinct
+        meta:
+          group: 賽後統計
+
+      - name: spell_casts_total
+        title: 施法次數加總
+        description: "有賽後統計的場次裡，施法次數（Q／W／E／R 合計）的加總。"
+        sql: "{CUBE}.eog_spell_casts"
+        type: sum
+        meta:
+          group: 賽後統計
+          decimals: 0
+
+      - name: spell_casts_avg
+        title: 每場施法次數
+        description: "有賽後統計的場次裡，每場施法次數（Q／W／E／R 合計）的平均。"
+        sql: "{CUBE}.eog_spell_casts"
+        type: avg
+        meta:
+          group: 賽後統計
+          decimals: 1
+
+      - name: spell_casts_per_min
+        title: 每分鐘施法次數
+        description: "每場施法次數除以對局分鐘數後取平均，只算有賽後統計的場次；比每場平均公平，短局不吃虧。"
+        sql: "{CUBE}.eog_spell_casts * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: avg
+        meta:
+          group: 賽後統計
+          decimals: 1
+
+      - name: items_total
+        title: 買裝次數加總
+        description: "有賽後統計的場次裡，買裝次數的加總。"
+        sql: "{CUBE}.eog_items_purchased"
+        type: sum
+        meta:
+          group: 賽後統計
+          decimals: 0
+
+      - name: items_avg
+        title: 每場買裝次數
+        description: "有賽後統計的場次裡，每場買裝次數的平均。"
+        sql: "{CUBE}.eog_items_purchased"
+        type: avg
+        meta:
+          group: 賽後統計
+          decimals: 1
+
+      - name: items_per_min
+        title: 每分鐘買裝次數
+        description: "每場買裝次數除以對局分鐘數後取平均，只算有賽後統計的場次。"
+        sql: "{CUBE}.eog_items_purchased * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: avg
+        meta:
+          group: 賽後統計
+          decimals: 2
+
+      - name: pings_total
+        title: 訊號次數加總
+        description: "有賽後統計的場次裡，訊號次數（所有 Ping 加總）的加總。"
+        sql: "{CUBE}.eog_pings"
+        type: sum
+        meta:
+          group: 賽後統計
+          decimals: 0
+
+      - name: pings_avg
+        title: 每場訊號次數
+        description: "有賽後統計的場次裡，每場訊號次數的平均。"
+        sql: "{CUBE}.eog_pings"
+        type: avg
+        meta:
+          group: 賽後統計
+          decimals: 1
+
+      - name: pings_per_min
+        title: 每分鐘訊號次數
+        description: "每場訊號次數除以對局分鐘數後取平均，只算有賽後統計的場次。"
+        sql: "{CUBE}.eog_pings * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: avg
+        meta:
+          group: 賽後統計
+          decimals: 2
 
       - name: ally_heal_games
         title: 有治療護盾隊友統計的場次

@@ -104,6 +104,16 @@ views:
           - time_dead_games
           - ally_heal_shield_per_min
           - ally_heal_games
+          - eog_games
+          - spell_casts_total
+          - spell_casts_avg
+          - spell_casts_per_min
+          - items_total
+          - items_avg
+          - items_per_min
+          - pings_total
+          - pings_avg
+          - pings_per_min
           - champion_count
           - mvp_games
           - ace_games

@@ -3122,6 +3122,23 @@ const STAT_SETS: { id: string; label: string; caption: string; cols: StatCol[] }
       { key: "participants.gold_share", label: "經濟占全隊", fmt: pctFmt, hint: "獲得金錢占我方全隊的比例" },
     ],
   },
+  {
+    id: "eog",
+    label: "賽後統計",
+    caption: "施法、買裝、訊號只有賽後統計有（2026-10-03 起、採集器有抓到的場次）。加總與平均只算有賽後統計的場次，沒有的場次不列入",
+    cols: [
+      { key: "participants.eog_games", label: "有統計的場次", fmt: int, hint: "有賽後統計的場次數；下面的加總與平均都只算這些場次" },
+      { key: "participants.spell_casts_total", label: "施法加總", fmt: int, hint: "有賽後統計的場次裡，施法次數（Q／W／E／R）的加總" },
+      { key: "participants.spell_casts_avg", label: "每場施法", fmt: (v) => v.toFixed(1), hint: "每場施法次數的平均（只算有賽後統計的場次）" },
+      { key: "participants.spell_casts_per_min", label: "每分鐘施法", fmt: (v) => v.toFixed(2), hint: "每分鐘施法次數的平均；比每場平均公平，短局不吃虧" },
+      { key: "participants.items_total", label: "買裝加總", fmt: int, hint: "有賽後統計的場次裡，買裝次數的加總" },
+      { key: "participants.items_avg", label: "每場買裝", fmt: (v) => v.toFixed(1), hint: "每場買裝次數的平均（只算有賽後統計的場次）" },
+      { key: "participants.items_per_min", label: "每分鐘買裝", fmt: (v) => v.toFixed(2), hint: "每分鐘買裝次數的平均" },
+      { key: "participants.pings_total", label: "訊號加總", fmt: int, hint: "有賽後統計的場次裡，訊號次數（所有 Ping 加總）的加總" },
+      { key: "participants.pings_avg", label: "每場訊號", fmt: (v) => v.toFixed(1), hint: "每場訊號次數的平均（只算有賽後統計的場次）" },
+      { key: "participants.pings_per_min", label: "每分鐘訊號", fmt: (v) => v.toFixed(2), hint: "每分鐘訊號次數的平均" },
+    ],
+  },
 ]
 const STAT_MEASURES_ALL = ["participants.games", "participants.time_dead_games", ...STAT_SETS.flatMap((g) => g.cols.map((c) => c.key))]
 
@@ -3130,6 +3147,10 @@ function cellNote(c: StatCol) {
   if (c.key.startsWith("mix:")) return `出裝是${c.key.slice(4)}的場次`
   if (c.key.includes("time_dead")) return "這一欄只算有賽後統計的場次；列表是範圍內全部的場次，舊場次沒有死亡時間"
   if (c.record) return "只顯示創下這項單場紀錄的那一場"
+  if (c.key.startsWith("participants.eog_") || c.key.includes("spell_casts") || c.key.includes("items_") || c.key.includes("pings_")) {
+    return "這一欄只算有賽後統計的場次；列表是範圍內全部的場次，沒有賽後統計的場次不算進加總與平均"
+  }
+  if (c.key.endsWith("_total")) return "這一欄是列出的這些場次的加總"
   return "這一欄是列出的這些場次的平均"
 }
 
