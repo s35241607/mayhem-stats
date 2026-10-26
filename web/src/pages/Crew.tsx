@@ -921,7 +921,7 @@ function ExpandRow({
 }
 
 /** 兩個分頁：總覽（整體的數字、雷達、看得出的強弱、貢獻分解）、出裝與英雄（出裝的區間圖，點一種出裝下面只列那種出裝的英雄） */
-type DrawerTab = "overview" | "picks"
+type DrawerTab = "overview" | "picks" | "stats"
 
 /** 頂層分頁：全員一覽、數據總表、查英雄、查增幅裝置。一次只看一段，分頁列貼在頁首下面。 */
 type Section = "matrix" | "stats" | "champ" | "augment" | "badges"
@@ -2400,6 +2400,100 @@ function RoleForest({ profile, selected, onPick }: { profile: Profile; selected:
 }
 
 /** 抽屜：某個人的完整分析，分成「總覽」與「出裝與英雄」兩個分頁 */
+/** 數據分頁的名次：這一項在同一組人（有資料、樣本夠的）裡排第幾。賽後統計的項目看有統計的場次數，其餘看場次數 */
+const RANK_EOG_KEY = /spell|items_|pings|ally_|flash|consumables|eog|time_dead|shield/
+
+function rankOf(board: CubeRow[], puuid: string, col: StatCol): { value: number; rank: number; n: number } | null {
+  const eog = RANK_EOG_KEY.test(col.key)
+  const eligible = (r: CubeRow) => (eog ? n0(r, "participants.eog_games") >= TITLE_MIN_EOG : n0(r, "participants.games") >= MIN_N)
+  const valid = board.filter((r) => eligible(r) && opt(r, col.key) !== null)
+  const me = valid.find((r) => r["participants.puuid"] === puuid)
+  if (!me || valid.length < 3) return null
+  const mine = opt(me, col.key) as number
+  const better = valid.filter((r) => {
+    const v = opt(r, col.key) as number
+    return col.lower ? v < mine : v > mine
+  }).length
+  return { value: mine, rank: better + 1, n: valid.length }
+}
+
+/** 抽屜的「數據」分頁：前十名的項目集中列在上面，下面是全部數據（每項附名次） */
+function DrawerStats({ puuid, board, loading }: { puuid: string; board: CubeRow[]; loading: boolean }) {
+  const [showAllTop, setShowAllTop] = useState(false)
+  if (loading && board.length === 0) return <LoadingBlock height={320} label="載入數據與排名…" />
+  const me = board.find((r) => r["participants.puuid"] === puuid)
+  const ranked = STAT_SETS.flatMap((g) => g.cols.map((c) => ({ g, c, info: rankOf(board, puuid, c) })))
+  const allTop = ranked.filter((x) => x.info && x.info.rank <= 10).sort((a, b) => a.info!.rank - b.info!.rank)
+  // 前十的項目可能很多，預設只列前 12 項（名次高的在前），其餘收在按鈕後面
+  const TOP_SHOWN = 12
+  const top = showAllTop ? allTop : allTop.slice(0, TOP_SHOWN)
+  return (
+    <div className="space-y-4">
+      <section className="space-y-2">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <div className="text-sm font-semibold">排行前十</div>
+          <div className="text-[11px] text-muted-foreground">名次＝同一組人裡排第幾（樣本不足的人不排）</div>
+        </div>
+        {top.length === 0 ? (
+          <p className="text-xs text-muted-foreground">沒有進前十的項目，看下面每一項的名次。</p>
+        ) : (
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {top.map((x) => (
+              <div key={`${x.g.id}-${x.c.key}`} className="flex items-center justify-between gap-2 rounded-md border bg-card px-2.5 py-1.5">
+                <span className="min-w-0 truncate text-xs text-muted-foreground" data-tip={x.c.hint}>
+                  {x.c.label}
+                </span>
+                <span className="shrink-0 font-mono text-xs tabular-nums">
+                  <span className={cn("font-semibold", x.info!.rank <= 3 ? "text-win" : "text-foreground")}>第 {x.info!.rank} 名</span>
+                  <span className="ml-2 text-foreground">{x.c.fmt(x.info!.value)}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+        {allTop.length > TOP_SHOWN && (
+          <button
+            type="button"
+            onClick={() => setShowAllTop((v) => !v)}
+            className="cursor-pointer text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          >
+            {showAllTop ? "收起" : `看全部前十（共 ${allTop.length} 項）`}
+          </button>
+        )}
+      </section>
+      <section className="space-y-2">
+        <div className="text-sm font-semibold">全部數據</div>
+        <div className="grid gap-3 md:grid-cols-2">
+          {STAT_SETS.map((g) => (
+            <div key={g.id} className="rounded-lg border p-3">
+              <div className="mb-1 text-xs font-semibold">{g.label}</div>
+              <div className="divide-y divide-border/50">
+                {g.cols.map((c) => {
+                  const info = rankOf(board, puuid, c)
+                  const v = opt(me, c.key)
+                  return (
+                    <div key={c.key} className="flex items-center justify-between gap-2 py-1 text-xs">
+                      <span className="min-w-0 truncate text-muted-foreground" data-tip={c.hint}>
+                        {c.label}
+                      </span>
+                      <span className="shrink-0 font-mono tabular-nums">
+                        {v === null ? "—" : c.fmt(v)}
+                        <span className={cn("ml-2 inline-block w-11 text-right text-[10px]", info && info.rank <= 10 ? "font-semibold text-win" : "text-muted-foreground")}>
+                          {info ? `${info.rank}/${info.n}` : ""}
+                        </span>
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function PlayerDrawerBody({
   player,
   profile,
@@ -2410,7 +2504,11 @@ function PlayerDrawerBody({
   crewFilter,
   jumpChamp,
   titles,
+  board,
+  boardLoading,
 }: {
+  board: CubeRow[]
+  boardLoading: boolean
   player: Player
   profile: Profile
   /** 這個人已解鎖的徽章 */
@@ -2508,6 +2606,7 @@ function PlayerDrawerBody({
         <TabsList>
           <TabsTrigger value="overview">總覽</TabsTrigger>
           <TabsTrigger value="picks">出裝與英雄</TabsTrigger>
+          <TabsTrigger value="stats">數據</TabsTrigger>
         </TabsList>
         <Button
           size="sm"
@@ -2602,6 +2701,11 @@ function PlayerDrawerBody({
           </div>
         )}
       </div>
+      </TabsContent>
+
+      {/* ── 數據：全部數據每項附名次，前十名的項目集中在上面 ── */}
+      <TabsContent value="stats" className="reveal">
+        <DrawerStats puuid={player.puuid} board={board} loading={boardLoading} />
       </TabsContent>
 
       {/* ── 出裝與英雄：上面各種出裝的區間，點一種出裝下面只列那種出裝的英雄；英雄點一列看每一場 ── */}
@@ -3674,6 +3778,8 @@ export function Crew() {
       : null,
   )
   //   數據總表分頁專用（冷快取 1.5 秒），同樣切過去才查
+  // 抽屜「數據」分頁要的全體數據與名次：只有抽屜開著看人的時候才查
+  const board = useCube(focus?.kind === "player" ? q({ measures: [...STAT_MEASURES_ALL, "participants.eog_games"], dimensions: ["participants.puuid"], limit: NO_LIMIT }) : null)
   const stats = useCube(section === "stats" ? q({ measures: STAT_MEASURES_ALL, dimensions: ["participants.puuid"], limit: NO_LIMIT }) : null)
   // 稱號用的幾項數據（每人一列）
   const titleStats = useCube(q({ measures: TITLE_MEASURES, dimensions: ["participants.puuid"], limit: NO_LIMIT }))
@@ -4188,6 +4294,8 @@ export function Crew() {
             jumpChamp={focus.champ}
             crewFilter={crewFilter}
             titles={badges.get(focusPlayer.puuid)?.items}
+            board={board.rows}
+            boardLoading={board.loading}
           />
         )}
       </DetailDrawer>
