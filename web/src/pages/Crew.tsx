@@ -2428,7 +2428,7 @@ const STAT_GROUP_ICON: Record<string, LucideIcon> = {
   eog: Sparkles,
 }
 
-/** 名次徽章（六角形，和稱號徽章同一個外形）：第一名金、第二到第三名銀、其餘前十用主色 */
+/** 名次徽章（六角形，和稱號徽章同一個外形）：第一名金、第二到第三銀、其餘前十用主色 */
 function rankTone(rank: number) {
   if (rank === 1) return "bg-gold text-background"
   if (rank <= 3) return "bg-silver text-background"
@@ -2441,22 +2441,133 @@ const RANK_TIERS = [
   { key: "rest", badge: 4, label: "第四到第十", test: (r: number) => r >= 4 },
 ]
 
-/** 抽屜的「數據」分頁：上面是前十的摘要與清單，下面用分類分頁一次只看一組（每項附名次條） */
-function DrawerStats({ puuid, board, loading }: { puuid: string; board: CubeRow[]; loading: boolean }) {
+/** 這一項的排行榜與紀錄場：排行榜是全部有資料的人依值排序（可點名字換成他的抽屜），紀錄場是這個人創下紀錄的那一場，或他算進去的每一場 */
+function MetricDetail({
+  col,
+  groupLabel,
+  puuid,
+  board,
+  people,
+  onOpenPlayer,
+}: {
+  col: StatCol
+  groupLabel: string
+  puuid: string
+  board: CubeRow[]
+  people: Player[]
+  onOpenPlayer: (puuid: string) => void
+}) {
+  const info = rankOf(board, puuid, col)
+  const eog = RANK_EOG_KEY.test(col.key)
+  const eligible = (r: CubeRow) => (eog ? n0(r, "participants.eog_games") >= TITLE_MIN_EOG : n0(r, "participants.games") >= MIN_N)
+  const rows = board
+    .filter((r) => eligible(r) && opt(r, col.key) !== null)
+    .sort((a, b) => {
+      const va = opt(a, col.key) as number
+      const vb = opt(b, col.key) as number
+      return col.lower ? va - vb : vb - va
+    })
+  const byId = new Map(people.map((p) => [p.puuid, p]))
+  const me = byId.get(puuid)
+  return (
+    <div className="reveal space-y-3 rounded-2xl border border-primary/40 bg-card p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[11px] text-muted-foreground">{groupLabel}</div>
+          <div className="truncate text-base font-semibold">{col.label}</div>
+          {col.hint && <div className="mt-0.5 text-[11px] text-muted-foreground">{col.hint}</div>}
+        </div>
+        {info && (
+          <div className="flex items-center gap-2.5">
+            <span className={cn("grid size-10 place-items-center font-mono text-sm font-bold", HEX, rankTone(info.rank))}>{info.rank}</span>
+            <div className="text-right">
+              <div className="font-mono text-lg font-bold tabular-nums leading-tight">{col.fmt(info.value)}</div>
+              <div className="text-[10px] text-muted-foreground">{info.n} 人中第 {info.rank} 名</div>
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+        <section className="min-w-0 space-y-1.5">
+          <div className="text-xs font-semibold">排行榜</div>
+          <div className="max-h-80 overflow-y-auto rounded-xl border">
+            {rows.map((r, i) => {
+              const pid = String(r["participants.puuid"])
+              const p = byId.get(pid)
+              const rank = i + 1
+              const mine = pid === puuid
+              return (
+                <div
+                  key={pid}
+                  className={cn("flex items-center gap-2.5 border-b border-border/50 px-2.5 py-1.5 last:border-b-0", mine && "bg-primary/10")}
+                >
+                  <span className={cn("grid size-6 shrink-0 place-items-center font-mono text-[10px] font-bold", HEX, rank <= 10 ? rankTone(rank) : "bg-muted text-muted-foreground")}>
+                    {rank}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    {p ? (
+                      <button type="button" onClick={() => onOpenPlayer(pid)} className="block max-w-full cursor-pointer text-left hover:underline" data-tip="打開他的抽屜（會保留這一項）">
+                        <PlayerName player={p} className="text-xs" />
+                      </button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">（未在好友名單）</span>
+                    )}
+                  </span>
+                  <span className="shrink-0 font-mono text-xs font-semibold tabular-nums">{col.fmt(opt(r, col.key) as number)}</span>
+                  <span className="w-10 shrink-0 text-right font-mono text-[10px] text-muted-foreground tabular-nums">{n0(r, "participants.games")} 場</span>
+                </div>
+              )
+            })}
+          </div>
+          {me && <div className="text-[10px] text-muted-foreground">高亮的是你正在看的這一位</div>}
+        </section>
+        <section className="min-w-0 space-y-1.5">
+          <div className="text-xs font-semibold">{col.record ? "創下這項紀錄的那一場" : "這一項算進去的每一場"}</div>
+          <div className="max-h-80 overflow-y-auto">
+            <GamesBody source={col.record ? { puuid, filters: [], recordMetric: col.key } : { puuid, filters: [] }} />
+          </div>
+        </section>
+      </div>
+    </div>
+  )
+}
+
+/** 抽屜的「數據」分頁：前十的摘要與清單、分類分頁、點任一項展開排行榜與紀錄場 */
+function DrawerStats({
+  puuid,
+  board,
+  loading,
+  people,
+  onOpenPlayer,
+}: {
+  puuid: string
+  board: CubeRow[]
+  loading: boolean
+  people: Player[]
+  onOpenPlayer: (puuid: string) => void
+}) {
   const [picked, setPicked] = useState<string | null>(null)
+  const [selected, setSelected] = useState<string | null>(null)
   const [showAllTop, setShowAllTop] = useState(false)
+  const detailRef = useRef<HTMLDivElement>(null)
   if (loading && board.length === 0) return <LoadingBlock height={320} label="載入數據與排名…" />
   const me = board.find((r) => r["participants.puuid"] === puuid)
-  const ranked = STAT_SETS.flatMap((g) => g.cols.map((c) => ({ g, c, info: rankOf(board, puuid, c) })))
+  const ranked = STAT_SETS.flatMap((g) => g.cols.map((c) => ({ g, c, info: rankOf(board, puuid, c), key: `${g.id}|${c.key}` })))
   const allTop = ranked.filter((x) => x.info && x.info.rank <= 10).sort((a, b) => a.info!.rank - b.info!.rank)
   const groupTop = (id: string) => allTop.filter((x) => x.g.id === id).length
   // 預設打開前十最多的那一組；使用者點了就用他點的
   const defaultId = STAT_SETS.reduce((best, g) => (groupTop(g.id) > groupTop(best) ? g.id : best), STAT_SETS[0].id)
   const activeId = picked ?? defaultId
   const active = STAT_SETS.find((g) => g.id === activeId) ?? STAT_SETS[0]
+  const selectedItem = selected ? ranked.find((x) => x.key === selected) : undefined
   const TOP_SHOWN = 12
   const topList = showAllTop ? allTop : allTop.slice(0, TOP_SHOWN)
   const tiers = RANK_TIERS.map((t) => ({ ...t, n: allTop.filter((x) => t.test(x.info!.rank)).length }))
+  const pick = (key: string) => {
+    setSelected(key)
+    // 詳細區在分類分頁上面，點了要捲過去，不然使用者看不到它開了
+    setTimeout(() => detailRef.current?.scrollIntoView({ block: "start", behavior: prefersReducedMotion() ? "auto" : "smooth" }), 60)
+  }
 
   return (
     <div className="space-y-4">
@@ -2481,18 +2592,24 @@ function DrawerStats({ puuid, board, loading }: { puuid: string; board: CubeRow[
         </div>
       </div>
 
-      {/* 前十清單：六角形名次徽章 + 項目 + 數值，依序滑入 */}
+      {/* 前十清單：六角形名次徽章 + 項目 + 數值，依序滑入；點一項展開它的排行榜與紀錄場 */}
       <section className="space-y-2">
         {allTop.length === 0 ? (
           <p className="text-xs text-muted-foreground">沒有進前十的項目，看下面每一組的名次。</p>
         ) : (
           <div className="grid gap-1.5 sm:grid-cols-2">
             {topList.map((x, i) => (
-              <div
-                key={`${x.g.id}-${x.c.key}`}
-                data-tip={x.c.hint}
+              <button
+                key={x.key}
+                type="button"
+                onClick={() => pick(x.key)}
+                aria-pressed={selected === x.key}
+                data-tip={`${x.c.hint}\n點一下看排行榜與紀錄場`}
                 style={{ "--stagger": `${i * 30}ms` } as CSSProperties}
-                className="slide-in flex items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-muted/40"
+                className={cn(
+                  "slide-in flex cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-left transition hover:bg-muted/40",
+                  selected === x.key && "bg-primary/10 ring-1 ring-primary/40",
+                )}
               >
                 <span className={cn("grid size-8 shrink-0 place-items-center font-mono text-xs font-bold", HEX, rankTone(x.info!.rank))}>
                   {x.info!.rank}
@@ -2502,7 +2619,7 @@ function DrawerStats({ puuid, board, loading }: { puuid: string; board: CubeRow[
                   <span className="block font-mono text-sm font-semibold tabular-nums">{x.c.fmt(x.info!.value)}</span>
                 </span>
                 <span className="font-mono text-[10px] text-muted-foreground tabular-nums">{x.info!.n} 人</span>
-              </div>
+              </button>
             ))}
           </div>
         )}
@@ -2517,7 +2634,7 @@ function DrawerStats({ puuid, board, loading }: { puuid: string; board: CubeRow[
         )}
       </section>
 
-      {/* 分類分頁：一次只看一組，切換時整塊淡入 */}
+      {/* 分類分頁 */}
       <section className="space-y-3">
         <div className="flex flex-wrap gap-1.5">
           {STAT_SETS.map((g) => {
@@ -2544,6 +2661,22 @@ function DrawerStats({ puuid, board, loading }: { puuid: string; board: CubeRow[
             )
           })}
         </div>
+
+        {/* 展開的這一項：放在分類分頁正下方，點了就在這裡看 */}
+        <div ref={detailRef} className="scroll-mt-4">
+          {selectedItem && (
+            <MetricDetail
+              key={selectedItem.key}
+              col={selectedItem.c}
+              groupLabel={selectedItem.g.label}
+              puuid={puuid}
+              board={board}
+              people={people}
+              onOpenPlayer={onOpenPlayer}
+            />
+          )}
+        </div>
+
         <div key={active.id} className="reveal rounded-2xl border bg-card p-2">
           {active.cols.map((c, i) => {
             const info = rankOf(board, puuid, c)
@@ -2551,22 +2684,26 @@ function DrawerStats({ puuid, board, loading }: { puuid: string; board: CubeRow[
             const pct = info ? ((info.n - info.rank + 1) / info.n) * 100 : 0
             const top = info !== undefined && info !== null && info.rank <= 10
             const fill = info && info.rank === 1 ? "bg-gold" : top ? "bg-primary" : "bg-muted-foreground/40"
+            const key = `${active.id}|${c.key}`
             return (
-              <div
+              <button
                 key={c.key}
-                className={cn("flex items-center gap-3 rounded-lg px-3 py-2", i % 2 === 1 && "bg-muted/30")}
+                type="button"
+                onClick={() => pick(key)}
+                aria-pressed={selected === key}
+                data-tip={`${c.hint}\n點一下看排行榜與紀錄場`}
+                className={cn(
+                  "flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left transition hover:bg-muted/50",
+                  i % 2 === 1 && "bg-muted/30",
+                  selected === key && "bg-primary/10 ring-1 ring-primary/40",
+                )}
               >
-                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground" data-tip={c.hint}>
-                  {c.label}
-                </span>
-                {/* 名次條：外層是固定寬的軌道，內層寬度才是名次位置；動畫套在最裡面，不蓋掉寬度 */}
+                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{c.label}</span>
+                {/* 名次條：外層是固定寬的軌道，內層寬度才是名次位置；動畫套在最裡面的色塊，不蓋掉寬度 */}
                 <span className="relative hidden h-1.5 w-28 shrink-0 overflow-hidden rounded-full bg-muted sm:block">
                   {info && (
                     <span className="absolute inset-y-0 left-0 overflow-hidden rounded-full" style={{ width: `${pct}%` }}>
-                      <span
-                        className={cn("block h-full w-full origin-left bar-grow", fill)}
-                        style={{ animationDelay: `${Math.min(i * 25, 300)}ms` }}
-                      />
+                      <span className={cn("block h-full w-full origin-left bar-grow", fill)} style={{ animationDelay: `${Math.min(i * 25, 300)}ms` }} />
                     </span>
                   )}
                 </span>
@@ -2579,7 +2716,7 @@ function DrawerStats({ puuid, board, loading }: { puuid: string; board: CubeRow[
                 >
                   {info ? `${info.rank}/${info.n}` : "—"}
                 </span>
-              </div>
+              </button>
             )
           })}
         </div>
@@ -2600,9 +2737,13 @@ function PlayerDrawerBody({
   titles,
   board,
   boardLoading,
+  people,
+  onOpenPlayer,
 }: {
   board: CubeRow[]
   boardLoading: boolean
+  people: Player[]
+  onOpenPlayer: (puuid: string) => void
   player: Player
   profile: Profile
   /** 這個人已解鎖的徽章 */
@@ -2799,7 +2940,7 @@ function PlayerDrawerBody({
 
       {/* ── 數據：全部數據每項附名次，前十名的項目集中在上面 ── */}
       <TabsContent value="stats" className="reveal">
-        <DrawerStats puuid={player.puuid} board={board} loading={boardLoading} />
+        <DrawerStats puuid={player.puuid} board={board} loading={boardLoading} people={people} onOpenPlayer={onOpenPlayer} />
       </TabsContent>
 
       {/* ── 出裝與英雄：上面各種出裝的區間，點一種出裝下面只列那種出裝的英雄；英雄點一列看每一場 ── */}
@@ -4390,6 +4531,8 @@ export function Crew() {
             titles={badges.get(focusPlayer.puuid)?.items}
             board={board.rows}
             boardLoading={board.loading}
+            people={crew}
+            onOpenPlayer={(pid) => open(pid, null, 'stats')}
           />
         )}
       </DetailDrawer>
