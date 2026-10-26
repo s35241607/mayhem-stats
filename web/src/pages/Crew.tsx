@@ -2437,14 +2437,11 @@ function rankTone(rank: number) {
 
 const RANK_TIERS = [
   { key: "first", badge: 1, label: "第一名", test: (r: number) => r === 1 },
-  { key: "second", badge: 2, label: "第二到第三", test: (r: number) => r >= 2 && r <= 3 },
-  { key: "rest", badge: 4, label: "第四到第十", test: (r: number) => r >= 4 },
+  { key: "second", badge: 2, label: "第 2–3 名", test: (r: number) => r >= 2 && r <= 3 },
+  { key: "rest", badge: 4, label: "第 4–10 名", test: (r: number) => r >= 4 },
 ]
 
-/** 數據分頁上方的固定高度面板：高度不變，點哪一項只換內容，不會把下面的列表推來推去。
- *  左邊排行榜、右邊紀錄場，各自在面板裡捲動；沒選時放同高度的提示。 */
-const METRIC_PANEL_H = "h-[19rem]"
-
+/** 點了一項之後，右邊長出來的詳細欄：排行榜與紀錄場上下排，各自有上限高度、超過就在欄裡捲動 */
 function MetricDetail({
   col,
   groupLabel,
@@ -2472,65 +2469,66 @@ function MetricDetail({
     })
   const byId = new Map(people.map((p) => [p.puuid, p]))
   return (
-    <div className={cn("flex flex-col gap-2 rounded-2xl border border-primary/40 bg-card p-3", METRIC_PANEL_H)}>
-      <div className="flex shrink-0 items-center justify-between gap-3">
+    <div className="space-y-3 rounded-2xl border border-primary/40 bg-card p-4">
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="truncate text-sm font-semibold">
-            <span className="text-muted-foreground">{groupLabel}・</span>
-            {col.label}
-          </div>
+          <div className="text-[11px] text-muted-foreground">{groupLabel}</div>
+          <div className="text-sm font-semibold">{col.label}</div>
+          {col.hint && <div className="mt-0.5 text-[11px] text-muted-foreground">{col.hint}</div>}
         </div>
         {info && (
           <div className="flex shrink-0 items-center gap-2">
-            <span className={cn("grid size-8 place-items-center font-mono text-xs font-bold", HEX, rankTone(info.rank))}>{info.rank}</span>
-            <span className="font-mono text-sm font-bold tabular-nums">{col.fmt(info.value)}</span>
-            <span className="text-[10px] text-muted-foreground">{info.n} 人中第 {info.rank} 名</span>
+            <span className={cn("grid size-9 place-items-center font-mono text-sm font-bold", HEX, rankTone(info.rank))}>{info.rank}</span>
+            <div className="text-right">
+              <div className="font-mono text-base font-bold tabular-nums leading-tight">{col.fmt(info.value)}</div>
+              <div className="text-[10px] text-muted-foreground">{info.n} 人中第 {info.rank} 名</div>
+            </div>
           </div>
         )}
       </div>
-      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] gap-3 overflow-hidden lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
-        <section className="flex min-h-0 flex-col gap-1 overflow-hidden">
-          <div className="shrink-0 text-[11px] font-semibold text-muted-foreground">排行榜</div>
-          <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border">
-            {rows.map((r, i) => {
-              const pid = String(r["participants.puuid"])
-              const p = byId.get(pid)
-              const rank = i + 1
-              return (
-                <div
-                  key={pid}
-                  className={cn("flex items-center gap-2 border-b border-border/50 px-2 py-1 last:border-b-0", pid === puuid && "bg-primary/10")}
-                >
-                  <span className={cn("grid size-5 shrink-0 place-items-center font-mono text-[10px] font-bold", HEX, rank <= 10 ? rankTone(rank) : "bg-muted text-muted-foreground")}>
-                    {rank}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    {p ? (
-                      <button type="button" onClick={() => onOpenPlayer(pid)} className="block max-w-full cursor-pointer text-left hover:underline" data-tip="打開他的抽屜（會保留這一項）">
-                        <PlayerName player={p} className="text-xs" />
-                      </button>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">（未在好友名單）</span>
-                    )}
-                  </span>
-                  <span className="shrink-0 font-mono text-xs font-semibold tabular-nums">{col.fmt(opt(r, col.key) as number)}</span>
-                </div>
-              )
-            })}
-          </div>
-        </section>
-        <section className="flex min-h-0 flex-col gap-1 overflow-hidden">
-          <div className="shrink-0 text-[11px] font-semibold text-muted-foreground">{col.record ? "創下這項紀錄的那一場" : "這一項算進去的每一場"}</div>
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <GamesBody source={col.record ? { puuid, filters: [], recordMetric: col.key } : { puuid, filters: [] }} />
-          </div>
-        </section>
-      </div>
+
+      <section className="space-y-1.5">
+        <div className="text-xs font-semibold">排行榜</div>
+        <div className="max-h-64 overflow-y-auto rounded-xl border">
+          {rows.map((r, i) => {
+            const pid = String(r["participants.puuid"])
+            const p = byId.get(pid)
+            const rank = i + 1
+            return (
+              <div
+                key={pid}
+                className={cn("flex items-center gap-2.5 border-b border-border/50 px-2.5 py-1.5 last:border-b-0", pid === puuid && "bg-primary/10")}
+              >
+                <span className={cn("grid size-6 shrink-0 place-items-center font-mono text-[10px] font-bold", HEX, rank <= 10 ? rankTone(rank) : "bg-muted text-muted-foreground")}>
+                  {rank}
+                </span>
+                <span className="min-w-0 flex-1">
+                  {p ? (
+                    <button type="button" onClick={() => onOpenPlayer(pid)} className="block max-w-full cursor-pointer text-left hover:underline" data-tip="打開他的抽屜（會保留這一項）">
+                      <PlayerName player={p} className="text-xs" />
+                    </button>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">（未在好友名單）</span>
+                  )}
+                </span>
+                <span className="shrink-0 font-mono text-xs font-semibold tabular-nums">{col.fmt(opt(r, col.key) as number)}</span>
+              </div>
+            )
+          })}
+        </div>
+      </section>
+
+      <section className="space-y-1.5">
+        <div className="text-xs font-semibold">{col.record ? "創下這項紀錄的那一場" : "這一項算進去的每一場"}</div>
+        <div className="max-h-96 overflow-y-auto">
+          <GamesBody source={col.record ? { puuid, filters: [], recordMetric: col.key } : { puuid, filters: [] }} />
+        </div>
+      </section>
     </div>
   )
 }
 
-/** 抽屜的「數據」分頁：上方固定的面板、前十的摘要與清單、分類分頁。點任一項只換上方面板的內容 */
+/** 抽屜的「數據」分頁：沒選時列表佔滿寬度；點一項後，右邊從旁邊長出一欄放詳細（列表那一欄跟著縮窄）。 */
 function DrawerStats({
   puuid,
   board,
@@ -2556,165 +2554,168 @@ function DrawerStats({
   const defaultId = STAT_SETS.reduce((best, g) => (groupTop(g.id) > groupTop(best) ? g.id : best), STAT_SETS[0].id)
   const activeId = picked ?? defaultId
   const active = STAT_SETS.find((g) => g.id === activeId) ?? STAT_SETS[0]
-  // 面板一定有內容：沒選時預設是第一個進前十的項目（沒有就是當前分頁的第一項），不留空白
-  const shownKey = selected ?? allTop[0]?.key ?? `${active.id}|${active.cols[0]?.key}`
-  const selectedItem = ranked.find((x) => x.key === shownKey)
+  const selectedItem = selected ? ranked.find((x) => x.key === selected) : undefined
   const TOP_SHOWN = 12
   const topList = showAllTop ? allTop : allTop.slice(0, TOP_SHOWN)
   const tiers = RANK_TIERS.map((t) => ({ ...t, n: allTop.filter((x) => t.test(x.info!.rank)).length }))
 
   return (
-    <div className="space-y-4">
-      {/* 固定面板：貼在頂端，切換項目時高度不變、位置不動 */}
-      <div className="sticky top-0 z-10 -mx-1 bg-background/95 px-1 pb-2 pt-1 backdrop-blur-sm">
-        {selectedItem && (
-          <MetricDetail
-            key={selectedItem.key}
-            col={selectedItem.c}
-            groupLabel={selectedItem.g.label}
-            puuid={puuid}
-            board={board}
-            people={people}
-            onOpenPlayer={onOpenPlayer}
-          />
-        )}
-      </div>
-
-      {/* 摘要：前十共幾項、各名次段各幾項 */}
-      <div className="flex flex-wrap items-stretch gap-3 rounded-2xl border bg-card p-4">
-        <div className="flex min-w-28 flex-col justify-center border-r border-border/60 pr-4">
-          <span className="font-mono text-4xl font-bold leading-none tabular-nums">
-            <CountUp text={String(allTop.length)} />
-          </span>
-          <span className="mt-1 text-[11px] text-muted-foreground">項進前十</span>
-        </div>
-        <div className="grid flex-1 grid-cols-3 gap-2">
-          {tiers.map((t) => (
-            <div key={t.key} className="flex items-center gap-2.5 rounded-xl bg-muted/40 px-3 py-2">
-              <span className={cn("grid size-8 shrink-0 place-items-center font-mono text-xs font-bold", HEX, rankTone(t.badge))}>{t.badge}</span>
-              <div className="min-w-0">
-                <div className="font-mono text-base font-bold tabular-nums leading-tight">{t.n}</div>
-                <div className="truncate text-[10px] text-muted-foreground">{t.label}</div>
-              </div>
+    <div className="@container">
+      <div className={cn("grid gap-4", selectedItem && "@[760px]:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] @[760px]:items-start")}>
+        <div className="min-w-0 space-y-4">
+          {/* 摘要：前十共幾項、各名次段各幾項 */}
+          <div className="flex flex-wrap items-stretch gap-3 rounded-2xl border bg-card p-4">
+            <div className="flex min-w-28 flex-col justify-center border-r border-border/60 pr-4">
+              <span className="font-mono text-4xl font-bold leading-none tabular-nums">
+                <CountUp text={String(allTop.length)} />
+              </span>
+              <span className="mt-1 text-[11px] text-muted-foreground">項進前十</span>
             </div>
-          ))}
-        </div>
-      </div>
-
-      {/* 前十清單 */}
-      <section className="space-y-2">
-        {allTop.length === 0 ? (
-          <p className="text-xs text-muted-foreground">沒有進前十的項目，看下面每一組的名次。</p>
-        ) : (
-          <div className="grid gap-1.5 sm:grid-cols-2">
-            {topList.map((x, i) => (
-              <button
-                key={x.key}
-                type="button"
-                onClick={() => setSelected(x.key)}
-                aria-pressed={selected === x.key}
-                data-tip={`${x.c.hint}\n點一下看排行榜與紀錄場`}
-                style={{ "--stagger": `${i * 30}ms` } as CSSProperties}
-                className={cn(
-                  "slide-in flex cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-left transition hover:bg-muted/40",
-                  selected === x.key && "bg-primary/10 ring-1 ring-primary/40",
-                )}
-              >
-                <span className={cn("grid size-8 shrink-0 place-items-center font-mono text-xs font-bold", HEX, rankTone(x.info!.rank))}>
-                  {x.info!.rank}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[11px] text-muted-foreground">{x.c.label}</span>
-                  <span className="block font-mono text-sm font-semibold tabular-nums">{x.c.fmt(x.info!.value)}</span>
-                </span>
-                <span className="font-mono text-[10px] text-muted-foreground tabular-nums">{x.info!.n} 人</span>
-              </button>
-            ))}
+            <div className="grid flex-1 grid-cols-3 gap-2">
+              {tiers.map((t) => (
+                <div key={t.key} className="flex items-center gap-2.5 rounded-xl bg-muted/40 px-3 py-2">
+                  <span className={cn("grid size-8 shrink-0 place-items-center font-mono text-xs font-bold", HEX, rankTone(t.badge))}>{t.badge}</span>
+                  <div className="min-w-0">
+                    <div className="font-mono text-base font-bold tabular-nums leading-tight">{t.n}</div>
+                    <div className="truncate text-[10px] text-muted-foreground">{t.label}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-        )}
-        {allTop.length > TOP_SHOWN && (
-          <button
-            type="button"
-            onClick={() => setShowAllTop((v) => !v)}
-            className="cursor-pointer px-2.5 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-          >
-            {showAllTop ? "收起" : `看全部前十（共 ${allTop.length} 項）`}
-          </button>
-        )}
-      </section>
 
-      {/* 分類分頁 */}
-      <section className="space-y-3">
-        <div className="flex flex-wrap gap-1.5">
-          {STAT_SETS.map((g) => {
-            const Icon = STAT_GROUP_ICON[g.id] ?? Target
-            const on = g.id === activeId
-            const n = groupTop(g.id)
-            return (
-              <button
-                key={g.id}
-                type="button"
-                onClick={() => setPicked(g.id)}
-                aria-pressed={on}
-                className={cn(
-                  "inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition",
-                  on ? "border-primary bg-primary/15 text-primary" : "border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-                )}
-              >
-                <Icon className="size-3.5" />
-                {g.label}
-                {n > 0 && (
-                  <span className={cn("rounded-full px-1.5 font-mono text-[10px]", on ? "bg-primary text-primary-foreground" : "bg-muted text-foreground")}>{n}</span>
-                )}
-              </button>
-            )
-          })}
-        </div>
-
-        <div key={active.id} className="reveal rounded-2xl border bg-card p-2">
-          {active.cols.map((c, i) => {
-            const info = rankOf(board, puuid, c)
-            const v = opt(me, c.key)
-            const pct = info ? ((info.n - info.rank + 1) / info.n) * 100 : 0
-            const top = info !== undefined && info !== null && info.rank <= 10
-            const fill = info && info.rank === 1 ? "bg-gold" : top ? "bg-primary" : "bg-muted-foreground/40"
-            const key = `${active.id}|${c.key}`
-            return (
-              <button
-                key={c.key}
-                type="button"
-                onClick={() => setSelected(key)}
-                aria-pressed={selected === key}
-                data-tip={`${c.hint}\n點一下看排行榜與紀錄場`}
-                className={cn(
-                  "flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left transition hover:bg-muted/50",
-                  i % 2 === 1 && "bg-muted/30",
-                  selected === key && "bg-primary/10 ring-1 ring-primary/40",
-                )}
-              >
-                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{c.label}</span>
-                {/* 名次條：外層是固定寬的軌道，內層寬度才是名次位置；動畫套在最裡面的色塊，不蓋掉寬度 */}
-                <span className="relative hidden h-1.5 w-28 shrink-0 overflow-hidden rounded-full bg-muted sm:block">
-                  {info && (
-                    <span className="absolute inset-y-0 left-0 overflow-hidden rounded-full" style={{ width: `${pct}%` }}>
-                      <span className={cn("block h-full w-full origin-left bar-grow", fill)} style={{ animationDelay: `${Math.min(i * 25, 300)}ms` }} />
+          {/* 前十清單 */}
+          <section className="space-y-2">
+            {allTop.length === 0 ? (
+              <p className="text-xs text-muted-foreground">沒有進前十的項目，看下面每一組的名次。</p>
+            ) : (
+              <div className="grid gap-1.5 @[560px]:grid-cols-2">
+                {topList.map((x, i) => (
+                  <button
+                    key={x.key}
+                    type="button"
+                    onClick={() => setSelected(x.key)}
+                    aria-pressed={selected === x.key}
+                    data-tip={`${x.c.hint}\n點一下在旁邊看排行榜與紀錄場`}
+                    style={{ "--stagger": `${i * 30}ms` } as CSSProperties}
+                    className={cn(
+                      "slide-in flex cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-left transition hover:bg-muted/40",
+                      selected === x.key && "bg-primary/10 ring-1 ring-primary/40",
+                    )}
+                  >
+                    <span className={cn("grid size-8 shrink-0 place-items-center font-mono text-xs font-bold", HEX, rankTone(x.info!.rank))}>
+                      {x.info!.rank}
                     </span>
-                  )}
-                </span>
-                <span className="w-20 shrink-0 text-right font-mono text-sm font-semibold tabular-nums">{v === null ? "—" : c.fmt(v)}</span>
-                <span
-                  className={cn(
-                    "w-14 shrink-0 rounded border px-1 py-0.5 text-center font-mono text-[10px] tabular-nums",
-                    top ? "border-primary/40 bg-primary/10 text-primary" : "border-border text-muted-foreground",
-                  )}
-                >
-                  {info ? `${info.rank}/${info.n}` : "—"}
-                </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[11px] text-muted-foreground">{x.c.label}</span>
+                      <span className="block font-mono text-sm font-semibold tabular-nums">{x.c.fmt(x.info!.value)}</span>
+                    </span>
+                    <span className="font-mono text-[10px] text-muted-foreground tabular-nums">{x.info!.n} 人</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {allTop.length > TOP_SHOWN && (
+              <button
+                type="button"
+                onClick={() => setShowAllTop((v) => !v)}
+                className="cursor-pointer px-2.5 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              >
+                {showAllTop ? "收起" : `看全部前十（共 ${allTop.length} 項）`}
               </button>
-            )
-          })}
+            )}
+          </section>
+
+          {/* 分類分頁 */}
+          <section className="space-y-3">
+            <div className="flex flex-wrap gap-1.5">
+              {STAT_SETS.map((g) => {
+                const Icon = STAT_GROUP_ICON[g.id] ?? Target
+                const on = g.id === activeId
+                const n = groupTop(g.id)
+                return (
+                  <button
+                    key={g.id}
+                    type="button"
+                    onClick={() => setPicked(g.id)}
+                    aria-pressed={on}
+                    className={cn(
+                      "inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition",
+                      on ? "border-primary bg-primary/15 text-primary" : "border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                    )}
+                  >
+                    <Icon className="size-3.5" />
+                    {g.label}
+                    {n > 0 && (
+                      <span className={cn("rounded-full px-1.5 font-mono text-[10px]", on ? "bg-primary text-primary-foreground" : "bg-muted text-foreground")}>{n}</span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+
+            <div key={active.id} className="reveal rounded-2xl border bg-card p-2">
+              {active.cols.map((c, i) => {
+                const info = rankOf(board, puuid, c)
+                const v = opt(me, c.key)
+                const pct = info ? ((info.n - info.rank + 1) / info.n) * 100 : 0
+                const top = info !== undefined && info !== null && info.rank <= 10
+                const fill = info && info.rank === 1 ? "bg-gold" : top ? "bg-primary" : "bg-muted-foreground/40"
+                const key = `${active.id}|${c.key}`
+                return (
+                  <button
+                    key={c.key}
+                    type="button"
+                    onClick={() => setSelected(key)}
+                    aria-pressed={selected === key}
+                    data-tip={`${c.hint}\n點一下在旁邊看排行榜與紀錄場`}
+                    className={cn(
+                      "flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left transition hover:bg-muted/50",
+                      i % 2 === 1 && "bg-muted/30",
+                      selected === key && "bg-primary/10 ring-1 ring-primary/40",
+                    )}
+                  >
+                    <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{c.label}</span>
+                    {/* 名次條：外層是固定寬的軌道，內層寬度才是名次位置；動畫套在最裡面的色塊，不蓋掉寬度 */}
+                    <span className="relative hidden h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-muted sm:block">
+                      {info && (
+                        <span className="absolute inset-y-0 left-0 overflow-hidden rounded-full" style={{ width: `${pct}%` }}>
+                          <span className={cn("block h-full w-full origin-left bar-grow", fill)} style={{ animationDelay: `${Math.min(i * 25, 300)}ms` }} />
+                        </span>
+                      )}
+                    </span>
+                    <span className="w-20 shrink-0 text-right font-mono text-sm font-semibold tabular-nums">{v === null ? "—" : c.fmt(v)}</span>
+                    <span
+                      className={cn(
+                        "w-14 shrink-0 rounded border px-1 py-0.5 text-center font-mono text-[10px] tabular-nums",
+                        top ? "border-primary/40 bg-primary/10 text-primary" : "border-border text-muted-foreground",
+                      )}
+                    >
+                      {info ? `${info.rank}/${info.n}` : "—"}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </section>
         </div>
-      </section>
+
+        {/* 右邊長出來的詳細欄：寬的時候貼在頂端跟著捲；窄的時候接在列表下面 */}
+        {selectedItem && (
+          <aside className="drawer-in min-w-0 @[760px]:sticky @[760px]:top-2 @[760px]:self-start">
+            <div key={selectedItem.key} className="reveal">
+              <MetricDetail
+                col={selectedItem.c}
+                groupLabel={selectedItem.g.label}
+                puuid={puuid}
+                board={board}
+                people={people}
+                onOpenPlayer={onOpenPlayer}
+              />
+            </div>
+          </aside>
+        )}
+      </div>
     </div>
   )
 }
