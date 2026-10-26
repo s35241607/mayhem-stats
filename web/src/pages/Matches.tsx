@@ -70,6 +70,9 @@ export type Player = MatchRow & {
   dmg_true: number
   dmg_mitigated: number
   total_heal: number
+  /** 賽後統計的給隊友治療、給隊友護盾；沒有賽後統計的場次是 null */
+  eog_heal_on_teammates: number | null
+  eog_shield_on_teammates: number | null
   gold_spent: number
   time_ccing_others: number
   largest_multi_kill: number
@@ -321,7 +324,8 @@ function Scoreboard({
 
 // ─────────────────────────────────────────── 數據（十人橫向比較）
 
-type StatRow = { label: string; get: (p: Player) => number; fmt?: (n: number) => string }
+// get 回 null 表示這場沒有這個數字（例如沒有賽後統計），畫成「無資料」而不是 0
+type StatRow = { label: string; get: (p: Player) => number | null; fmt?: (n: number) => string }
 
 const STAT_SECTIONS: { title: string; rows: StatRow[] }[] = [
   {
@@ -362,7 +366,15 @@ const STAT_SECTIONS: { title: string; rows: StatRow[] }[] = [
       { label: "減免傷害", get: (p) => p.dmg_mitigated, fmt: (n) => n.toLocaleString() },
       // 本場貢獻的「承傷」用的就是這一列：承受的傷害加上護甲、魔抗、護盾擋下的（坦克擋下的多半是減免，只看承受會低估）
       { label: "承傷合計（承受＋減免）", get: (p) => p.dmg_taken + p.dmg_mitigated, fmt: (n) => n.toLocaleString() },
-      { label: "治療量", get: (p) => p.total_heal, fmt: (n) => n.toLocaleString() },
+      { label: "治療量（含自補）", get: (p) => p.total_heal, fmt: (n) => n.toLocaleString() },
+      // 隊友治療、隊友護盾只有賽後統計有；自補 ＝ 總治療 − 給隊友的治療（四捨五入的誤差會被夾在 0 以上）
+      { label: "隊友治療", get: (p) => p.eog_heal_on_teammates, fmt: (n) => n.toLocaleString() },
+      { label: "隊友護盾", get: (p) => p.eog_shield_on_teammates, fmt: (n) => n.toLocaleString() },
+      {
+        label: "自補治療",
+        get: (p) => (p.eog_heal_on_teammates === null ? null : Math.max(0, p.total_heal - p.eog_heal_on_teammates)),
+        fmt: (n) => n.toLocaleString(),
+      },
     ],
   },
   {
@@ -439,25 +451,34 @@ function StatTable({ players, roleOf, contrib }: { players: Player[]; roleOf: Ma
               </tr>
               {section.rows.map((row) => {
                 const values = players.map(row.get)
-                const max = Math.max(...values)
+                const max = Math.max(...values.map((v) => v ?? -1))
                 return (
                   <tr key={`${section.title}-${row.label}`} className="border-b last:border-0">
                     <td className="sticky left-0 z-10 whitespace-nowrap bg-card px-3 py-1.5 text-xs text-muted-foreground">
                       {row.label}
                     </td>
-                    {players.map((p, i) => (
-                      <td
-                        key={p.participant_id}
-                        className={cn(
-                          "px-2 py-1.5 text-center tabular-nums",
-                          // 全場最高的用主色標出來，一眼看得到誰在該項領先
-                          values[i] === max && max > 0 ? "font-bold text-primary" : "",
-                          p.is_me && "bg-primary/5",
-                        )}
-                      >
-                        {row.fmt ? row.fmt(values[i]) : values[i]}
-                      </td>
-                    ))}
+                    {players.map((p, i) => {
+                      const v = values[i]
+                      return (
+                        <td
+                          key={p.participant_id}
+                          className={cn(
+                            "px-2 py-1.5 text-center tabular-nums",
+                            // 全場最高的用主色標出來，一眼看得到誰在該項領先
+                            v !== null && v === max && max > 0 ? "font-bold text-primary" : "",
+                            p.is_me && "bg-primary/5",
+                          )}
+                        >
+                          {v === null ? (
+                            <span className="text-xs text-muted-foreground">無資料</span>
+                          ) : row.fmt ? (
+                            row.fmt(v)
+                          ) : (
+                            v
+                          )}
+                        </td>
+                      )
+                    })}
                   </tr>
                 )
               })}

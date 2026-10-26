@@ -1275,9 +1275,13 @@ def match_detail(platform_id: str, game_id: int, puuid: Optional[str] = None):
             for row in conn.execute(
                 """SELECT mp.*, COALESCE(dc.name, '英雄 ' || mp.champion_id) AS champion_name,
                           dc.icon_path AS champion_icon,
-                          (mp.puuid = ?) AS is_me
+                          (mp.puuid = ?) AS is_me,
+                          -- 賽後統計才有的隊友治療與護盾（沒有賽後統計的場次是 NULL，前端顯示「無資料」）
+                          e.heal_on_teammates AS eog_heal_on_teammates,
+                          e.shield_on_teammates AS eog_shield_on_teammates
                    FROM match_participants mp
                    LEFT JOIN dim_champions dc ON dc.id = mp.champion_id
+                   LEFT JOIN eog_player_stats e ON e.game_id = mp.game_id AND e.puuid = mp.puuid
                    WHERE mp.platform_id = ? AND mp.game_id = ?
                    ORDER BY mp.team_id, mp.participant_id""",
                 (_resolve_puuid(conn, puuid), platform_id, game_id),
