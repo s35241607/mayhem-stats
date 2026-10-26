@@ -2488,8 +2488,8 @@ function MetricDetail({
           </div>
         )}
       </div>
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
-        <section className="flex min-h-0 flex-col gap-1">
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] gap-3 overflow-hidden lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+        <section className="flex min-h-0 flex-col gap-1 overflow-hidden">
           <div className="shrink-0 text-[11px] font-semibold text-muted-foreground">排行榜</div>
           <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border">
             {rows.map((r, i) => {
@@ -2519,7 +2519,7 @@ function MetricDetail({
             })}
           </div>
         </section>
-        <section className="flex min-h-0 flex-col gap-1">
+        <section className="flex min-h-0 flex-col gap-1 overflow-hidden">
           <div className="shrink-0 text-[11px] font-semibold text-muted-foreground">{col.record ? "創下這項紀錄的那一場" : "這一項算進去的每一場"}</div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             <GamesBody source={col.record ? { puuid, filters: [], recordMetric: col.key } : { puuid, filters: [] }} />
@@ -2556,7 +2556,9 @@ function DrawerStats({
   const defaultId = STAT_SETS.reduce((best, g) => (groupTop(g.id) > groupTop(best) ? g.id : best), STAT_SETS[0].id)
   const activeId = picked ?? defaultId
   const active = STAT_SETS.find((g) => g.id === activeId) ?? STAT_SETS[0]
-  const selectedItem = selected ? ranked.find((x) => x.key === selected) : undefined
+  // 面板一定有內容：沒選時預設是第一個進前十的項目（沒有就是當前分頁的第一項），不留空白
+  const shownKey = selected ?? allTop[0]?.key ?? `${active.id}|${active.cols[0]?.key}`
+  const selectedItem = ranked.find((x) => x.key === shownKey)
   const TOP_SHOWN = 12
   const topList = showAllTop ? allTop : allTop.slice(0, TOP_SHOWN)
   const tiers = RANK_TIERS.map((t) => ({ ...t, n: allTop.filter((x) => t.test(x.info!.rank)).length }))
@@ -2565,7 +2567,7 @@ function DrawerStats({
     <div className="space-y-4">
       {/* 固定面板：貼在頂端，切換項目時高度不變、位置不動 */}
       <div className="sticky top-0 z-10 -mx-1 bg-background/95 px-1 pb-2 pt-1 backdrop-blur-sm">
-        {selectedItem ? (
+        {selectedItem && (
           <MetricDetail
             key={selectedItem.key}
             col={selectedItem.c}
@@ -2575,10 +2577,6 @@ function DrawerStats({
             people={people}
             onOpenPlayer={onOpenPlayer}
           />
-        ) : (
-          <div className={cn("flex items-center justify-center rounded-2xl border border-dashed text-xs text-muted-foreground", METRIC_PANEL_H)}>
-            點下面任一項，這裡會展開它的排行榜與紀錄場；再點別的項目會直接換成那一項。
-          </div>
         )}
       </div>
 
