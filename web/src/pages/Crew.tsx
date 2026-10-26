@@ -3104,6 +3104,13 @@ const STAT_SETS: { id: string; label: string; caption: string; cols: StatCol[] }
       { key: "participants.best_cs_per_min", label: "單場最高每分鐘補兵", fmt: (v) => v.toFixed(1), hint: "範圍內每分鐘補兵最高的那一場", record: true },
       { key: "participants.best_objective_damage_per_min", label: "單場最高每分鐘建築傷害", fmt: int, hint: "範圍內每分鐘對建築傷害最高的那一場", record: true },
       { key: "participants.best_minion_damage_per_min", label: "單場最高每分鐘小兵傷害（估）", fmt: int, hint: "範圍內每分鐘小兵傷害（估）最高的那一場", record: true },
+      // 賽後統計才有（只算有賽後統計的場次）
+      { key: "participants.max_spell_casts", label: "單場最高施放法術", fmt: int, hint: "範圍內單場施法次數（Q／W／E／R）最高的場次；只算有賽後統計的場次", record: true },
+      { key: "participants.best_spell_casts_per_min", label: "單場最高平均施放法術", fmt: (v) => v.toFixed(1), hint: "範圍內每分鐘施法次數最高的那一場", record: true },
+      { key: "participants.max_items_purchased", label: "單場最高買裝", fmt: int, hint: "範圍內單場買裝次數最高的場次；只算有賽後統計的場次", record: true },
+      { key: "participants.best_items_per_min", label: "單場最高平均買裝", fmt: (v) => v.toFixed(2), hint: "範圍內每分鐘買裝次數最高的那一場", record: true },
+      { key: "participants.max_pings", label: "單場最高 ping", fmt: int, hint: "範圍內單場訊號（Ping）次數最高的場次；只算有賽後統計的場次", record: true },
+      { key: "participants.best_pings_per_min", label: "單場最高平均 ping", fmt: (v) => v.toFixed(2), hint: "範圍內每分鐘訊號（Ping）次數最高的那一場", record: true },
     ],
   },
   {

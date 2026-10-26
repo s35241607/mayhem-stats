@@ -880,6 +880,66 @@ cubes:
           group: 賽後統計
           decimals: 2
 
+      - name: max_spell_casts
+        title: 單場最高施放法術
+        description: "範圍內單場施法次數（Q／W／E／R 合計）最高的場次。只算有賽後統計的場次。"
+        sql: "{CUBE}.eog_spell_casts"
+        type: max
+        meta:
+          group: 單場紀錄
+          decimals: 0
+          higherIsBetter: true
+
+      - name: best_spell_casts_per_min
+        title: 單場最高平均施放法術
+        description: "範圍內每分鐘施法次數最高的那一場（施法次數 ÷ 對局分鐘數）。只算有賽後統計的場次。"
+        sql: "{CUBE}.eog_spell_casts * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: max
+        meta:
+          group: 紀錄
+          decimals: 2
+          higherIsBetter: true
+
+      - name: max_items_purchased
+        title: 單場最高買裝
+        description: "範圍內單場買裝次數最高的場次。只算有賽後統計的場次。"
+        sql: "{CUBE}.eog_items_purchased"
+        type: max
+        meta:
+          group: 單場紀錄
+          decimals: 0
+          higherIsBetter: true
+
+      - name: best_items_per_min
+        title: 單場最高平均買裝
+        description: "範圍內每分鐘買裝次數最高的那一場（買裝次數 ÷ 對局分鐘數）。只算有賽後統計的場次。"
+        sql: "{CUBE}.eog_items_purchased * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: max
+        meta:
+          group: 紀錄
+          decimals: 2
+          higherIsBetter: true
+
+      - name: max_pings
+        title: 單場最高 ping
+        description: "範圍內單場訊號（Ping）次數最高的場次。只算有賽後統計的場次。"
+        sql: "{CUBE}.eog_pings"
+        type: max
+        meta:
+          group: 單場紀錄
+          decimals: 0
+          higherIsBetter: true
+
+      - name: best_pings_per_min
+        title: 單場最高平均 ping
+        description: "範圍內每分鐘訊號（Ping）次數最高的那一場（Ping 次數 ÷ 對局分鐘數）。只算有賽後統計的場次。"
+        sql: "{CUBE}.eog_pings * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: max
+        meta:
+          group: 紀錄
+          decimals: 2
+          higherIsBetter: true
+
       - name: ally_heal_games
         title: 有治療護盾隊友統計的場次
         description: "有賽後統計（治療護盾隊友的量）的場次數，每分鐘治療護盾隊友只算這些場次。"
