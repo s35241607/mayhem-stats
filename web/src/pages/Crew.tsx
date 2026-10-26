@@ -2549,27 +2549,35 @@ function DrawerStats({ puuid, board, loading }: { puuid: string; board: CubeRow[
             const info = rankOf(board, puuid, c)
             const v = opt(me, c.key)
             const pct = info ? ((info.n - info.rank + 1) / info.n) * 100 : 0
+            const top = info !== undefined && info !== null && info.rank <= 10
+            const fill = info && info.rank === 1 ? "bg-gold" : top ? "bg-primary" : "bg-muted-foreground/40"
             return (
               <div
                 key={c.key}
-                className={cn("grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-1 rounded-lg px-2.5 py-2", i % 2 === 1 && "bg-muted/25")}
+                className={cn("flex items-center gap-3 rounded-lg px-3 py-2", i % 2 === 1 && "bg-muted/30")}
               >
-                <span className="min-w-0 truncate text-xs text-muted-foreground" data-tip={c.hint}>
+                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground" data-tip={c.hint}>
                   {c.label}
                 </span>
-                <span className="font-mono text-sm font-semibold tabular-nums">{v === null ? "—" : c.fmt(v)}</span>
-                <span className="flex items-center gap-2">
-                  <span className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-                    {info && (
+                {/* 名次條：外層是固定寬的軌道，內層寬度才是名次位置；動畫套在最裡面，不蓋掉寬度 */}
+                <span className="relative hidden h-1.5 w-28 shrink-0 overflow-hidden rounded-full bg-muted sm:block">
+                  {info && (
+                    <span className="absolute inset-y-0 left-0 overflow-hidden rounded-full" style={{ width: `${pct}%` }}>
                       <span
-                        className={cn("absolute inset-0 origin-left rounded-full bar-grow", info.rank <= 10 ? (info.rank === 1 ? "bg-gold" : "bg-primary") : "bg-muted-foreground/50")}
-                        style={{ transform: `scaleX(${pct / 100})`, animationDelay: `${Math.min(i * 25, 300)}ms` }}
+                        className={cn("block h-full w-full origin-left bar-grow", fill)}
+                        style={{ animationDelay: `${Math.min(i * 25, 300)}ms` }}
                       />
-                    )}
-                  </span>
-                  <span className={cn("w-12 shrink-0 text-right font-mono text-[10px] tabular-nums", info && info.rank <= 10 ? "font-semibold text-foreground" : "text-muted-foreground")}>
-                    {info ? `${info.rank}/${info.n}` : "—"}
-                  </span>
+                    </span>
+                  )}
+                </span>
+                <span className="w-20 shrink-0 text-right font-mono text-sm font-semibold tabular-nums">{v === null ? "—" : c.fmt(v)}</span>
+                <span
+                  className={cn(
+                    "w-14 shrink-0 rounded border px-1 py-0.5 text-center font-mono text-[10px] tabular-nums",
+                    top ? "border-primary/40 bg-primary/10 text-primary" : "border-border text-muted-foreground",
+                  )}
+                >
+                  {info ? `${info.rank}/${info.n}` : "—"}
                 </span>
               </div>
             )
