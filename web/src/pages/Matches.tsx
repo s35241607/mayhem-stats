@@ -73,6 +73,13 @@ export type Player = MatchRow & {
   /** 賽後統計的給隊友治療、給隊友護盾；沒有賽後統計的場次是 null */
   eog_heal_on_teammates: number | null
   eog_shield_on_teammates: number | null
+  /** 賽後統計才有的操作量（沒有賽後統計的場次是 null） */
+  eog_spell_casts: number | null
+  eog_items_purchased: number | null
+  eog_pings_total: number | null
+  first_blood_assist: number
+  first_tower_assist: number
+  turret_dmg: number
   gold_spent: number
   time_ccing_others: number
   largest_multi_kill: number
@@ -338,6 +345,8 @@ const STAT_SECTIONS: { title: string; rows: StatRow[] }[] = [
       { label: "雙殺 / 三殺", get: (p) => p.double_kills + p.triple_kills },
       { label: "控場分數", get: (p) => p.time_ccing_others },
       { label: "最久存活（秒）", get: (p) => p.longest_time_living },
+      { label: "首殺助攻", get: (p) => p.first_blood_assist },
+      { label: "首塔助攻", get: (p) => p.first_tower_assist },
     ],
   },
   {
@@ -348,6 +357,7 @@ const STAT_SECTIONS: { title: string; rows: StatRow[] }[] = [
       { label: "對英雄魔法傷害", get: (p) => p.dmg_magic, fmt: (n) => n.toLocaleString() },
       { label: "對英雄真實傷害", get: (p) => p.dmg_true, fmt: (n) => n.toLocaleString() },
       { label: "對建築物傷害", get: (p) => p.dmg_to_objectives, fmt: (n) => n.toLocaleString() },
+      { label: "對防禦塔傷害", get: (p) => p.turret_dmg, fmt: (n) => n.toLocaleString() },
       // 對局資料沒有對小兵傷害，用總輸出扣掉對英雄與對建築估計（大亂鬥沒有野怪）
       { label: "對小兵傷害（估）", get: (p) => p.total_damage - p.dmg_to_champions - (p.dmg_to_objectives ?? 0), fmt: (n) => n.toLocaleString() },
     ],
@@ -375,6 +385,15 @@ const STAT_SECTIONS: { title: string; rows: StatRow[] }[] = [
         get: (p) => (p.eog_heal_on_teammates === null ? null : Math.max(0, p.total_heal - p.eog_heal_on_teammates)),
         fmt: (n) => n.toLocaleString(),
       },
+    ],
+  },
+  {
+    // 施法、買裝、訊號只有賽後統計才有；沒有的場次顯示「無資料」
+    title: "賽後統計（只有有賽後統計的場次）",
+    rows: [
+      { label: "施法次數（Q／W／E／R）", get: (p) => p.eog_spell_casts, fmt: (n) => n.toLocaleString() },
+      { label: "買裝次數", get: (p) => p.eog_items_purchased, fmt: (n) => n.toLocaleString() },
+      { label: "訊號次數", get: (p) => p.eog_pings_total, fmt: (n) => n.toLocaleString() },
     ],
   },
   {

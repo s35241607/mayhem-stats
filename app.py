@@ -1278,7 +1278,10 @@ def match_detail(platform_id: str, game_id: int, puuid: Optional[str] = None):
                           (mp.puuid = ?) AS is_me,
                           -- 賽後統計才有的隊友治療與護盾（沒有賽後統計的場次是 NULL，前端顯示「無資料」）
                           e.heal_on_teammates AS eog_heal_on_teammates,
-                          e.shield_on_teammates AS eog_shield_on_teammates
+                          e.shield_on_teammates AS eog_shield_on_teammates,
+                          e.spell_casts AS eog_spell_casts,
+                          e.items_purchased AS eog_items_purchased,
+                          e.pings_total AS eog_pings_total
                    FROM match_participants mp
                    LEFT JOIN dim_champions dc ON dc.id = mp.champion_id
                    LEFT JOIN eog_player_stats e ON e.game_id = mp.game_id AND e.puuid = mp.puuid
