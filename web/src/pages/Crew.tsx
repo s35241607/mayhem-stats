@@ -2417,7 +2417,26 @@ function rankOf(board: CubeRow[], puuid: string, col: StatCol): { value: number;
   return { value: mine, rank: better + 1, n: valid.length }
 }
 
-/** 抽屜的「數據」分頁：前十名的項目集中列在上面，下面是全部數據（每項附名次） */
+/** 數據分頁每組的圖示（和 STAT_SETS 的 id 對應） */
+const STAT_GROUP_ICON: Record<string, LucideIcon> = {
+  overview: Target,
+  dmg: Flame,
+  tank: Shield,
+  fight: Swords,
+  peak: Crown,
+  push: Castle,
+  eog: Sparkles,
+}
+
+/** 名次的獎牌色：第一名金、第二名銀、第三名紫，其餘前十用主色；全部是主題 token */
+const RANK_MEDAL: { tile: string; pill: string; shine: boolean }[] = [
+  { tile: "border-gold/60 bg-linear-135 from-gold/20 via-card to-card shadow-[0_0_18px_-8px] shadow-gold/80", pill: "border-gold/70 bg-gold/15 text-gold", shine: true },
+  { tile: "border-silver/60 bg-linear-135 from-silver/15 via-card to-card shadow-[0_0_14px_-8px] shadow-silver/70", pill: "border-silver/70 bg-silver/15 text-silver", shine: true },
+  { tile: "border-data/60 bg-linear-135 from-data/20 via-card to-card shadow-[0_0_14px_-8px] shadow-data/70", pill: "border-data/70 bg-data/15 text-data", shine: true },
+]
+const RANK_TOP_TEN = { pill: "border-primary/50 bg-primary/10 text-primary" }
+
+/** 抽屜的「數據」分頁：前十名做成成就牆，下面每一組一張卡，每項附名次 */
 function DrawerStats({ puuid, board, loading }: { puuid: string; board: CubeRow[]; loading: boolean }) {
   const [showAllTop, setShowAllTop] = useState(false)
   if (loading && board.length === 0) return <LoadingBlock height={320} label="載入數據與排名…" />
@@ -2428,27 +2447,49 @@ function DrawerStats({ puuid, board, loading }: { puuid: string; board: CubeRow[
   const TOP_SHOWN = 12
   const top = showAllTop ? allTop : allTop.slice(0, TOP_SHOWN)
   return (
-    <div className="space-y-4">
-      <section className="space-y-2">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <div className="text-sm font-semibold">排行前十</div>
+    <div className="space-y-5">
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-linear-135 from-gold/10 via-transparent to-primary/10 px-4 py-3">
+          <div className="flex items-center gap-2.5">
+            <span className="grid size-9 place-items-center rounded-full border border-gold/60 bg-gold/15 text-gold">
+              <Trophy className="size-4.5" />
+            </span>
+            <div>
+              <div className="text-sm font-semibold">排行前十</div>
+              <div className="font-mono text-[11px] text-muted-foreground">
+                共 <span className="text-foreground"><CountUp text={String(allTop.length)} /></span> 項進前十
+              </div>
+            </div>
+          </div>
           <div className="text-[11px] text-muted-foreground">名次＝同一組人裡排第幾（樣本不足的人不排）</div>
         </div>
         {top.length === 0 ? (
-          <p className="text-xs text-muted-foreground">沒有進前十的項目，看下面每一項的名次。</p>
+          <p className="text-xs text-muted-foreground">沒有進前十的項目，看下面每一組的名次。</p>
         ) : (
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {top.map((x) => (
-              <div key={`${x.g.id}-${x.c.key}`} className="flex items-center justify-between gap-2 rounded-md border bg-card px-2.5 py-1.5">
-                <span className="min-w-0 truncate text-xs text-muted-foreground" data-tip={x.c.hint}>
-                  {x.c.label}
-                </span>
-                <span className="shrink-0 font-mono text-xs tabular-nums">
-                  <span className={cn("font-semibold", x.info!.rank <= 3 ? "text-win" : "text-foreground")}>第 {x.info!.rank} 名</span>
-                  <span className="ml-2 text-foreground">{x.c.fmt(x.info!.value)}</span>
-                </span>
-              </div>
-            ))}
+          <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+            {top.map((x, i) => {
+              const rank = x.info!.rank
+              const medal = RANK_MEDAL[rank - 1]
+              const pill = medal ? medal.pill : RANK_TOP_TEN.pill
+              return (
+                <div
+                  key={`${x.g.id}-${x.c.key}`}
+                  data-tip={x.c.hint}
+                  style={{ "--stagger": `${i * 45}ms` } as CSSProperties}
+                  className={cn(
+                    "rise relative rounded-xl border bg-card px-3 py-2.5",
+                    medal ? cn(medal.tile, "title-shine") : "border-border",
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="min-w-0 truncate text-[11px] text-muted-foreground">{x.c.label}</span>
+                    <span className={cn("grid size-6 shrink-0 place-items-center rounded-full border font-mono text-[11px] font-bold", pill)}>{rank}</span>
+                  </div>
+                  <div className="mt-1 font-mono text-lg font-bold tabular-nums leading-tight">{x.c.fmt(x.info!.value)}</div>
+                  <div className="mt-0.5 text-[10px] text-muted-foreground">{x.info!.n} 人中第 {rank} 名</div>
+                </div>
+              )
+            })}
           </div>
         )}
         {allTop.length > TOP_SHOWN && (
@@ -2461,33 +2502,54 @@ function DrawerStats({ puuid, board, loading }: { puuid: string; board: CubeRow[
           </button>
         )}
       </section>
-      <section className="space-y-2">
+
+      <section className="space-y-2.5">
         <div className="text-sm font-semibold">全部數據</div>
         <div className="grid gap-3 md:grid-cols-2">
-          {STAT_SETS.map((g) => (
-            <div key={g.id} className="rounded-lg border p-3">
-              <div className="mb-1 text-xs font-semibold">{g.label}</div>
-              <div className="divide-y divide-border/50">
-                {g.cols.map((c) => {
-                  const info = rankOf(board, puuid, c)
-                  const v = opt(me, c.key)
-                  return (
-                    <div key={c.key} className="flex items-center justify-between gap-2 py-1 text-xs">
-                      <span className="min-w-0 truncate text-muted-foreground" data-tip={c.hint}>
-                        {c.label}
-                      </span>
-                      <span className="shrink-0 font-mono tabular-nums">
-                        {v === null ? "—" : c.fmt(v)}
-                        <span className={cn("ml-2 inline-block w-11 text-right text-[10px]", info && info.rank <= 10 ? "font-semibold text-win" : "text-muted-foreground")}>
-                          {info ? `${info.rank}/${info.n}` : ""}
+          {STAT_SETS.map((g, gi) => {
+            const Icon = STAT_GROUP_ICON[g.id] ?? Target
+            const groupTop = g.cols.filter((c) => (rankOf(board, puuid, c)?.rank ?? 99) <= 10).length
+            return (
+              <div
+                key={g.id}
+                style={{ "--stagger": `${gi * 60}ms` } as CSSProperties}
+                className="rise rounded-xl border bg-card p-3.5"
+              >
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="grid size-7 place-items-center rounded-lg border border-primary/30 bg-primary/10 text-primary">
+                      <Icon className="size-4" />
+                    </span>
+                    <span className="text-sm font-semibold">{g.label}</span>
+                  </div>
+                  {groupTop > 0 && (
+                    <span className="rounded-full border border-gold/50 bg-gold/10 px-2 py-0.5 font-mono text-[10px] text-gold">前十 {groupTop}</span>
+                  )}
+                </div>
+                <div className="divide-y divide-border/50">
+                  {g.cols.map((c) => {
+                    const info = rankOf(board, puuid, c)
+                    const v = opt(me, c.key)
+                    const medal = info ? RANK_MEDAL[info.rank - 1] : undefined
+                    const pill = info && info.rank <= 10 ? (medal ? medal.pill : RANK_TOP_TEN.pill) : "border-border text-muted-foreground"
+                    return (
+                      <div key={c.key} className="flex items-center justify-between gap-3 py-1.5 text-xs">
+                        <span className="min-w-0 truncate text-muted-foreground" data-tip={c.hint}>
+                          {c.label}
                         </span>
-                      </span>
-                    </div>
-                  )
-                })}
+                        <span className="flex shrink-0 items-center gap-2">
+                          <span className="font-mono font-semibold tabular-nums">{v === null ? "—" : c.fmt(v)}</span>
+                          <span className={cn("w-12 rounded border px-1 text-center font-mono text-[10px] tabular-nums", pill)}>
+                            {info ? `${info.rank}/${info.n}` : "—"}
+                          </span>
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </section>
     </div>
