@@ -1,6 +1,6 @@
 cubes:
   # 出裝定位：依這場終場的裝備判斷「實際怎麼玩」，不看英雄的官方定位。全站只用這一套六類（2026-10-11 收斂）：
-  #   坦克、鬥士、刺客、射手、法師、輔助（太早結束沒成裝的是「未成形」）。
+  #   坦克、鬥士、刺客、射手、法師、輔助（太早結束沒成裝的，依不看裝備的數字推斷，見 SQL 裡的 nb_* 常數）。
   # 傷害類型（AD／AP）另外一個欄位 damage_type，不放進定位名稱——以前的「AD 鬥士／AP 鬥士、AD 輸出／AP 輸出」
   # 讓定位變成九種，雷達、陣容、好友比較每頁各自再合併一次，越來越難懂。
   #
@@ -21,7 +21,7 @@ cubes:
   #              否則英雄的官方主定位是刺客（卡特蓮娜、雷葛爾）  → 刺客
   #              否則（鬥士英雄出 AD 輸出裝：剛普朗克、趙信、犽宿…）→ 鬥士
   #   5. AP > AD：英雄的官方主定位是刺客                       → 刺客，否則 → 法師
-  #   沒有任何成裝（太早結束）                                 → 未成形
+  #   沒有任何成裝（太早結束）                                 → 不看裝備，用數字推斷（nb_*）
   #
   # 鬥士英雄出全輸出裝（2026-10-11 從刺客改到鬥士）：剛普朗克、特朗德、伊瑞莉雅、雷尼克頓、趙信、犽宿、易大師…
   #   官方主定位都是鬥士，玩法是近戰打架，不是進場秒人；放在刺客裡和劫、塔隆一起比很怪（使用者指出）。
@@ -122,13 +122,92 @@ cubes:
             SELECT platform_id, game_id, team_id, SUM(dmg_taken) AS taken
             FROM match_participants GROUP BY 1, 2, 3
           ),
+            -- 沒有任何成裝的人（太早結束、裝備資料缺）：不看裝備，用數字推斷定位（高斯單純貝氏，v3.3 定版）。
+            -- 8 個連續特徵各有每個定位的平均與標準差（nb_c），6 個官方定位旗標用機率（nb_f），再加定位先驗（nb_p）。
+            -- 常數是在 9,278 場有定位的計分場次上算出來寫死的，留出驗證準確率 78.6%；新增對局不會改常數。
+            -- 特徵都不看裝備：傷害型態、占全隊的對英雄傷害與承傷、每分鐘補兵／控場／治療／死亡、參團率、英雄的官方定位。
+          nb_p(role, lp) AS (VALUES
+              ('坦克', -1.8826),
+              ('鬥士', -1.5360),
+              ('刺客', -2.1498),
+              ('射手', -1.7124),
+              ('法師', -1.1952),
+              ('輔助', -3.4118)
+          ),
+          nb_c(role, f, mu, sd) AS (VALUES
+              ('坦克', 0, 0.4250, 0.2232), ('坦克', 1, 0.1629, 0.0607), ('坦克', 2, 0.3642, 0.0943), ('坦克', 3, 1.2384, 0.8934),
+              ('坦克', 4, 2.9823, 1.5701), ('坦克', 5, 6.3131, 1.0209), ('坦克', 6, 0.7037, 0.1121), ('坦克', 7, 0.6092, 0.1594),
+              ('鬥士', 0, 0.5798, 0.3187), ('鬥士', 1, 0.2080, 0.0654), ('鬥士', 2, 0.2465, 0.0850), ('鬥士', 3, 2.3524, 1.1771),
+              ('鬥士', 4, 1.7739, 1.3811), ('鬥士', 5, 6.2512, 0.9347), ('鬥士', 6, 0.6676, 0.1148), ('鬥士', 7, 0.6769, 0.1730),
+              ('刺客', 0, 0.5472, 0.3699), ('刺客', 1, 0.2156, 0.0627), ('刺客', 2, 0.1797, 0.0626), ('刺客', 3, 1.8826, 1.0098),
+              ('刺客', 4, 1.1936, 1.2759), ('刺客', 5, 5.6847, 0.9135), ('刺客', 6, 0.6631, 0.1074), ('刺客', 7, 0.6800, 0.1776),
+              ('射手', 0, 0.7958, 0.1641), ('射手', 1, 0.2244, 0.0678), ('射手', 2, 0.1310, 0.0449), ('射手', 3, 3.3540, 1.2936),
+              ('射手', 4, 0.8736, 0.8468), ('射手', 5, 5.5147, 0.9186), ('射手', 6, 0.6827, 0.1143), ('射手', 7, 0.6260, 0.1535),
+              ('法師', 0, 0.0684, 0.1025), ('法師', 1, 0.2058, 0.0637), ('法師', 2, 0.1415, 0.0574), ('法師', 3, 2.3490, 1.0830),
+              ('法師', 4, 2.2446, 1.3937), ('法師', 5, 5.2373, 1.1010), ('法師', 6, 0.6935, 0.1124), ('法師', 7, 0.5915, 0.1823),
+              ('輔助', 0, 0.1408, 0.1402), ('輔助', 1, 0.0788, 0.0361), ('輔助', 2, 0.1254, 0.0503), ('輔助', 3, 0.6005, 0.4480),
+              ('輔助', 4, 2.2941, 1.2361), ('輔助', 5, 6.7293, 1.0181), ('輔助', 6, 0.8301, 0.0908), ('輔助', 7, 0.4151, 0.1530)
+          ),
+          nb_f(role, f, p) AS (VALUES
+              ('坦克', 8, 0.9059), ('坦克', 9, 0.3522), ('坦克', 10, 0.0354), ('坦克', 11, 0.0007), ('坦克', 12, 0.1492), ('坦克', 13, 0.4208),
+              ('鬥士', 8, 0.3597), ('鬥士', 9, 0.7799), ('鬥士', 10, 0.3512), ('鬥士', 11, 0.0200), ('鬥士', 12, 0.2211), ('鬥士', 13, 0.0875),
+              ('刺客', 8, 0.0499), ('刺客', 9, 0.3324), ('刺客', 10, 0.8652), ('刺客', 11, 0.0840), ('刺客', 12, 0.3426), ('刺客', 13, 0.0508),
+              ('射手', 8, 0.0006), ('射手', 9, 0.0227), ('射手', 10, 0.2291), ('射手', 11, 0.9994), ('射手', 12, 0.3037), ('射手', 13, 0.1008),
+              ('法師', 8, 0.1057), ('法師', 9, 0.1338), ('法師', 10, 0.0843), ('法師', 11, 0.1655), ('法師', 12, 0.8801), ('法師', 13, 0.3630),
+              ('輔助', 8, 0.0227), ('輔助', 9, 0.0195), ('輔助', 10, 0.0097), ('輔助', 11, 0.0325), ('輔助', 12, 0.9448), ('輔助', 13, 0.9740)
+          ),
+          nb_feat AS (
+            SELECT mp.rowid AS participant_rowid,
+              COALESCE(mp.dmg_physical * 1.0 / NULLIF(mp.dmg_physical + mp.dmg_magic + mp.dmg_true, 0), 0.5) AS x0,
+              COALESCE(mp.dmg_to_champions * 1.0 / NULLIF(mp.team_dmg, 0), 0) AS x1,
+              COALESCE((mp.dmg_taken + mp.dmg_mitigated) * 1.0 / NULLIF(SUM(mp.dmg_taken + mp.dmg_mitigated) OVER tm, 0), 0) AS x2,
+              mp.cs * 60.0 / m.game_duration AS x3,
+              mp.time_ccing_others * 60.0 / m.game_duration AS x4,
+              LN(1 + mp.total_heal * 60.0 / m.game_duration) AS x5,
+              COALESCE((mp.kills + mp.assists) * 1.0 / NULLIF(SUM(mp.kills) OVER tm, 0), 0) AS x6,
+              mp.deaths * 60.0 / m.game_duration AS x7,
+              EXISTS (SELECT 1 FROM dim_champion_roles r WHERE r.champion_id = mp.champion_id AND r.role = 'tank') AS x8,
+              EXISTS (SELECT 1 FROM dim_champion_roles r WHERE r.champion_id = mp.champion_id AND r.role = 'fighter') AS x9,
+              EXISTS (SELECT 1 FROM dim_champion_roles r WHERE r.champion_id = mp.champion_id AND r.role = 'assassin') AS x10,
+              EXISTS (SELECT 1 FROM dim_champion_roles r WHERE r.champion_id = mp.champion_id AND r.role = 'marksman') AS x11,
+              EXISTS (SELECT 1 FROM dim_champion_roles r WHERE r.champion_id = mp.champion_id AND r.role = 'mage') AS x12,
+              EXISTS (SELECT 1 FROM dim_champion_roles r WHERE r.champion_id = mp.champion_id AND r.role = 'support') AS x13
+            FROM match_participants mp
+            JOIN matches m ON m.platform_id = mp.platform_id AND m.game_id = mp.game_id
+            WINDOW tm AS (PARTITION BY mp.platform_id, mp.game_id, mp.team_id)
+          ),
+          nb_cont AS (
+            SELECT x.participant_rowid, c.role, SUM(-0.5 * ((x.v - c.mu) / c.sd) * ((x.v - c.mu) / c.sd) - LN(c.sd)) AS ll
+            FROM (SELECT participant_rowid, 0 AS f, x0 AS v FROM nb_feat UNION ALL SELECT participant_rowid, 1, x1 FROM nb_feat
+                  UNION ALL SELECT participant_rowid, 2, x2 FROM nb_feat UNION ALL SELECT participant_rowid, 3, x3 FROM nb_feat
+                  UNION ALL SELECT participant_rowid, 4, x4 FROM nb_feat UNION ALL SELECT participant_rowid, 5, x5 FROM nb_feat
+                  UNION ALL SELECT participant_rowid, 6, x6 FROM nb_feat UNION ALL SELECT participant_rowid, 7, x7 FROM nb_feat) x
+            JOIN nb_c c ON c.f = x.f
+            GROUP BY x.participant_rowid, c.role
+          ),
+          nb_flag AS (
+            SELECT x.participant_rowid, c.role, SUM(CASE WHEN x.v = 1 THEN LN(c.p) ELSE LN(1 - c.p) END) AS ll
+            FROM (SELECT participant_rowid, 8 AS f, x8 AS v FROM nb_feat UNION ALL SELECT participant_rowid, 9, x9 FROM nb_feat
+                  UNION ALL SELECT participant_rowid, 10, x10 FROM nb_feat UNION ALL SELECT participant_rowid, 11, x11 FROM nb_feat
+                  UNION ALL SELECT participant_rowid, 12, x12 FROM nb_feat UNION ALL SELECT participant_rowid, 13, x13 FROM nb_feat) x
+            JOIN nb_f c ON c.f = x.f
+            GROUP BY x.participant_rowid, c.role
+          ),
+          nb_role AS (
+            SELECT participant_rowid, role FROM (
+              SELECT t.participant_rowid, t.role,
+                ROW_NUMBER() OVER (PARTITION BY t.participant_rowid ORDER BY t.ll + p.lp DESC) AS rk
+              FROM (SELECT participant_rowid, role, SUM(ll) AS ll FROM (SELECT * FROM nb_cont UNION ALL SELECT * FROM nb_flag) GROUP BY 1, 2) t
+              JOIN nb_p p ON p.role = t.role
+            ) WHERE rk = 1
+          ),
           classified AS (
             SELECT mp.rowid AS participant_rowid, m.queue_id,
               COALESCE(g.ad, 0) AS ad_gold, COALESCE(g.ap, 0) AS ap_gold,
               COALESCE(g.tank, 0) AS tank_gold, COALESCE(g.sup, 0) AS sup_gold,
               COALESCE(g.ad + g.ap + g.tank + g.sup, 0) AS core_gold,
               CASE
-                WHEN COALESCE(g.ad + g.ap + g.tank + g.sup, 0) = 0 THEN '未成形'
+                WHEN COALESCE(g.ad + g.ap + g.tank + g.sup, 0) = 0 THEN COALESCE(nr.role, '未成形')
                 WHEN g.sup / (g.ad + g.ap + g.tank + g.sup) >= 0.35 THEN '輔助'
                 WHEN g.tank / (g.ad + g.ap + g.tank + g.sup) >= 0.5
                      AND g.ad / (g.ad + g.ap + g.tank + g.sup) < 0.25
@@ -153,6 +232,7 @@ cubes:
             LEFT JOIN gold g ON g.platform_id = mp.platform_id AND g.game_id = mp.game_id AND g.participant_id = mp.participant_id
             LEFT JOIN primary_role pr ON pr.champion_id = mp.champion_id
             LEFT JOIN marksman mk ON mk.champion_id = mp.champion_id
+            LEFT JOIN nb_role nr ON nr.participant_rowid = mp.rowid
           )
           SELECT * FROM classified
 
@@ -178,7 +258,7 @@ cubes:
       # 字串而不是數字比較：理由同 participants.is_me（CASE 運算式沒有型別親和性）
       - name: build_role
         title: 出裝定位
-        description: "依終場裝備判斷的實際定位，六類：坦克、鬥士（坦度裝約一半，或鬥士英雄出 AD 輸出裝）、刺客（穿甲型 AD；或官方主定位是刺客的英雄出輸出裝）、射手（AD 輸出裝且英雄有官方射手定位）、法師（AP 輸出裝）、輔助，另有未成形（太早結束沒成裝）。AD／AP 看 damage_type。規則見 cube/model/cubes/builds.yml；和英雄的官方定位（champion_roles）不同，同一隻英雄不同場可能不一樣。"
+        description: "依終場裝備判斷的實際定位，六類：坦克、鬥士（坦度裝約一半，或鬥士英雄出 AD 輸出裝）、刺客（穿甲型 AD；或官方主定位是刺客的英雄出輸出裝）、射手（AD 輸出裝且英雄有官方射手定位）、法師（AP 輸出裝）、輔助，沒成裝的（太早結束等）不看裝備，用數字推斷，所以不會再出現未成形。AD／AP 看 damage_type。規則見 cube/model/cubes/builds.yml；和英雄的官方定位（champion_roles）不同，同一隻英雄不同場可能不一樣。"
         sql: build_role
         type: string
         meta:
