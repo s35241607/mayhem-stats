@@ -2441,7 +2441,10 @@ const RANK_TIERS = [
   { key: "rest", badge: 4, label: "第四到第十", test: (r: number) => r >= 4 },
 ]
 
-/** 這一項的排行榜與紀錄場：排行榜是全部有資料的人依值排序（可點名字換成他的抽屜），紀錄場是這個人創下紀錄的那一場，或他算進去的每一場 */
+/** 數據分頁上方的固定高度面板：高度不變，點哪一項只換內容，不會把下面的列表推來推去。
+ *  左邊排行榜、右邊紀錄場，各自在面板裡捲動；沒選時放同高度的提示。 */
+const METRIC_PANEL_H = "h-[19rem]"
+
 function MetricDetail({
   col,
   groupLabel,
@@ -2468,40 +2471,37 @@ function MetricDetail({
       return col.lower ? va - vb : vb - va
     })
   const byId = new Map(people.map((p) => [p.puuid, p]))
-  const me = byId.get(puuid)
   return (
-    <div className="reveal space-y-3 rounded-2xl border border-primary/40 bg-card p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className={cn("flex flex-col gap-2 rounded-2xl border border-primary/40 bg-card p-3", METRIC_PANEL_H)}>
+      <div className="flex shrink-0 items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-[11px] text-muted-foreground">{groupLabel}</div>
-          <div className="truncate text-base font-semibold">{col.label}</div>
-          {col.hint && <div className="mt-0.5 text-[11px] text-muted-foreground">{col.hint}</div>}
+          <div className="truncate text-sm font-semibold">
+            <span className="text-muted-foreground">{groupLabel}・</span>
+            {col.label}
+          </div>
         </div>
         {info && (
-          <div className="flex items-center gap-2.5">
-            <span className={cn("grid size-10 place-items-center font-mono text-sm font-bold", HEX, rankTone(info.rank))}>{info.rank}</span>
-            <div className="text-right">
-              <div className="font-mono text-lg font-bold tabular-nums leading-tight">{col.fmt(info.value)}</div>
-              <div className="text-[10px] text-muted-foreground">{info.n} 人中第 {info.rank} 名</div>
-            </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <span className={cn("grid size-8 place-items-center font-mono text-xs font-bold", HEX, rankTone(info.rank))}>{info.rank}</span>
+            <span className="font-mono text-sm font-bold tabular-nums">{col.fmt(info.value)}</span>
+            <span className="text-[10px] text-muted-foreground">{info.n} 人中第 {info.rank} 名</span>
           </div>
         )}
       </div>
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
-        <section className="min-w-0 space-y-1.5">
-          <div className="text-xs font-semibold">排行榜</div>
-          <div className="max-h-80 overflow-y-auto rounded-xl border">
+      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+        <section className="flex min-h-0 flex-col gap-1">
+          <div className="shrink-0 text-[11px] font-semibold text-muted-foreground">排行榜</div>
+          <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border">
             {rows.map((r, i) => {
               const pid = String(r["participants.puuid"])
               const p = byId.get(pid)
               const rank = i + 1
-              const mine = pid === puuid
               return (
                 <div
                   key={pid}
-                  className={cn("flex items-center gap-2.5 border-b border-border/50 px-2.5 py-1.5 last:border-b-0", mine && "bg-primary/10")}
+                  className={cn("flex items-center gap-2 border-b border-border/50 px-2 py-1 last:border-b-0", pid === puuid && "bg-primary/10")}
                 >
-                  <span className={cn("grid size-6 shrink-0 place-items-center font-mono text-[10px] font-bold", HEX, rank <= 10 ? rankTone(rank) : "bg-muted text-muted-foreground")}>
+                  <span className={cn("grid size-5 shrink-0 place-items-center font-mono text-[10px] font-bold", HEX, rank <= 10 ? rankTone(rank) : "bg-muted text-muted-foreground")}>
                     {rank}
                   </span>
                   <span className="min-w-0 flex-1">
@@ -2514,16 +2514,14 @@ function MetricDetail({
                     )}
                   </span>
                   <span className="shrink-0 font-mono text-xs font-semibold tabular-nums">{col.fmt(opt(r, col.key) as number)}</span>
-                  <span className="w-10 shrink-0 text-right font-mono text-[10px] text-muted-foreground tabular-nums">{n0(r, "participants.games")} 場</span>
                 </div>
               )
             })}
           </div>
-          {me && <div className="text-[10px] text-muted-foreground">高亮的是你正在看的這一位</div>}
         </section>
-        <section className="min-w-0 space-y-1.5">
-          <div className="text-xs font-semibold">{col.record ? "創下這項紀錄的那一場" : "這一項算進去的每一場"}</div>
-          <div className="max-h-80 overflow-y-auto">
+        <section className="flex min-h-0 flex-col gap-1">
+          <div className="shrink-0 text-[11px] font-semibold text-muted-foreground">{col.record ? "創下這項紀錄的那一場" : "這一項算進去的每一場"}</div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
             <GamesBody source={col.record ? { puuid, filters: [], recordMetric: col.key } : { puuid, filters: [] }} />
           </div>
         </section>
@@ -2532,7 +2530,7 @@ function MetricDetail({
   )
 }
 
-/** 抽屜的「數據」分頁：前十的摘要與清單、分類分頁、點任一項展開排行榜與紀錄場 */
+/** 抽屜的「數據」分頁：上方固定的面板、前十的摘要與清單、分類分頁。點任一項只換上方面板的內容 */
 function DrawerStats({
   puuid,
   board,
@@ -2549,7 +2547,6 @@ function DrawerStats({
   const [picked, setPicked] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [showAllTop, setShowAllTop] = useState(false)
-  const detailRef = useRef<HTMLDivElement>(null)
   if (loading && board.length === 0) return <LoadingBlock height={320} label="載入數據與排名…" />
   const me = board.find((r) => r["participants.puuid"] === puuid)
   const ranked = STAT_SETS.flatMap((g) => g.cols.map((c) => ({ g, c, info: rankOf(board, puuid, c), key: `${g.id}|${c.key}` })))
@@ -2563,14 +2560,28 @@ function DrawerStats({
   const TOP_SHOWN = 12
   const topList = showAllTop ? allTop : allTop.slice(0, TOP_SHOWN)
   const tiers = RANK_TIERS.map((t) => ({ ...t, n: allTop.filter((x) => t.test(x.info!.rank)).length }))
-  const pick = (key: string) => {
-    setSelected(key)
-    // 詳細區在分類分頁上面，點了要捲過去，不然使用者看不到它開了
-    setTimeout(() => detailRef.current?.scrollIntoView({ block: "start", behavior: prefersReducedMotion() ? "auto" : "smooth" }), 60)
-  }
 
   return (
     <div className="space-y-4">
+      {/* 固定面板：貼在頂端，切換項目時高度不變、位置不動 */}
+      <div className="sticky top-0 z-10 -mx-1 bg-background/95 px-1 pb-2 pt-1 backdrop-blur-sm">
+        {selectedItem ? (
+          <MetricDetail
+            key={selectedItem.key}
+            col={selectedItem.c}
+            groupLabel={selectedItem.g.label}
+            puuid={puuid}
+            board={board}
+            people={people}
+            onOpenPlayer={onOpenPlayer}
+          />
+        ) : (
+          <div className={cn("flex items-center justify-center rounded-2xl border border-dashed text-xs text-muted-foreground", METRIC_PANEL_H)}>
+            點下面任一項，這裡會展開它的排行榜與紀錄場；再點別的項目會直接換成那一項。
+          </div>
+        )}
+      </div>
+
       {/* 摘要：前十共幾項、各名次段各幾項 */}
       <div className="flex flex-wrap items-stretch gap-3 rounded-2xl border bg-card p-4">
         <div className="flex min-w-28 flex-col justify-center border-r border-border/60 pr-4">
@@ -2592,7 +2603,7 @@ function DrawerStats({
         </div>
       </div>
 
-      {/* 前十清單：六角形名次徽章 + 項目 + 數值，依序滑入；點一項展開它的排行榜與紀錄場 */}
+      {/* 前十清單 */}
       <section className="space-y-2">
         {allTop.length === 0 ? (
           <p className="text-xs text-muted-foreground">沒有進前十的項目，看下面每一組的名次。</p>
@@ -2602,7 +2613,7 @@ function DrawerStats({
               <button
                 key={x.key}
                 type="button"
-                onClick={() => pick(x.key)}
+                onClick={() => setSelected(x.key)}
                 aria-pressed={selected === x.key}
                 data-tip={`${x.c.hint}\n點一下看排行榜與紀錄場`}
                 style={{ "--stagger": `${i * 30}ms` } as CSSProperties}
@@ -2662,21 +2673,6 @@ function DrawerStats({
           })}
         </div>
 
-        {/* 展開的這一項：放在分類分頁正下方，點了就在這裡看 */}
-        <div ref={detailRef} className="scroll-mt-4">
-          {selectedItem && (
-            <MetricDetail
-              key={selectedItem.key}
-              col={selectedItem.c}
-              groupLabel={selectedItem.g.label}
-              puuid={puuid}
-              board={board}
-              people={people}
-              onOpenPlayer={onOpenPlayer}
-            />
-          )}
-        </div>
-
         <div key={active.id} className="reveal rounded-2xl border bg-card p-2">
           {active.cols.map((c, i) => {
             const info = rankOf(board, puuid, c)
@@ -2689,7 +2685,7 @@ function DrawerStats({
               <button
                 key={c.key}
                 type="button"
-                onClick={() => pick(key)}
+                onClick={() => setSelected(key)}
                 aria-pressed={selected === key}
                 data-tip={`${c.hint}\n點一下看排行榜與紀錄場`}
                 className={cn(
