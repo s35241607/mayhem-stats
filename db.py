@@ -182,6 +182,9 @@ CREATE TABLE IF NOT EXISTS eog_player_stats (
   spell_casts         INTEGER,
   items_purchased     INTEGER,
   pings_total         INTEGER,
+  summoner1_casts     INTEGER,
+  summoner2_casts     INTEGER,
+  consumables_purchased INTEGER,
   PRIMARY KEY (game_id, puuid)
 );
 
@@ -330,9 +333,10 @@ def _migrate(conn):
     _backfill_match_teams(conn)
     backfill_eog_players(conn)
     eog_cols = {row["name"] for row in conn.execute("PRAGMA table_info(eog_player_stats)")}
-    if "spell_casts" not in eog_cols:
+    missing_eog = [col for col in EOG_EXTRA_COLS if col not in eog_cols]
+    if missing_eog:
         with conn:
-            for col in ("spell_casts", "items_purchased", "pings_total"):
+            for col in missing_eog:
                 conn.execute(f"ALTER TABLE eog_player_stats ADD COLUMN {col} INTEGER")
         _backfill_eog_extra(conn)
     raw_data.recover_existing(conn)
@@ -757,38 +761,45 @@ def eog_players(block):
     return out
 
 
+# 賽後統計才有的操作量，欄位順序和 eog_extra_stats 回傳的一致
+EOG_EXTRA_COLS = (
+    "spell_casts", "items_purchased", "pings_total",   # 施法（Q／W／E／R 合計）、買裝、訊號（所有 *Pings 加總）
+    "summoner1_casts", "summoner2_casts",              # 召喚師技能的施放次數（閃現是哪一格要看 spell1_id／spell2_id）
+    "consumables_purchased",                           # 買的消耗品（藥水、守衛等）
+)
+
+
 def eog_extra_stats(stats):
-    """賽後統計才有、對局紀錄沒有的操作量：施法次數（Q／W／E／R）、買裝次數、訊號次數（所有 *Pings 加總）。"""
     numeric = lambda key: stats.get(key) if isinstance(stats.get(key), (int, float)) else None
     casts = [numeric(f"spell{i}Casts") for i in range(1, 5)]
     spell_casts = sum(casts) if all(c is not None for c in casts) else None
     pings = [v for k, v in stats.items() if k.endswith("Pings") and isinstance(v, (int, float))]
-    return spell_casts, numeric("itemsPurchased"), sum(pings) if pings else None
+    return (spell_casts, numeric("itemsPurchased"), sum(pings) if pings else None,
+            numeric("summoner1Casts"), numeric("summoner2Casts"), numeric("consumablesPurchased"))
 
 
 def _store_eog_players(conn, block):
     conn.executemany(
-        """INSERT OR REPLACE INTO eog_player_stats
+        f"""INSERT OR REPLACE INTO eog_player_stats
            (game_id, puuid, team_id, champion_id, heal_on_teammates, shield_on_teammates, time_spent_dead, total_heal,
-            spell_casts, items_purchased, pings_total)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            {", ".join(EOG_EXTRA_COLS)})
+           VALUES ({",".join("?" * (8 + len(EOG_EXTRA_COLS)))})""",
         eog_players(block),
     )
 
 
 def _backfill_eog_extra(conn):
-    """舊的賽後統計列補上施法、買裝、訊號欄位（從已存的快照拆）。"""
+    """舊的賽後統計列補上操作量欄位（從已存的快照拆）。"""
+    assignments = ", ".join(f"{col} = ?" for col in EOG_EXTRA_COLS)
     with conn:
         for game_id, raw in conn.execute("SELECT game_id, raw_json FROM eog_snapshots").fetchall():
             for team in json.loads(raw).get("teams") or []:
                 for player in team.get("players") or []:
                     if not player.get("puuid"):
                         continue
-                    spell, items, pings = eog_extra_stats(player.get("stats") or {})
                     conn.execute(
-                        """UPDATE eog_player_stats SET spell_casts = ?, items_purchased = ?, pings_total = ?
-                           WHERE game_id = ? AND puuid = ?""",
-                        (spell, items, pings, game_id, player["puuid"]),
+                        f"UPDATE eog_player_stats SET {assignments} WHERE game_id = ? AND puuid = ?",
+                        (*eog_extra_stats(player.get("stats") or {}), game_id, player["puuid"]),
                     )
 
 

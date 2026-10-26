@@ -1281,7 +1281,10 @@ def match_detail(platform_id: str, game_id: int, puuid: Optional[str] = None):
                           e.shield_on_teammates AS eog_shield_on_teammates,
                           e.spell_casts AS eog_spell_casts,
                           e.items_purchased AS eog_items_purchased,
-                          e.pings_total AS eog_pings_total
+                          e.pings_total AS eog_pings_total,
+                          e.summoner1_casts AS eog_summoner1,
+                          e.summoner2_casts AS eog_summoner2,
+                          e.consumables_purchased AS eog_consumables
                    FROM match_participants mp
                    LEFT JOIN dim_champions dc ON dc.id = mp.champion_id
                    LEFT JOIN eog_player_stats e ON e.game_id = mp.game_id AND e.puuid = mp.puuid

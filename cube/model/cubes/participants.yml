@@ -8,7 +8,8 @@ cubes:
       SELECT mp.rowid AS rowid, mp.*, e.time_spent_dead AS time_spent_dead,
              e.heal_on_teammates + e.shield_on_teammates AS ally_heal_shield,
              e.spell_casts AS eog_spell_casts, e.items_purchased AS eog_items_purchased, e.pings_total AS eog_pings,
-             e.heal_on_teammates AS eog_ally_heal, e.shield_on_teammates AS eog_ally_shield
+             e.heal_on_teammates AS eog_ally_heal, e.shield_on_teammates AS eog_ally_shield,
+             e.summoner1_casts AS eog_summoner1, e.summoner2_casts AS eog_summoner2, e.consumables_purchased AS eog_consumables
       FROM match_participants mp
       LEFT JOIN eog_player_stats e ON e.game_id = mp.game_id AND e.puuid = mp.puuid
       WHERE NOT EXISTS (
@@ -1034,6 +1035,116 @@ cubes:
           group: 紀錄
           decimals: 0
           higherIsBetter: true
+
+      - name: flash_total
+        title: 閃現次數加總
+        description: "有賽後統計、且帶閃現（召喚師技能 4）的場次裡，閃現施放次數的加總。閃現是 spell1 或 spell2 哪一格，看對局的召喚師技能。"
+        sql: "CASE WHEN {CUBE}.spell1_id = 4 THEN {CUBE}.eog_summoner1 WHEN {CUBE}.spell2_id = 4 THEN {CUBE}.eog_summoner2 END"
+        type: sum
+        meta:
+          group: 賽後統計
+          decimals: 0
+
+      - name: flash_avg
+        title: 每場閃現次數
+        description: "有帶閃現的賽後統計場次，每場閃現施放次數的平均（沒帶閃現的場次不算）。"
+        sql: "CASE WHEN {CUBE}.spell1_id = 4 THEN {CUBE}.eog_summoner1 WHEN {CUBE}.spell2_id = 4 THEN {CUBE}.eog_summoner2 END"
+        type: avg
+        meta:
+          group: 賽後統計
+          decimals: 1
+
+      - name: flash_per_min
+        title: 每分鐘閃現次數
+        description: "每場閃現施放次數除以對局分鐘數後取平均（只算有帶閃現的賽後統計場次）。"
+        sql: "(CASE WHEN {CUBE}.spell1_id = 4 THEN {CUBE}.eog_summoner1 WHEN {CUBE}.spell2_id = 4 THEN {CUBE}.eog_summoner2 END) * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: avg
+        meta:
+          group: 賽後統計
+          decimals: 2
+
+      - name: max_flash
+        title: 單場最高閃現次數
+        description: "範圍內單場閃現施放次數最高的場次。"
+        sql: "CASE WHEN {CUBE}.spell1_id = 4 THEN {CUBE}.eog_summoner1 WHEN {CUBE}.spell2_id = 4 THEN {CUBE}.eog_summoner2 END"
+        type: max
+        meta:
+          group: 單場紀錄
+          decimals: 0
+          higherIsBetter: true
+
+      - name: games_with_flash
+        title: 帶閃現的有統計場次
+        description: "有賽後統計且帶閃現的場次數（閃現相關的平均只算這些場次）。"
+        sql: "CASE WHEN (CASE WHEN {CUBE}.spell1_id = 4 THEN {CUBE}.eog_summoner1 WHEN {CUBE}.spell2_id = 4 THEN {CUBE}.eog_summoner2 END) IS NOT NULL THEN {CUBE}.rowid END"
+        type: count_distinct
+        meta:
+          group: 賽後統計
+          decimals: 0
+
+      - name: consumables_total
+        title: 買消耗品加總
+        description: "有賽後統計的場次裡，買的消耗品數量加總（藥水、守衛等）。"
+        sql: "{CUBE}.eog_consumables"
+        type: sum
+        meta:
+          group: 賽後統計
+          decimals: 0
+
+      - name: consumables_avg
+        title: 每場買消耗品
+        description: "有賽後統計的場次裡，每場買的消耗品數量平均。"
+        sql: "{CUBE}.eog_consumables"
+        type: avg
+        meta:
+          group: 賽後統計
+          decimals: 1
+
+      - name: consumables_per_min
+        title: 每分鐘買消耗品
+        description: "每場買的消耗品數量除以對局分鐘數後取平均，只算有賽後統計的場次。"
+        sql: "{CUBE}.eog_consumables * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: avg
+        meta:
+          group: 賽後統計
+          decimals: 2
+
+      - name: sprees_total
+        title: 連殺次數加總
+        description: "連殺（連續擊殺的段數）的總次數。對局紀錄就有，不限賽後統計。"
+        sql: "{CUBE}.killing_sprees"
+        type: sum
+        meta:
+          group: 戰鬥
+          decimals: 0
+
+      - name: avg_killing_sprees
+        title: 每場連殺次數
+        description: "每場連殺段數的平均。對局紀錄就有，不限賽後統計。"
+        sql: "{CUBE}.killing_sprees"
+        type: avg
+        meta:
+          group: 戰鬥
+          decimals: 2
+
+      - name: max_killing_sprees
+        title: 單場最高連殺次數
+        description: "範圍內單場連殺段數最高的場次。"
+        sql: "{CUBE}.killing_sprees"
+        type: max
+        meta:
+          group: 單場紀錄
+          decimals: 0
+          higherIsBetter: true
+
+      - name: quadras
+        title: 四殺次數
+        description: "四殺的總次數（加總）。"
+        sql: "quadra_kills"
+        type: sum
+        meta:
+          group: 戰鬥
+          decimals: 0
 
       - name: ally_heal_games
         title: 有治療護盾隊友統計的場次

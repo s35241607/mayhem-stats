@@ -77,6 +77,14 @@ export type Player = MatchRow & {
   eog_spell_casts: number | null
   eog_items_purchased: number | null
   eog_pings_total: number | null
+  eog_summoner1: number | null
+  eog_summoner2: number | null
+  eog_consumables: number | null
+  killing_sprees: number
+  largest_spree: number
+  quadra_kills: number
+  spell1_id: number
+  spell2_id: number
   first_blood_assist: number
   first_tower_assist: number
   turret_dmg: number
@@ -343,6 +351,9 @@ const STAT_SECTIONS: { title: string; rows: StatRow[] }[] = [
       { label: "助攻", get: (p) => p.assists },
       { label: "最高同時擊殺", get: (p) => p.largest_multi_kill },
       { label: "雙殺 / 三殺", get: (p) => p.double_kills + p.triple_kills },
+      { label: "四殺", get: (p) => p.quadra_kills },
+      { label: "連殺次數", get: (p) => p.killing_sprees },
+      { label: "最長連殺", get: (p) => p.largest_spree },
       { label: "控場分數", get: (p) => p.time_ccing_others },
       { label: "最久存活（秒）", get: (p) => p.longest_time_living },
       { label: "首殺助攻", get: (p) => p.first_blood_assist },
@@ -394,6 +405,13 @@ const STAT_SECTIONS: { title: string; rows: StatRow[] }[] = [
       { label: "施法次數（Q／W／E／R）", get: (p) => p.eog_spell_casts, fmt: (n) => n.toLocaleString() },
       { label: "買裝次數", get: (p) => p.eog_items_purchased, fmt: (n) => n.toLocaleString() },
       { label: "訊號次數", get: (p) => p.eog_pings_total, fmt: (n) => n.toLocaleString() },
+      // 閃現是召喚師技能 4，看它在 spell1 還是 spell2；沒有賽後統計是「無資料」，有統計但沒帶閃現是 0
+      {
+        label: "閃現次數",
+        get: (p) => (p.eog_summoner1 === null && p.eog_summoner2 === null ? null : p.spell1_id === 4 ? p.eog_summoner1 : p.spell2_id === 4 ? p.eog_summoner2 : 0),
+        fmt: (n) => n.toLocaleString(),
+      },
+      { label: "買消耗品", get: (p) => p.eog_consumables, fmt: (n) => n.toLocaleString() },
     ],
   },
   {
