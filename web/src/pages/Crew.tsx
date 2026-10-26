@@ -3111,6 +3111,10 @@ const STAT_SETS: { id: string; label: string; caption: string; cols: StatCol[] }
       { key: "participants.best_items_per_min", label: "單場最高平均買裝", fmt: (v) => v.toFixed(2), hint: "範圍內每分鐘買裝次數最高的那一場", record: true },
       { key: "participants.max_pings", label: "單場最高 ping", fmt: int, hint: "範圍內單場訊號（Ping）次數最高的場次；只算有賽後統計的場次", record: true },
       { key: "participants.best_pings_per_min", label: "單場最高平均 ping", fmt: (v) => v.toFixed(2), hint: "範圍內每分鐘訊號（Ping）次數最高的那一場", record: true },
+      { key: "participants.max_ally_heal", label: "單場最高治療隊友", fmt: int, hint: "範圍內單場給隊友的治療量最高的場次（不含自補）；只算有賽後統計的場次", record: true },
+      { key: "participants.best_ally_heal_per_min", label: "單場最高每分鐘治療隊友", fmt: int, hint: "範圍內每分鐘給隊友的治療量最高的那一場（不含自補）", record: true },
+      { key: "participants.max_ally_shield", label: "單場最高護盾隊友", fmt: int, hint: "範圍內單場給隊友的護盾量最高的場次；只算有賽後統計的場次", record: true },
+      { key: "participants.best_ally_shield_per_min", label: "單場最高每分鐘護盾隊友", fmt: int, hint: "範圍內每分鐘給隊友的護盾量最高的那一場", record: true },
     ],
   },
   {
@@ -3144,6 +3148,12 @@ const STAT_SETS: { id: string; label: string; caption: string; cols: StatCol[] }
       { key: "participants.pings_total", label: "訊號加總", fmt: int, hint: "有賽後統計的場次裡，訊號次數（所有 Ping 加總）的加總" },
       { key: "participants.pings_avg", label: "每場訊號", fmt: (v) => v.toFixed(1), hint: "每場訊號次數的平均（只算有賽後統計的場次）" },
       { key: "participants.pings_per_min", label: "每分鐘訊號", fmt: (v) => v.toFixed(2), hint: "每分鐘訊號次數的平均" },
+      { key: "participants.ally_heal_total", label: "治療隊友加總", fmt: int, hint: "有賽後統計的場次裡，給隊友的治療量加總（不含自補）" },
+      { key: "participants.ally_heal_avg", label: "每場治療隊友", fmt: int, hint: "每場給隊友的治療量平均（不含自補）" },
+      { key: "participants.ally_heal_per_min", label: "每分鐘治療隊友", fmt: int, hint: "每分鐘給隊友的治療量平均（不含自補）" },
+      { key: "participants.ally_shield_total", label: "護盾隊友加總", fmt: int, hint: "有賽後統計的場次裡，給隊友的護盾量加總" },
+      { key: "participants.ally_shield_avg", label: "每場護盾隊友", fmt: int, hint: "每場給隊友的護盾量平均" },
+      { key: "participants.ally_shield_per_min", label: "每分鐘護盾隊友", fmt: int, hint: "每分鐘給隊友的護盾量平均" },
     ],
   },
 ]

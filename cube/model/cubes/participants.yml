@@ -7,7 +7,8 @@ cubes:
     sql: >
       SELECT mp.rowid AS rowid, mp.*, e.time_spent_dead AS time_spent_dead,
              e.heal_on_teammates + e.shield_on_teammates AS ally_heal_shield,
-             e.spell_casts AS eog_spell_casts, e.items_purchased AS eog_items_purchased, e.pings_total AS eog_pings
+             e.spell_casts AS eog_spell_casts, e.items_purchased AS eog_items_purchased, e.pings_total AS eog_pings,
+             e.heal_on_teammates AS eog_ally_heal, e.shield_on_teammates AS eog_ally_shield
       FROM match_participants mp
       LEFT JOIN eog_player_stats e ON e.game_id = mp.game_id AND e.puuid = mp.puuid
       WHERE NOT EXISTS (
@@ -938,6 +939,100 @@ cubes:
         meta:
           group: 紀錄
           decimals: 2
+          higherIsBetter: true
+
+      - name: ally_heal_total
+        title: 隊友治療加總
+        description: "有賽後統計的場次裡，給隊友的治療量加總（不含自補）。"
+        sql: "{CUBE}.eog_ally_heal"
+        type: sum
+        meta:
+          group: 賽後統計
+          decimals: 0
+
+      - name: ally_heal_avg
+        title: 每場隊友治療
+        description: "有賽後統計的場次裡，每場給隊友的治療量平均（不含自補）。"
+        sql: "{CUBE}.eog_ally_heal"
+        type: avg
+        meta:
+          group: 賽後統計
+          decimals: 0
+
+      - name: ally_heal_per_min
+        title: 每分鐘隊友治療
+        description: "每場給隊友的治療量除以對局分鐘數後取平均（不含自補）；只算有賽後統計的場次。"
+        sql: "{CUBE}.eog_ally_heal * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: avg
+        meta:
+          group: 賽後統計
+          decimals: 0
+
+      - name: max_ally_heal
+        title: 單場最高隊友治療
+        description: "範圍內單場給隊友的治療量最高的場次（不含自補）。只算有賽後統計的場次。"
+        sql: "{CUBE}.eog_ally_heal"
+        type: max
+        meta:
+          group: 單場紀錄
+          decimals: 0
+          higherIsBetter: true
+
+      - name: best_ally_heal_per_min
+        title: 單場最高每分鐘隊友治療
+        description: "範圍內每分鐘給隊友的治療量最高的那一場（不含自補）。只算有賽後統計的場次。"
+        sql: "{CUBE}.eog_ally_heal * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: max
+        meta:
+          group: 紀錄
+          decimals: 0
+          higherIsBetter: true
+
+      - name: ally_shield_total
+        title: 隊友護盾加總
+        description: "有賽後統計的場次裡，給隊友的護盾量加總（不含自補）。"
+        sql: "{CUBE}.eog_ally_shield"
+        type: sum
+        meta:
+          group: 賽後統計
+          decimals: 0
+
+      - name: ally_shield_avg
+        title: 每場隊友護盾
+        description: "有賽後統計的場次裡，每場給隊友的護盾量平均（不含自補）。"
+        sql: "{CUBE}.eog_ally_shield"
+        type: avg
+        meta:
+          group: 賽後統計
+          decimals: 0
+
+      - name: ally_shield_per_min
+        title: 每分鐘隊友護盾
+        description: "每場給隊友的護盾量除以對局分鐘數後取平均（不含自補）；只算有賽後統計的場次。"
+        sql: "{CUBE}.eog_ally_shield * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: avg
+        meta:
+          group: 賽後統計
+          decimals: 0
+
+      - name: max_ally_shield
+        title: 單場最高隊友護盾
+        description: "範圍內單場給隊友的護盾量最高的場次（不含自補）。只算有賽後統計的場次。"
+        sql: "{CUBE}.eog_ally_shield"
+        type: max
+        meta:
+          group: 單場紀錄
+          decimals: 0
+          higherIsBetter: true
+
+      - name: best_ally_shield_per_min
+        title: 單場最高每分鐘隊友護盾
+        description: "範圍內每分鐘給隊友的護盾量最高的那一場（不含自補）。只算有賽後統計的場次。"
+        sql: "{CUBE}.eog_ally_shield * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: max
+        meta:
+          group: 紀錄
+          decimals: 0
           higherIsBetter: true
 
       - name: ally_heal_games
