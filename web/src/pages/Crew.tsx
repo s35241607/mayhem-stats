@@ -2469,7 +2469,7 @@ function MetricDetail({
     })
   const byId = new Map(people.map((p) => [p.puuid, p]))
   return (
-    <div className="space-y-3 rounded-2xl border border-primary/40 bg-card p-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-3 rounded-2xl border border-primary/40 bg-card p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-[11px] text-muted-foreground">{groupLabel}</div>
@@ -2487,9 +2487,9 @@ function MetricDetail({
         )}
       </div>
 
-      <section className="space-y-1.5">
-        <div className="text-xs font-semibold">排行榜</div>
-        <div className="max-h-64 overflow-y-auto rounded-xl border">
+      <section className="flex min-h-0 flex-1 flex-col gap-1.5">
+        <div className="shrink-0 text-xs font-semibold">排行榜</div>
+        <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border">
           {rows.map((r, i) => {
             const pid = String(r["participants.puuid"])
             const p = byId.get(pid)
@@ -2518,9 +2518,9 @@ function MetricDetail({
         </div>
       </section>
 
-      <section className="space-y-1.5">
-        <div className="text-xs font-semibold">{col.record ? "創下這項紀錄的那一場" : "這一項算進去的每一場"}</div>
-        <div className="max-h-96 overflow-y-auto">
+      <section className="flex min-h-0 flex-1 flex-col gap-1.5">
+        <div className="shrink-0 text-xs font-semibold">{col.record ? "創下這項紀錄的那一場" : "這一項算進去的每一場"}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto">
           <GamesBody source={col.record ? { puuid, filters: [], recordMetric: col.key } : { puuid, filters: [] }} />
         </div>
       </section>
@@ -2535,16 +2535,24 @@ function DrawerStats({
   loading,
   people,
   onOpenPlayer,
+  onWide,
 }: {
   puuid: string
   board: CubeRow[]
   loading: boolean
   people: Player[]
   onOpenPlayer: (puuid: string) => void
+  onWide: (wide: boolean) => void
 }) {
   const [picked, setPicked] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [showAllTop, setShowAllTop] = useState(false)
+  // 有展開的項目就放寬抽屜；離開數據分頁（卸載）時要收回來
+  const hasDetail = selected !== null
+  useEffect(() => {
+    onWide(hasDetail)
+  }, [hasDetail, onWide])
+  useEffect(() => () => onWide(false), [onWide])
   if (loading && board.length === 0) return <LoadingBlock height={320} label="載入數據與排名…" />
   const me = board.find((r) => r["participants.puuid"] === puuid)
   const ranked = STAT_SETS.flatMap((g) => g.cols.map((c) => ({ g, c, info: rankOf(board, puuid, c), key: `${g.id}|${c.key}` })))
@@ -2589,7 +2597,7 @@ function DrawerStats({
             {allTop.length === 0 ? (
               <p className="text-xs text-muted-foreground">沒有進前十的項目，看下面每一組的名次。</p>
             ) : (
-              <div className="grid gap-1.5 @[560px]:grid-cols-2">
+              <div className={cn("grid gap-1.5 @[560px]:grid-cols-2", showAllTop && "max-h-[22rem] overflow-y-auto pr-1")}>
                 {topList.map((x, i) => (
                   <button
                     key={x.key}
@@ -2702,8 +2710,8 @@ function DrawerStats({
 
         {/* 右邊長出來的詳細欄：寬的時候貼在頂端跟著捲；窄的時候接在列表下面 */}
         {selectedItem && (
-          <aside className="drawer-in min-w-0 @[760px]:sticky @[760px]:top-2 @[760px]:self-start">
-            <div key={selectedItem.key} className="reveal">
+          <aside className="drawer-in flex min-w-0 flex-col @[760px]:sticky @[760px]:top-0 @[760px]:h-[calc(100dvh-9.5rem)]">
+            <div key={selectedItem.key} className="reveal flex min-h-0 flex-1 flex-col">
               <MetricDetail
                 col={selectedItem.c}
                 groupLabel={selectedItem.g.label}
@@ -2734,11 +2742,13 @@ function PlayerDrawerBody({
   boardLoading,
   people,
   onOpenPlayer,
+  onWide,
 }: {
   board: CubeRow[]
   boardLoading: boolean
   people: Player[]
   onOpenPlayer: (puuid: string) => void
+  onWide: (wide: boolean) => void
   player: Player
   profile: Profile
   /** 這個人已解鎖的徽章 */
@@ -2935,7 +2945,7 @@ function PlayerDrawerBody({
 
       {/* ── 數據：全部數據每項附名次，前十名的項目集中在上面 ── */}
       <TabsContent value="stats" className="reveal">
-        <DrawerStats puuid={player.puuid} board={board} loading={boardLoading} people={people} onOpenPlayer={onOpenPlayer} />
+        <DrawerStats puuid={player.puuid} board={board} loading={boardLoading} people={people} onOpenPlayer={onOpenPlayer} onWide={onWide} />
       </TabsContent>
 
       {/* ── 出裝與英雄：上面各種出裝的區間，點一種出裝下面只列那種出裝的英雄；英雄點一列看每一場 ── */}
@@ -3898,6 +3908,8 @@ export function Crew() {
   const puuids = chosen.map((p) => p.puuid)
   // 右側抽屜同一時間只開一個：一位好友，或一串對局（點數字、英雄、增幅、單場紀錄）
   const [focus, setFocus] = useState<Focus | null>(null)
+  // 數據分頁點開一項時抽屜放寬成兩欄，由 DrawerStats 回報
+  const [drawerWide, setDrawerWide] = useState(false)
   // 頂層分頁：一次只看一段
   const [section, setSection] = useState<Section>("matrix")
   const headerHeight = useHeaderHeight()
@@ -4500,6 +4512,7 @@ export function Crew() {
       </Tabs>
 
       <DetailDrawer
+        wide={drawerWide && focus?.kind === "player"}
         open={!!focus}
         onClose={() => setFocus(null)}
         title={focus?.kind === "games" ? focus.title : focusPlayer ? <PlayerName player={focusPlayer} /> : ""}
@@ -4527,6 +4540,7 @@ export function Crew() {
             board={board.rows}
             boardLoading={board.loading}
             people={crew}
+            onWide={setDrawerWide}
             onOpenPlayer={(pid) => open(pid, null, 'stats')}
           />
         )}

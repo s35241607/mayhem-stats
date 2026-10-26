@@ -20,6 +20,7 @@ export function DetailDrawer({
   subtitle,
   icon,
   actions,
+  wide,
   children,
 }: {
   open: boolean
@@ -30,6 +31,8 @@ export function DetailDrawer({
   icon?: string
   /** 關閉鈕左邊的操作按鈕 */
   actions?: ReactNode
+  /** 內容需要並排兩欄時放寬（例如好友比較的數據分頁點開一項） */
+  wide?: boolean
   children: ReactNode
 }) {
   return (
@@ -37,7 +40,7 @@ export function DetailDrawer({
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="drawer-overlay fixed inset-0 z-50 bg-black/40 supports-backdrop-filter:backdrop-blur-xs" />
         <DialogPrimitive.Content
-          className="drawer-in fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l bg-background shadow-2xl sm:w-[min(980px,92vw)]"
+          className={`drawer-in fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l bg-background shadow-2xl ${wide ? "sm:w-[min(1280px,96vw)]" : "sm:w-[min(980px,92vw)]"}`}
           aria-describedby={undefined}
         >
           <div className="flex items-center gap-3 border-b px-5 py-3">
