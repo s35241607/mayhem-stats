@@ -2445,19 +2445,22 @@ const RANK_TIERS = [
 function MetricDetail({
   col,
   groupLabel,
-  puuid,
+  puuid: owner,
   board,
   people,
   onOpenPlayer,
 }: {
   col: StatCol
   groupLabel: string
+  /** 抽屜主人（你點開的那一位） */
   puuid: string
   board: CubeRow[]
   people: Player[]
   onOpenPlayer: (puuid: string) => void
 }) {
-  const info = rankOf(board, puuid, col)
+  // 點排行榜上的別人只換下面「紀錄場」與高亮的那一列，不會換掉抽屜的主人
+  const [viewer, setViewer] = useState(owner)
+  const info = rankOf(board, viewer, col)
   const eog = RANK_EOG_KEY.test(col.key)
   const eligible = (r: CubeRow) => (eog ? n0(r, "participants.eog_games") >= TITLE_MIN_EOG : n0(r, "participants.games") >= MIN_N)
   const rows = board
@@ -2468,6 +2471,7 @@ function MetricDetail({
       return col.lower ? va - vb : vb - va
     })
   const byId = new Map(people.map((p) => [p.puuid, p]))
+  const viewerName = byId.get(viewer) ? splitId(byId.get(viewer)!.riot_id, viewer).name : ""
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 rounded-2xl border border-primary/40 bg-card p-4">
       <div className="flex items-start justify-between gap-3">
@@ -2497,16 +2501,35 @@ function MetricDetail({
             return (
               <div
                 key={pid}
-                className={cn("flex items-center gap-2.5 border-b border-border/50 px-2.5 py-1.5 last:border-b-0", pid === puuid && "bg-primary/10")}
+                className={cn("flex items-center gap-2.5 border-b border-border/50 px-2.5 py-1.5 last:border-b-0", pid === viewer && "bg-primary/10")}
               >
                 <span className={cn("grid size-6 shrink-0 place-items-center font-mono text-[10px] font-bold", HEX, rank <= 10 ? rankTone(rank) : "bg-muted text-muted-foreground")}>
                   {rank}
                 </span>
                 <span className="min-w-0 flex-1">
                   {p ? (
-                    <button type="button" onClick={() => onOpenPlayer(pid)} className="block max-w-full cursor-pointer text-left hover:underline" data-tip="打開他的抽屜（會保留這一項）">
-                      <PlayerName player={p} className="text-xs" />
-                    </button>
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setViewer(pid)}
+                        aria-pressed={pid === viewer}
+                        className="min-w-0 cursor-pointer text-left hover:underline"
+                        data-tip="只把下面的紀錄場換成他（抽屜不動）"
+                      >
+                        <PlayerName player={p} className="text-xs" />
+                      </button>
+                      {pid !== owner && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenPlayer(pid)}
+                          aria-label="打開他的完整抽屜"
+                          data-tip="打開他的完整抽屜（會換掉目前的抽屜）"
+                          className="shrink-0 cursor-pointer rounded px-1 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                        >
+                          ↗
+                        </button>
+                      )}
+                    </span>
                   ) : (
                     <span className="text-xs text-muted-foreground">（未在好友名單）</span>
                   )}
@@ -2519,9 +2542,12 @@ function MetricDetail({
       </section>
 
       <section className="flex min-h-0 flex-1 flex-col gap-1.5">
-        <div className="shrink-0 text-xs font-semibold">{col.record ? "創下這項紀錄的那一場" : "這一項算進去的每一場"}</div>
+        <div className="shrink-0 text-xs font-semibold">
+          {col.record ? "創下這項紀錄的那一場" : "這一項算進去的每一場"}
+          {viewerName && <span className="ml-1 font-normal text-muted-foreground">・{viewerName}</span>}
+        </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <GamesBody source={col.record ? { puuid, filters: [], recordMetric: col.key } : { puuid, filters: [] }} />
+          <GamesBody source={col.record ? { puuid: viewer, filters: [], recordMetric: col.key } : { puuid: viewer, filters: [] }} />
         </div>
       </section>
     </div>
