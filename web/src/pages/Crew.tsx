@@ -2448,7 +2448,6 @@ function MetricDetail({
   puuid: owner,
   board,
   people,
-  onOpenPlayer,
 }: {
   col: StatCol
   groupLabel: string
@@ -2456,7 +2455,6 @@ function MetricDetail({
   puuid: string
   board: CubeRow[]
   people: Player[]
-  onOpenPlayer: (puuid: string) => void
 }) {
   // 點排行榜上的別人只換下面「紀錄場」與高亮的那一列，不會換掉抽屜的主人
   const [viewer, setViewer] = useState(owner)
@@ -2499,43 +2497,29 @@ function MetricDetail({
             const p = byId.get(pid)
             const rank = i + 1
             return (
-              <div
+              <button
                 key={pid}
-                className={cn("flex items-center gap-2.5 border-b border-border/50 px-2.5 py-1.5 last:border-b-0", pid === viewer && "bg-primary/10")}
+                type="button"
+                onClick={() => setViewer(pid)}
+                aria-pressed={pid === viewer}
+                data-tip="點一下，只把下面的紀錄場換成他（抽屜不動）"
+                className={cn(
+                  "flex w-full cursor-pointer items-center gap-2.5 border-b border-border/50 px-2.5 py-1.5 text-left transition last:border-b-0 hover:bg-muted/50",
+                  pid === viewer && "bg-primary/10",
+                )}
               >
                 <span className={cn("grid size-6 shrink-0 place-items-center font-mono text-[10px] font-bold", HEX, rank <= 10 ? rankTone(rank) : "bg-muted text-muted-foreground")}>
                   {rank}
                 </span>
                 <span className="min-w-0 flex-1">
                   {p ? (
-                    <span className="flex min-w-0 items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setViewer(pid)}
-                        aria-pressed={pid === viewer}
-                        className="min-w-0 cursor-pointer text-left hover:underline"
-                        data-tip="只把下面的紀錄場換成他（抽屜不動）"
-                      >
-                        <PlayerName player={p} className="text-xs" />
-                      </button>
-                      {pid !== owner && (
-                        <button
-                          type="button"
-                          onClick={() => onOpenPlayer(pid)}
-                          aria-label="打開他的完整抽屜"
-                          data-tip="打開他的完整抽屜（會換掉目前的抽屜）"
-                          className="shrink-0 cursor-pointer rounded px-1 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
-                        >
-                          ↗
-                        </button>
-                      )}
-                    </span>
+                    <PlayerName player={p} className="text-xs" />
                   ) : (
                     <span className="text-xs text-muted-foreground">（未在好友名單）</span>
                   )}
                 </span>
                 <span className="shrink-0 font-mono text-xs font-semibold tabular-nums">{col.fmt(opt(r, col.key) as number)}</span>
-              </div>
+              </button>
             )
           })}
         </div>
@@ -2560,14 +2544,12 @@ function DrawerStats({
   board,
   loading,
   people,
-  onOpenPlayer,
   onWide,
 }: {
   puuid: string
   board: CubeRow[]
   loading: boolean
   people: Player[]
-  onOpenPlayer: (puuid: string) => void
   onWide: (wide: boolean) => void
 }) {
   const [picked, setPicked] = useState<string | null>(null)
@@ -2744,7 +2726,6 @@ function DrawerStats({
                 puuid={puuid}
                 board={board}
                 people={people}
-                onOpenPlayer={onOpenPlayer}
               />
             </div>
           </aside>
@@ -2767,13 +2748,11 @@ function PlayerDrawerBody({
   board,
   boardLoading,
   people,
-  onOpenPlayer,
   onWide,
 }: {
   board: CubeRow[]
   boardLoading: boolean
   people: Player[]
-  onOpenPlayer: (puuid: string) => void
   onWide: (wide: boolean) => void
   player: Player
   profile: Profile
@@ -2971,7 +2950,7 @@ function PlayerDrawerBody({
 
       {/* ── 數據：全部數據每項附名次，前十名的項目集中在上面 ── */}
       <TabsContent value="stats" className="reveal">
-        <DrawerStats puuid={player.puuid} board={board} loading={boardLoading} people={people} onOpenPlayer={onOpenPlayer} onWide={onWide} />
+        <DrawerStats puuid={player.puuid} board={board} loading={boardLoading} people={people} onWide={onWide} />
       </TabsContent>
 
       {/* ── 出裝與英雄：上面各種出裝的區間，點一種出裝下面只列那種出裝的英雄；英雄點一列看每一場 ── */}
@@ -4567,7 +4546,6 @@ export function Crew() {
             boardLoading={board.loading}
             people={crew}
             onWide={setDrawerWide}
-            onOpenPlayer={(pid) => open(pid, null, 'stats')}
           />
         )}
       </DetailDrawer>
