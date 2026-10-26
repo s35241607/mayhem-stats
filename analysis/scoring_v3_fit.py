@@ -57,7 +57,8 @@ mu = {r: {} for r in ROLES + ["未成形"]}
 sd = {}
 resid = {}
 for g in GENES:
-    groups = [("h_eog", src == "eog"), ("h_flag", src == "flag")] if g == "h" else [(g, np.ones(len(rows), bool))]
+    # v3.4：治療護盾只算賽後統計（eog）的場次；flag 場次不計這一項（z＝0），見下面的 h_flag
+    groups = [("h_eog", src == "eog")] if g == "h" else [(g, np.ones(len(rows), bool))]
     r_all = np.zeros(len(rows))
     for name, sel in groups:
         overall = float(P[g][sel].mean())
@@ -71,6 +72,10 @@ for g in GENES:
         sd[name] = round(float(P[g][sel & (P[g] > 0)].std() if g == "h" else r_all[sel].std()), 3)
         r_all[sel] = r_all[sel] / sd[name]
     resid[g] = r_all
+# flag 場次的治療護盾不計分：常數寫 0／1，yml 的 sd 與 calib 欄位仍在但不會被用到
+for r in ROLES + ["未成形"]:
+    mu[r]["h_flag"] = 0.0
+sd["h_flag"] = 1.0
 raw = sum(WEIGHTS[g] * resid[g] for g in GENES)
 sd_work = round(float(raw.std()), 4)
 new_block = block(mu, sd, sd_work)

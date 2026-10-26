@@ -77,7 +77,7 @@ export function ContribBars({ row, className, compact }: { row: CubeRow | undefi
 
 const WORK_TITLE =
   "本場貢獻（0～100）：輸出、承傷、治療護盾、控場、K/DA、推塔、清兵、功能裝八項，先和同一場的人比、再和同出裝定位的平均比，加權成總分。50＝同出裝定位的平均"
-const ESTIMATE_NOTE = "*暫估：這場沒有賽後統計，治療護盾隊友的量改用含自補的治療量"
+const ESTIMATE_NOTE = "*暫估：這場沒有賽後統計，治療護盾隊友不計分（這一項視為平均）"
 
 /** 對局卡片裡的一個小數字：「貢獻 62」；暫估的場次數字後面加「*」 */
 export function ContribInline({ score, estimate }: { score: number | null; estimate?: boolean }) {

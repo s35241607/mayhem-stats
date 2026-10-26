@@ -104,7 +104,8 @@ for (pl, gid), ps in games.items():
         z = {}
         for k in WEIGHTS:
             if k == "h":
-                z[k] = (P["h"] - mu["h_" + src]) / SD["h_" + src]
+                # v3.4：flag（沒有賽後統計）不計治療護盾，z＝0
+                z[k] = (P["h"] - mu["h_eog"]) / SD["h_eog"] if has_eog else 0.0
             else:
                 z[k] = (P[k] - mu[k]) / SD[k]
         raw = sum(WEIGHTS[k] * z[k] for k in WEIGHTS)

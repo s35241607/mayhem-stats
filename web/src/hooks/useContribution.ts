@@ -17,7 +17,7 @@ export const WORK_GAMES = "contribution.scored_games"
 export const WORK_PARTS = [
   { key: "contribution.gene_dmg", pts: "contribution.pts_dmg", label: "輸出", weight: 25, hint: "每分鐘對英雄傷害" },
   { key: "contribution.gene_soak", pts: "contribution.pts_soak", label: "承傷", weight: 20, hint: "每分鐘承受＋自身減免的傷害（護甲、魔抗、護盾擋下的都算）；分不出有效開戰或無效吃傷" },
-  { key: "contribution.gene_heal", pts: "contribution.pts_heal", label: "治療護盾", weight: 13, hint: "每分鐘治療＋護盾隊友；沒有賽後統計的場次改用含自補的治療量，是暫估" },
+  { key: "contribution.gene_heal", pts: "contribution.pts_heal", label: "治療護盾", weight: 13, hint: "每分鐘治療＋護盾隊友（不含自補，只有賽後統計有）；沒有賽後統計的場次不計這一項，是暫估" },
   { key: "contribution.gene_cc", pts: "contribution.pts_cc", label: "控場", weight: 12, hint: "每分鐘控制敵人的時間" },
   { key: "contribution.gene_kda", pts: "contribution.pts_kda", label: "K/DA", weight: 12, hint: "參團率（擊殺＋助攻 ÷ 我方擊殺）與存活（死得少）各半；死亡有一半是結果，所以權重不高" },
   { key: "contribution.gene_obj", pts: "contribution.pts_obj", label: "推塔", weight: 8, hint: "每分鐘對建築的傷害；和勝負綁得最緊（拆塔就是贏），所以權重不高" },

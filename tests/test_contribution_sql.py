@@ -143,6 +143,10 @@ class ContributionTests(unittest.TestCase):
         self.assertAlmostEqual(b["x_h"], 20000 / 15)
         # flag：只算有治療到隊友（units_healed ≥ 2）的人
         self.assertEqual(self.at(res, 2, 4)["x_h"], 0.0)
+        # v3.4：flag 場次的治療護盾不計分（自補不能算成輔助），基因與加減分都是中性
+        self.assertEqual(b["gene_h"], 50.0)
+        self.assertEqual(b["pts_h"], 0.0)
+        self.assertNotEqual(a["gene_h"], 50.0)
 
     def test_anti_heal_prevented_healing_is_split_between_owners(self):
         enemy_heal = {i: {"total_heal": 6000} for i in range(6, 11)}
