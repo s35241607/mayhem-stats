@@ -114,6 +114,19 @@ views:
           - pings_total
           - pings_avg
           - pings_per_min
+          - flash_total
+          - flash_avg
+          - flash_per_min
+          - max_flash
+          - best_flash_per_min
+          - games_with_flash
+          - consumables_total
+          - consumables_avg
+          - consumables_per_min
+          - sprees_total
+          - avg_killing_sprees
+          - max_killing_sprees
+          - quadras
           - champion_count
           - mvp_games
           - ace_games

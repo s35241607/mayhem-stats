@@ -1146,6 +1146,16 @@ cubes:
           group: 戰鬥
           decimals: 0
 
+      - name: best_flash_per_min
+        title: 單場最高每分鐘閃現
+        description: "範圍內每分鐘閃現施放次數最高的那一場（閃現次數 ÷ 對局分鐘數）。只算有賽後統計且帶閃現的場次。"
+        sql: "(CASE WHEN {CUBE}.spell1_id = 4 THEN {CUBE}.eog_summoner1 WHEN {CUBE}.spell2_id = 4 THEN {CUBE}.eog_summoner2 END) * 60.0 / NULLIF({CUBE}.game_duration, 0)"
+        type: max
+        meta:
+          group: 紀錄
+          decimals: 2
+          higherIsBetter: true
+
       - name: ally_heal_games
         title: 有治療護盾隊友統計的場次
         description: "有賽後統計（治療護盾隊友的量）的場次數，每分鐘治療護盾隊友只算這些場次。"

@@ -412,6 +412,14 @@ const STAT_SECTIONS: { title: string; rows: StatRow[] }[] = [
         fmt: (n) => n.toLocaleString(),
       },
       { label: "買消耗品", get: (p) => p.eog_consumables, fmt: (n) => n.toLocaleString() },
+      {
+        label: "閃現每分鐘",
+        get: (p) => {
+          const flash = p.eog_summoner1 === null && p.eog_summoner2 === null ? null : p.spell1_id === 4 ? p.eog_summoner1 : p.spell2_id === 4 ? p.eog_summoner2 : 0
+          return flash === null || !p.game_duration ? null : (flash * 60) / p.game_duration
+        },
+        fmt: (n) => n.toFixed(2),
+      },
     ],
   },
   {
