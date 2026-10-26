@@ -2502,9 +2502,8 @@ function MetricDetail({
                 type="button"
                 onClick={() => setViewer(pid)}
                 aria-pressed={pid === viewer}
-                data-tip="點一下，只把下面的紀錄場換成他（抽屜不動）"
                 className={cn(
-                  "flex w-full cursor-pointer items-center gap-2.5 border-b border-border/50 px-2.5 py-1.5 text-left transition last:border-b-0 hover:bg-muted/50",
+                  "flex w-full cursor-pointer items-center gap-2.5 border-b border-border/50 px-2.5 py-1.5 text-left last:border-b-0",
                   pid === viewer && "bg-primary/10",
                 )}
               >
