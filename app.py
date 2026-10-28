@@ -195,7 +195,22 @@ def _state_db():
                CREATE TABLE IF NOT EXISTS links (
                    discord_id TEXT NOT NULL,
                    puuid TEXT NOT NULL,
-                   PRIMARY KEY (discord_id, puuid));"""
+                   PRIMARY KEY (discord_id, puuid));
+               CREATE TABLE IF NOT EXISTS access_log (
+                   id INTEGER PRIMARY KEY,
+                   ts REAL NOT NULL,
+                   source TEXT NOT NULL,     -- mirror（對外鏡像）／ local（本機）
+                   kind TEXT NOT NULL,       -- 429 / query / login / denied / error / api
+                   method TEXT,
+                   path TEXT,
+                   status INTEGER,
+                   ms INTEGER,
+                   who TEXT,                 -- Discord 名字，或 session 雜湊
+                   ip TEXT,                  -- 來源 IP 的雜湊（前 12 碼），不存原始位址
+                   detail TEXT);             -- 429 時是擋在哪一層（session／global）
+               CREATE INDEX IF NOT EXISTS idx_access_ts ON access_log(ts);
+               CREATE INDEX IF NOT EXISTS idx_access_who ON access_log(who, ts);
+               CREATE INDEX IF NOT EXISTS idx_access_kind ON access_log(kind, ts);"""
         )
         # 舊版建的表少這兩欄。舊 session 的 via 是 NULL,當成群組放行處理(期限較短的那種)。
         have = {r["name"] for r in conn.execute("PRAGMA table_info(sessions)")}
@@ -576,29 +591,38 @@ async def require_login(request: Request, call_next):
     return HTMLResponse(login_page(), status_code=401)
 
 
-# 追蹤用的請求 log（只給公開模式）：每個 /api/ 請求一行，帶時間戳、狀態碼、耗時、是誰。
-# 這個中間層加在登入檢查之後，所以未登入被擋的請求也會記下來。狀態與圖示請求不記（太吵）。
+# 追蹤用的請求紀錄：每個 /api/、/auth/、/login 請求寫一列進 .public_state.db 的 access_log 表。
+# 鏡像與本機都寫（source 欄分辨）。狀態與圖示請求不記（太吵）。這個中間層在登入檢查之後，
+# 所以未登入被擋的請求也會記下來。記錄失敗不能影響請求本身。
 _NO_LOG_PATHS = {"/api/status"}
 
 
 @app.middleware("http")
 async def access_log(request: Request, call_next):
     path = request.url.path
-    if not PUBLIC or not path.startswith("/api/") or path in _NO_LOG_PATHS or path.startswith("/api/icon"):
+    tracked = path.startswith(("/api/", "/auth/")) or path == "/login"
+    if not tracked or path in _NO_LOG_PATHS or path.startswith("/api/icon"):
         return await call_next(request)
     started = time.time()
     response = await call_next(request)
     ms = int((time.time() - started) * 1000)
-    who = _session_label(request)
-    _log_line(f"{request.method} {path} {response.status_code} {ms}ms who={who}")
+    record_access(
+        method=request.method,
+        path=path,
+        status=response.status_code,
+        ms=ms,
+        who=_session_label(request),
+        ip=request.client.host if request.client else "-",
+        detail=response.headers.get("X-Limit-Layer"),
+    )
     return response
 
 
 def _session_label(request: Request) -> str:
-    """log 裡的「是誰」：有 Discord 身分就用名字，否則用 session 雜湊（不記 token）。"""
+    """紀錄裡的「是誰」：有 Discord 身分就用名字，否則用 session 雜湊（不記 token）。"""
     try:
         row = _session(request)
-    except Exception:  # noqa: BLE001 - 記 log 不能影響請求本身
+    except Exception:  # noqa: BLE001 - 記紀錄不能影響請求
         row = None
     if row and row.get("name"):
         return row["name"]
@@ -1009,73 +1033,118 @@ def _is_admin(request: Request) -> bool:
     return _matches(oauth_config().get("admins", []), {"id": who["discord_id"], "username": who["username"] or ""})
 
 
-# 管理員的 log 檢視（唯讀）。來源是磁碟上的 log 檔：鏡像的（mirror.log）與本機的（autostart.log）。
-# 只回管理員；log 裡有朋友的名字與 IP，不能給一般的人看。
-LOG_SOURCES = {"mirror": "mirror.log", "local": "autostart.log"}
-LOG_TAIL_BYTES = 4 * 1024 * 1024
-LOG_LINE_TS = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) (.*)$")
-LOG_WHO = re.compile(r"who=(\S+)")
+# 管理員的追蹤紀錄查詢（唯讀）。資料在 access_log 表；只回管理員。
+ACCESS_RETENTION_DAYS = 30
+ACCESS_WINDOWS = {1, 24, 168, 720}  # 小時：1 小時、1 天、7 天、30 天
+_access_last_prune = 0.0
 
 
-def _read_log_tail(path: Path) -> list:
-    if not path.is_file():
-        return []
-    size = path.stat().st_size
-    with path.open("rb") as f:
-        if size > LOG_TAIL_BYTES:
-            f.seek(size - LOG_TAIL_BYTES)
-            f.readline()  # 丟掉可能被切斷的第一行
-        data = f.read()
-    return data.decode("utf-8", errors="replace").splitlines()
+def _ip_tag(ip: str) -> str:
+    """IP 不直接存，只存雜湊前 12 碼：還能分辨是不是同一個來源，但不留原始位址。"""
+    return hashlib.sha256(("mayhem-access|" + ip).encode("utf-8")).hexdigest()[:12]
 
 
-def _classify_log_line(text: str) -> str:
-    if " 429 " in text or text.startswith("429 "):
+def _access_kind(path: str, status: int) -> str:
+    if status == 429:
         return "429"
-    if "Traceback" in text or "ERROR" in text or re.search(r'(?:" |\s)5\d\d(?:\s|$)', text):
+    if status >= 500:
         return "error"
-    if "/api/cube/" in text:
-        return "query"
-    if "登入" in text or "/auth/" in text or "/login" in text or "Discord" in text:
+    if path == "/login" or path.startswith("/auth/"):
         return "login"
-    return "other"
+    if status in (401, 403):
+        return "denied"
+    if path.startswith("/api/cube/"):
+        return "query"
+    return "api"
+
+
+def record_access(*, method: str, path: str, status: int, ms: int, who: str, ip: str, detail: Optional[str] = None) -> None:
+    global _access_last_prune
+    now = time.time()
+    try:
+        with closing(_state_db()) as conn, conn:
+            conn.execute(
+                """INSERT INTO access_log (ts, source, kind, method, path, status, ms, who, ip, detail)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (now, "mirror" if PUBLIC else "local", _access_kind(path, status), method, path[:200],
+                 status, ms, who[:80], _ip_tag(ip), detail),
+            )
+            # 保留期限：每小時最多清一次，不必每個請求都掃
+            if now - _access_last_prune > 3600:
+                conn.execute("DELETE FROM access_log WHERE ts < ?", (now - ACCESS_RETENTION_DAYS * 86400,))
+                _access_last_prune = now
+    except sqlite3.Error:
+        pass
+
+
+def access_log_query(*, source: str = "all", kind: str = "all", who: str = "", path: str = "",
+                     hours: int = 24, limit: int = 200, before: Optional[int] = None) -> dict:
+    since = time.time() - hours * 3600
+    base, params = ["ts >= ?"], [since]
+    if source in ("mirror", "local"):
+        base.append("source = ?")
+        params.append(source)
+    if who.strip():
+        base.append("who LIKE ?")
+        params.append(f"%{who.strip()}%")
+    if path.strip():
+        base.append("path LIKE ?")
+        params.append(f"%{path.strip()}%")
+    where_no_kind = " AND ".join(base)
+    filters = list(base)
+    fparams = list(params)
+    if kind != "all":
+        filters.append("kind = ?")
+        fparams.append(kind)
+    if before:
+        filters.append("id < ?")
+        fparams.append(before)
+    with closing(_state_db()) as conn:
+        rows = conn.execute(
+            f"""SELECT id, ts, source, kind, method, path, status, ms, who, detail
+                FROM access_log WHERE {' AND '.join(filters)} ORDER BY id DESC LIMIT ?""",
+            (*fparams, limit + 1),
+        ).fetchall()
+        counts = {r["kind"]: r["n"] for r in conn.execute(
+            f"SELECT kind, COUNT(*) AS n FROM access_log WHERE {where_no_kind} GROUP BY kind", params)}
+        top_who = [dict(r) for r in conn.execute(
+            f"SELECT who, COUNT(*) AS n FROM access_log WHERE {where_no_kind} GROUP BY who ORDER BY n DESC LIMIT 8", params)]
+        hourly = {int(r["h"]): r["n"] for r in conn.execute(
+            f"SELECT CAST(ts / 3600 AS INTEGER) AS h, COUNT(*) AS n FROM access_log WHERE {where_no_kind} AND kind = '429' GROUP BY h",
+            params)}
+    now_hour = int(time.time() // 3600)
+    # 429 的時間序列：每小時一根，沒有的補 0，方便畫趨勢
+    series = [{"hour": time.strftime("%m-%d %H:00", time.localtime((now_hour - i) * 3600)),
+               "n": hourly.get(now_hour - i, 0)} for i in range(min(hours, 168) - 1, -1, -1)]
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    return {
+        "rows": [
+            {
+                "id": r["id"],
+                "ts": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(r["ts"])),
+                "source": r["source"], "kind": r["kind"], "method": r["method"], "path": r["path"],
+                "status": r["status"], "ms": r["ms"], "who": r["who"], "detail": r["detail"],
+            }
+            for r in rows
+        ],
+        "nextBefore": rows[-1]["id"] if has_more and rows else None,
+        "counts": counts,
+        "topWho": top_who,
+        "series429": series,
+        "retentionDays": ACCESS_RETENTION_DAYS,
+    }
 
 
 @app.get("/api/admin/logs")
-def admin_logs(request: Request, source: str = "mirror", kind: str = "all", q: str = "", lines: int = 400):
+def admin_logs(request: Request, source: str = "all", kind: str = "all", who: str = "", path: str = "",
+               hours: int = 24, limit: int = 200, before: Optional[int] = None):
     if not _is_admin(request):
-        return JSONResponse(status_code=403, content={"error": "只有管理員能看 log"})
-    name = LOG_SOURCES.get(source)
-    if name is None:
-        return JSONResponse(status_code=400, content={"error": "不認得的 log 來源"})
-    lines = max(50, min(lines, 2000))
-    raw = _read_log_tail(BASE_DIR / name)[-lines:]
-    rows = []
-    needle = q.strip().lower()
-    for line in raw:
-        m = LOG_LINE_TS.match(line)
-        ts, text = (m.group(1), m.group(2)) if m else (None, line)
-        k = _classify_log_line(text)
-        if kind != "all" and k != kind:
-            continue
-        if needle and needle not in text.lower():
-            continue
-        who = LOG_WHO.search(text)
-        rows.append({"ts": ts, "kind": k, "text": text[:400], "who": who.group(1) if who else None})
-    counts: dict = {}
-    who_counts: dict = {}
-    for r in rows:
-        counts[r["kind"]] = counts.get(r["kind"], 0) + 1
-        if r["who"]:
-            who_counts[r["who"]] = who_counts.get(r["who"], 0) + 1
-    return {
-        "source": source,
-        "file": name,
-        "rows": list(reversed(rows)),
-        "counts": counts,
-        "topWho": sorted(who_counts.items(), key=lambda kv: -kv[1])[:8],
-        "scanned": len(raw),
-    }
+        return JSONResponse(status_code=403, content={"error": "只有管理員能看追蹤紀錄"})
+    if hours not in ACCESS_WINDOWS:
+        hours = 24
+    limit = max(20, min(limit, 500))
+    return access_log_query(source=source, kind=kind, who=who, path=path, hours=hours, limit=limit, before=before)
 
 
 @app.get("/api/config")
@@ -1561,11 +1630,6 @@ def cube_rate_check(key: str):
     return True, None, 0.0
 
 
-def _log_line(msg: str) -> None:
-    """帶時間戳的一行 log（公開模式的 mirror.log 就是這個輸出）。"""
-    print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}", flush=True)
-
-
 def _rate_key(request: Request) -> str:
     """分桶的依據：session cookie 的雜湊前 12 碼（不記原始 token）；沒有 cookie 就用 IP。"""
     token = request.cookies.get(SESSION_COOKIE)
@@ -1604,10 +1668,9 @@ async def cube_proxy(path: str, request: Request):
         allowed, layer, wait = cube_rate_check(who)
         if not allowed:
             retry = max(1, int(-(-wait // 1)))  # 進位到整秒
-            _log_line(f"429 cube/load who={who} layer={layer} retry={retry}s")
             return JSONResponse(
                 status_code=429,
-                headers={"Retry-After": str(retry)},
+                headers={"Retry-After": str(retry), "X-Limit-Layer": layer},
                 content={"error": "查詢太頻繁，請稍後再試。", "retryAfter": retry},
             )
 
