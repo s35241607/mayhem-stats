@@ -1418,33 +1418,63 @@ def track_account(body: TrackRequest):
 
 CUBE_BASE = "http://127.0.0.1:4000/cubejs-api/v1"
 
-# 公開模式下的查詢速率限制。
+# 公開模式下的查詢速率限制（token bucket）。
 #
-# Cube 的查詢是這裡唯一「一個請求可以吃掉很多 CPU」的地方——最重的一種
-# (英雄 × 增幅這類一對多展開)第一次要跑十秒。登入的人都是熟人,但不必把
-# 「大家都不會亂來」當成防線:一個寫壞的迴圈或一個好奇的人就夠了。
-#
-# 窗格開得比真實用量寬很多:儀表板一次發五個查詢,自由探索連點也才個位數,
-# 三十秒六十次撞不到;要撞到就是在連續打。
-CUBE_RATE_WINDOW = 30
-CUBE_RATE_PER_SESSION = 60
-CUBE_RATE_GLOBAL = 300
-_cube_hits: dict = {}
+# Cube 的查詢是這裡唯一「一個請求可以吃掉很多 CPU」的地方。舊版是 30 秒內固定 60 次，
+# 一次好友比較的載入就要 11 次、抽屜與切換篩選再加，連點幾下就撞上，而且 429 之後沒有重試。
+# 現在改成 token bucket：連續打的量有上限（突發），之後每秒慢慢回補，撞到時回 Retry-After。
+#   - 每個 session：最多連續 120 次，之後每秒回補 4 次（穩定速率約每分鐘 240 次）。
+#   - 全站：最多連續 600 次，之後每秒回補 10 次，擋的是「大家一起打爆 Cube」的情況。
+# 沒有 cookie 的請求以 IP 分桶（舊版全部共用一個 "-" 桶）。
+CUBE_BURST = 120
+CUBE_REFILL_PER_SEC = 4.0
+CUBE_GLOBAL_BURST = 600
+CUBE_GLOBAL_REFILL_PER_SEC = 10.0
+_cube_buckets: dict = {}   # key -> [tokens, last_ts]
+_cube_global: list = [float(CUBE_GLOBAL_BURST), time.time()]
 
 
-def cube_rate_ok(token: Optional[str]) -> bool:
-    """回 False 表示超量。以 session 為單位,另外再加一道全站上限。"""
+def _refill(bucket: list, capacity: float, rate: float, now: float) -> float:
+    tokens = min(capacity, bucket[0] + (now - bucket[1]) * rate)
+    bucket[1] = now
+    return tokens
+
+
+def cube_rate_check(key: str):
+    """回傳 (允許, 擋在哪一層, 建議等幾秒)。允許時才真的扣 token。"""
     now = time.time()
-    for key in list(_cube_hits):
-        _cube_hits[key] = [t for t in _cube_hits[key] if now - t < CUBE_RATE_WINDOW]
-        if not _cube_hits[key]:
-            _cube_hits.pop(key, None)
-    mine = _cube_hits.setdefault(token or "-", [])
-    total = sum(len(v) for v in _cube_hits.values())
-    if len(mine) >= CUBE_RATE_PER_SESSION or total >= CUBE_RATE_GLOBAL:
-        return False
-    mine.append(now)
-    return True
+    if len(_cube_buckets) > 2000:
+        # 只留還沒回滿、或最近用過的桶，避免表越長越大
+        for k, b in list(_cube_buckets.items()):
+            if now - b[1] > 300:
+                _cube_buckets.pop(k, None)
+    sess = _cube_buckets.setdefault(key, [float(CUBE_BURST), now])
+    sess_tokens = _refill(sess, CUBE_BURST, CUBE_REFILL_PER_SEC, now)
+    glob_tokens = _refill(_cube_global, CUBE_GLOBAL_BURST, CUBE_GLOBAL_REFILL_PER_SEC, now)
+    if sess_tokens < 1:
+        sess[0] = sess_tokens
+        return False, "session", (1 - sess_tokens) / CUBE_REFILL_PER_SEC
+    if glob_tokens < 1:
+        sess[0] = sess_tokens
+        _cube_global[0] = glob_tokens
+        return False, "global", (1 - glob_tokens) / CUBE_GLOBAL_REFILL_PER_SEC
+    sess[0] = sess_tokens - 1
+    _cube_global[0] = glob_tokens - 1
+    return True, None, 0.0
+
+
+def _log_line(msg: str) -> None:
+    """帶時間戳的一行 log（公開模式的 mirror.log 就是這個輸出）。"""
+    print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}", flush=True)
+
+
+def _rate_key(request: Request) -> str:
+    """分桶的依據：session cookie 的雜湊前 12 碼（不記原始 token）；沒有 cookie 就用 IP。"""
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        return "s-" + _hash_token(token)[:12]
+    return "ip-" + (request.client.host if request.client else "-")
+
 
 # 共用連線池。原本每個請求 requests.get 一次，等於每次都重新建 TCP 連線。
 # 實測同一個已快取的查詢，代理比直連 Cube 多出的時間 30ms -> 2ms。
@@ -1471,11 +1501,18 @@ async def cube_proxy(path: str, request: Request):
     if path not in {"load", "meta", "sql"}:
         return JSONResponse(status_code=404, content={"error": "不支援的 Cube 端點"})
 
-    if PUBLIC and path == "load" and not cube_rate_ok(request.cookies.get(SESSION_COOKIE)):
-        return JSONResponse(
-            status_code=429,
-            content={"error": "查詢太頻繁,請等幾秒再試。"},
-        )
+    if PUBLIC and path == "load":
+        who = _rate_key(request)
+        allowed, layer, wait = cube_rate_check(who)
+        if not allowed:
+            retry = max(1, int(-(-wait // 1)))  # 進位到整秒
+            _log_line(f"429 cube/load who={who} layer={layer} retry={retry}s")
+            return JSONResponse(
+                status_code=429,
+                headers={"Retry-After": str(retry)},
+                content={"error": "查詢太頻繁，請稍後再試。", "retryAfter": retry},
+            )
+        _log_line(f"cube/load who={who}")
 
     url = f"{CUBE_BASE}/{path}"
     if request.method == "POST":

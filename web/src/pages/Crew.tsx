@@ -3567,6 +3567,19 @@ const STAT_SETS: { id: string; label: string; caption: string; cols: StatCol[] }
   },
 ]
 const STAT_MEASURES_ALL = ["participants.games", "participants.time_dead_games", ...STAT_SETS.flatMap((g) => g.cols.map((c) => c.key))]
+// 好友比較頁只要一個全員查詢：全員一覽、數據總表、抽屜的數據分頁都從這一份 rows 取值
+// （以前 summary、數據總表、抽屜各查一次，欄位大半重複，每次篩選就多打好幾個 Cube 查詢）
+const PAGE_MEASURES = [
+  ...new Set([
+    ...STAT_MEASURES,
+    "participants.kda",
+    ...ROSTER_EOG_MEASURES,
+    ...AXES.map((c) => c.key),
+    ...WORK_PARTS.map((c) => c.pts),
+    ...STAT_MEASURES_ALL,
+    "participants.eog_games",
+  ]),
+]
 
 /** 格子點開之後，抽屜裡的說明：這一欄是怎麼算的、列出的是哪些場 */
 function cellNote(c: StatCol) {
@@ -4005,7 +4018,7 @@ export function Crew() {
     puuids.length && centerFilters ? apply({ ...query, filters: [crewFilter(puuids), ...centerFilters, ...(query.filters ?? [])] }, "all") : null
 
   const summary = useCube(
-    q({ measures: [...STAT_MEASURES, "participants.kda", ...ROSTER_EOG_MEASURES, ...AXES.map((c) => c.key), ...WORK_PARTS.map((c) => c.pts)], dimensions: ["participants.puuid"], limit: NO_LIMIT }),
+    q({ measures: PAGE_MEASURES, dimensions: ["participants.puuid"], limit: NO_LIMIT }),
   )
   const roles = useCube(q({ measures: STAT_MEASURES, dimensions: ["participants.puuid", "builds.build_role"], limit: NO_LIMIT }))
   const champs = useCube(
@@ -4025,8 +4038,6 @@ export function Crew() {
   )
   //   數據總表分頁專用（冷快取 1.5 秒），同樣切過去才查
   // 抽屜「數據」分頁要的全體數據與名次：只有抽屜開著看人的時候才查
-  const board = useCube(focus?.kind === "player" ? q({ measures: [...STAT_MEASURES_ALL, "participants.eog_games"], dimensions: ["participants.puuid"], limit: NO_LIMIT }) : null)
-  const stats = useCube(section === "stats" ? q({ measures: STAT_MEASURES_ALL, dimensions: ["participants.puuid"], limit: NO_LIMIT }) : null)
   // 稱號用的幾項數據（每人一列）
   const titleStats = useCube(q({ measures: TITLE_MEASURES, dimensions: ["participants.puuid"], limit: NO_LIMIT }))
   const lossStats = useCube(q({ measures: [WORK, WORK_GAMES], dimensions: ["participants.puuid"], segments: ["participants.losses_only"], limit: NO_LIMIT }))
@@ -4081,7 +4092,7 @@ export function Crew() {
   // 參照列：所有參賽者的出裝比例（不鎖玩家，也不受上方「拿掉誰」影響）
   const everyone = useCube(centerFilters === null ? null : apply({ measures: ["participants.games", "participants.winrate", "participants.kda", ...ROSTER_EOG_MEASURES], filters: centerFilters }, "all"))
   const everyoneRoles = useCube(centerFilters === null ? null : apply({ measures: ["participants.games"], dimensions: ["builds.build_role"], filters: centerFilters, limit: NO_LIMIT }, "all"))
-  const error = summary.error ?? roles.error ?? champs.error ?? augments.error ?? everyone.error ?? everyoneRoles.error ?? stats.error ?? dmgTypes.error ?? titleStats.error ?? lossStats.error ?? nightStats.error ?? duo.error ?? together.error
+  const error = summary.error ?? roles.error ?? champs.error ?? augments.error ?? everyone.error ?? everyoneRoles.error ?? dmgTypes.error ?? titleStats.error ?? lossStats.error ?? nightStats.error ?? duo.error ?? together.error
   // 全員一覽要等的：核心數字，加上稱號與玩法用的幾支（不等的話，稱號會在畫面出來之後才一個個冒出來、版面往下推）。
   // 增幅、數據總表不在這裡：那是別的分頁的資料
   const loading =
@@ -4473,8 +4484,8 @@ export function Crew() {
         <TabsContent value="stats">
           <StatsPanel
             people={ordered}
-            rows={stats.rows}
-            loading={loading || stats.loading}
+            rows={summary.rows}
+            loading={loading || summary.loading}
             profiles={profiles}
             scoped={q}
             centers={centers}
@@ -4541,8 +4552,8 @@ export function Crew() {
             jumpChamp={focus.champ}
             crewFilter={crewFilter}
             titles={badges.get(focusPlayer.puuid)?.items}
-            board={board.rows}
-            boardLoading={board.loading}
+            board={summary.rows}
+            boardLoading={summary.loading}
             people={crew}
             onWide={setDrawerWide}
           />

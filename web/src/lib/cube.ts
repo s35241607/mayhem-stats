@@ -80,9 +80,9 @@ function splitWinrate(query: CubeQuery): { query: CubeQuery; winrates: string[] 
 
 export async function cubeQuery(query: CubeQuery, signal?: AbortSignal): Promise<CubeRow[]> {
   const split = splitWinrate(query)
-  if (!split) return load(query, signal)
+  if (!split) return fetchShared(query, signal)
 
-  const rows = await load(split.query, signal)
+  const rows = await fetchShared(split.query, signal)
   const asked = new Set(query.measures)
   return rows.map((row) => {
     const out: CubeRow = { ...row }
@@ -102,11 +102,87 @@ export async function cubeQuery(query: CubeQuery, signal?: AbortSignal): Promise
   })
 }
 
+/** 429（查詢太頻繁）時最多自動重試幾次；每次等後端給的 Retry-After，上限 15 秒 */
+const MAX_RATE_RETRIES = 3
+const MAX_RATE_WAIT_S = 15
+/** 同一個查詢在這段時間內重複發出時，共用上一次的結果（或還在進行的請求） */
+const SHARE_TTL_MS = 10_000
+
+type Shared = { at: number; promise: Promise<CubeRow[]>; controller: AbortController; refs: number }
+const shared = new Map<string, Shared>()
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(new DOMException("aborted", "AbortError"))
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort)
+      resolve()
+    }, ms)
+    signal?.addEventListener("abort", onAbort, { once: true })
+  })
+}
+
+/** 同一個查詢（參數完全相同）只送一次：進行中的請求或 10 秒內的結果直接共用。
+ *  每個等待的人離開時只減自己的參考數；全部離開才真的中止 Cube 的輪詢。 */
+function fetchShared(query: CubeQuery, signal?: AbortSignal): Promise<CubeRow[]> {
+  const key = JSON.stringify({ timezone: TIMEZONE, ...query })
+  let entry = shared.get(key)
+  if (!entry || Date.now() - entry.at > SHARE_TTL_MS) {
+    const controller = new AbortController()
+    const created: Shared = { at: Date.now(), controller, refs: 0, promise: load(query, controller.signal) }
+    created.promise.catch(() => {
+      if (shared.get(key) === created) shared.delete(key)
+    })
+    shared.set(key, created)
+    entry = created
+  }
+  const e = entry
+  e.refs++
+  return new Promise((resolve, reject) => {
+    let done = false
+    const onAbort = () => {
+      if (done) return
+      done = true
+      e.refs--
+      if (e.refs <= 0) {
+        e.controller.abort()
+        if (shared.get(key) === e) shared.delete(key)
+      }
+      reject(new DOMException("aborted", "AbortError"))
+    }
+    if (signal?.aborted) {
+      onAbort()
+      return
+    }
+    signal?.addEventListener("abort", onAbort, { once: true })
+    e.promise.then(
+      (rows) => {
+        if (done) return
+        done = true
+        signal?.removeEventListener("abort", onAbort)
+        e.refs--
+        resolve(rows)
+      },
+      (err: unknown) => {
+        if (done) return
+        done = true
+        signal?.removeEventListener("abort", onAbort)
+        e.refs--
+        reject(err)
+      },
+    )
+  })
+}
+
 async function load(query: CubeQuery, signal?: AbortSignal): Promise<CubeRow[]> {
   const params = new URLSearchParams({
     query: JSON.stringify({ timezone: TIMEZONE, ...query }),
   })
   const deadline = Date.now() + MAX_WAIT_MS
+  let rateRetries = 0
 
   for (;;) {
     const res = await fetch(`/api/cube/load?${params}`, { signal })
@@ -125,6 +201,18 @@ async function load(query: CubeQuery, signal?: AbortSignal): Promise<CubeRow[]> 
         throw new Error("查詢時間過長，請縮小範圍或減少維度。")
       }
       continue
+    }
+
+    // 429：照後端給的 Retry-After 等一下再試，試幾次還是被擋才當錯誤顯示
+    if (res.status === 429) {
+      if (rateRetries < MAX_RATE_RETRIES) {
+        rateRetries++
+        const hinted = Number(res.headers.get("Retry-After"))
+        const wait = Math.min(MAX_RATE_WAIT_S, Math.max(1, Number.isFinite(hinted) && hinted > 0 ? hinted : 2))
+        await sleep(wait * 1000, signal)
+        continue
+      }
+      throw new Error(typeof payload.error === "string" ? payload.error : "查詢太頻繁，請稍後再試。")
     }
 
     if (!res.ok || payload.error) {
