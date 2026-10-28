@@ -16,6 +16,7 @@ import asyncio
 import hashlib
 import html
 import json
+import math
 import os
 import re
 import urllib.parse
@@ -1035,7 +1036,6 @@ def _is_admin(request: Request) -> bool:
 
 # 管理員的追蹤紀錄查詢（唯讀）。資料在 access_log 表；只回管理員。
 ACCESS_RETENTION_DAYS = 30
-ACCESS_WINDOWS = {1, 24, 168, 720}  # 小時：1 小時、1 天、7 天、30 天
 _access_last_prune = 0.0
 
 
@@ -1077,45 +1077,137 @@ def record_access(*, method: str, path: str, status: int, ms: int, who: str, ip:
         pass
 
 
-def access_log_query(*, source: str = "all", kind: str = "all", who: str = "", path: str = "",
-                     hours: int = 24, limit: int = 200, before: Optional[int] = None) -> dict:
-    since = time.time() - hours * 3600
-    base, params = ["ts >= ?"], [since]
-    if source in ("mirror", "local"):
-        base.append("source = ?")
-        params.append(source)
-    if who.strip():
-        base.append("who LIKE ?")
-        params.append(f"%{who.strip()}%")
-    if path.strip():
-        base.append("path LIKE ?")
-        params.append(f"%{path.strip()}%")
-    where_no_kind = " AND ".join(base)
-    filters = list(base)
-    fparams = list(params)
-    if kind != "all":
-        filters.append("kind = ?")
-        fparams.append(kind)
-    if before:
-        filters.append("id < ?")
-        fparams.append(before)
+def _access_where(f: dict, *, skip_kind: bool = False, skip_cursor: bool = True):
+    """把篩選條件組成 SQL 的 WHERE 與參數。skip_kind 用在計算「各類型計數」，讓類型篩選不影響計數。"""
+    clauses, params = [], []
+    if f.get("from_ts") is not None:
+        clauses.append("ts >= ?")
+        params.append(f["from_ts"])
+    if f.get("to_ts") is not None:
+        clauses.append("ts <= ?")
+        params.append(f["to_ts"])
+    if f.get("source") in ("mirror", "local"):
+        clauses.append("source = ?")
+        params.append(f["source"])
+    if not skip_kind and f.get("kinds"):
+        clauses.append(f"kind IN ({','.join('?' * len(f['kinds']))})")
+        params.extend(f["kinds"])
+    if f.get("method"):
+        clauses.append("method = ?")
+        params.append(f["method"].upper())
+    if f.get("path"):
+        clauses.append("path LIKE ?")
+        params.append(f"%{f['path']}%")
+    if f.get("who"):
+        clauses.append("who LIKE ?")
+        params.append(f"%{f['who']}%")
+    if f.get("ip"):
+        clauses.append("ip = ?")
+        params.append(f["ip"])
+    if f.get("status_min") is not None:
+        clauses.append("status >= ?")
+        params.append(f["status_min"])
+    if f.get("status_max") is not None:
+        clauses.append("status <= ?")
+        params.append(f["status_max"])
+    if f.get("ms_min") is not None:
+        clauses.append("ms >= ?")
+        params.append(f["ms_min"])
+    if f.get("q"):
+        like = f"%{f['q']}%"
+        clauses.append("(path LIKE ? OR who LIKE ? OR detail LIKE ?)")
+        params.extend([like, like, like])
+    if not skip_cursor and f.get("before_id"):
+        clauses.append("id < ?")
+        params.append(f["before_id"])
+    if not skip_cursor and f.get("after_id"):
+        clauses.append("id > ?")
+        params.append(f["after_id"])
+    return (" AND ".join(clauses) or "1 = 1"), params
+
+
+def _percentile(conn, where: str, params: list, total: int, pct: float):
+    if total == 0:
+        return None
+    # 最近序位法：第 p 百分位是排序後第 ceil(n·p) 個
+    offset = min(total - 1, max(0, math.ceil(total * pct) - 1))
+    row = conn.execute(f"SELECT ms FROM access_log WHERE {where} AND ms IS NOT NULL ORDER BY ms LIMIT 1 OFFSET ?",
+                       (*params, offset)).fetchone()
+    return row["ms"] if row else None
+
+
+# 直方圖的桶大小：依時間範圍挑一個，讓桶數維持在 60 上下
+_BUCKETS = [60, 300, 900, 3600, 10800, 21600, 86400]
+
+
+def _bucket_seconds(span: float) -> int:
+    for b in _BUCKETS:
+        if span / b <= 60:
+            return b
+    return _BUCKETS[-1]
+
+
+def access_log_query(f: dict) -> dict:
+    """依篩選條件查 access_log。f 的鍵：from_ts、to_ts、source、kinds（list）、method、path、who、ip、
+    status_min、status_max、ms_min、q、before_id、after_id、limit、sort（time／ms）。
+    回傳列、游標、各類型計數、KPI（總數、5xx 比例、p50／p95）、直方圖、熱門路徑、狀態分佈、熱門的人。"""
+    now = time.time()
+    f = dict(f)
+    if f.get("from_ts") is None:
+        f["from_ts"] = now - 24 * 3600
+    if f.get("to_ts") is None:
+        f["to_ts"] = now + 1
+    limit = max(20, min(int(f.get("limit") or 200), 500))
+    # 範圍最長 30 天（保留期限就是 30 天）；太長或未來的時間會讓直方圖的桶數爆炸、時間格式出錯
+    f["to_ts"] = min(f["to_ts"], now + 1)
+    f["from_ts"] = max(f["from_ts"], f["to_ts"] - 30 * 86400)
+    span = max(60.0, f["to_ts"] - f["from_ts"])
+    bucket = _bucket_seconds(span)
+
+    where_all, p_all = _access_where(f, skip_cursor=True)
+    where_kind_free, p_kind_free = _access_where(f, skip_kind=True, skip_cursor=True)
+    where_rows, p_rows = _access_where(f, skip_cursor=False)
+    order = "ms DESC, id DESC" if f.get("sort") == "ms" else "id DESC"
+
     with closing(_state_db()) as conn:
         rows = conn.execute(
-            f"""SELECT id, ts, source, kind, method, path, status, ms, who, detail
-                FROM access_log WHERE {' AND '.join(filters)} ORDER BY id DESC LIMIT ?""",
-            (*fparams, limit + 1),
+            f"""SELECT id, ts, source, kind, method, path, status, ms, who, ip, detail
+                FROM access_log WHERE {where_rows} ORDER BY {order} LIMIT ?""",
+            (*p_rows, limit + 1),
         ).fetchall()
         counts = {r["kind"]: r["n"] for r in conn.execute(
-            f"SELECT kind, COUNT(*) AS n FROM access_log WHERE {where_no_kind} GROUP BY kind", params)}
+            f"SELECT kind, COUNT(*) AS n FROM access_log WHERE {where_kind_free} GROUP BY kind", p_kind_free)}
+        total = sum(counts.values())
+        errors5 = conn.execute(
+            f"SELECT COUNT(*) AS n FROM access_log WHERE {where_kind_free} AND status >= 500", p_kind_free).fetchone()["n"]
+        p50 = _percentile(conn, where_kind_free, p_kind_free, total, 0.50)
+        p95 = _percentile(conn, where_kind_free, p_kind_free, total, 0.95)
+        hist_rows = conn.execute(
+            f"""SELECT CAST(ts / ? AS INTEGER) AS b, kind, COUNT(*) AS n
+                FROM access_log WHERE {where_all} GROUP BY b, kind""",
+            (bucket, *p_all),
+        ).fetchall()
+        top_paths = [dict(r) for r in conn.execute(
+            f"SELECT path, COUNT(*) AS n FROM access_log WHERE {where_all} GROUP BY path ORDER BY n DESC LIMIT 8", p_all)]
+        status_dist = {r["cls"]: r["n"] for r in conn.execute(
+            f"""SELECT CASE WHEN status IS NULL THEN 'none' ELSE (status / 100) || 'xx' END AS cls, COUNT(*) AS n
+                FROM access_log WHERE {where_kind_free} GROUP BY cls""", p_kind_free)}
         top_who = [dict(r) for r in conn.execute(
-            f"SELECT who, COUNT(*) AS n FROM access_log WHERE {where_no_kind} GROUP BY who ORDER BY n DESC LIMIT 8", params)]
-        hourly = {int(r["h"]): r["n"] for r in conn.execute(
-            f"SELECT CAST(ts / 3600 AS INTEGER) AS h, COUNT(*) AS n FROM access_log WHERE {where_no_kind} AND kind = '429' GROUP BY h",
-            params)}
-    now_hour = int(time.time() // 3600)
-    # 429 的時間序列：每小時一根，沒有的補 0，方便畫趨勢
-    series = [{"hour": time.strftime("%m-%d %H:00", time.localtime((now_hour - i) * 3600)),
-               "n": hourly.get(now_hour - i, 0)} for i in range(min(hours, 168) - 1, -1, -1)]
+            f"SELECT who, COUNT(*) AS n FROM access_log WHERE {where_kind_free} GROUP BY who ORDER BY n DESC LIMIT 8", p_kind_free)]
+        newest = conn.execute(f"SELECT MAX(id) AS m FROM access_log WHERE {where_all}", p_all).fetchone()["m"]
+
+    # 直方圖：從範圍起點開始每個桶一根，類型分開堆疊
+    start_b = int(f["from_ts"] // bucket)
+    end_b = int(f["to_ts"] // bucket)
+    series = {b: {} for b in range(start_b, end_b + 1)}
+    for r in hist_rows:
+        if r["b"] in series:
+            series[r["b"]][r["kind"]] = r["n"]
+    histogram = [
+        {"t": time.strftime("%m-%d %H:%M", time.localtime(b * bucket)), "kinds": series[b]}
+        for b in sorted(series)
+    ]
+
     has_more = len(rows) > limit
     rows = rows[:limit]
     return {
@@ -1124,27 +1216,106 @@ def access_log_query(*, source: str = "all", kind: str = "all", who: str = "", p
                 "id": r["id"],
                 "ts": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(r["ts"])),
                 "source": r["source"], "kind": r["kind"], "method": r["method"], "path": r["path"],
-                "status": r["status"], "ms": r["ms"], "who": r["who"], "detail": r["detail"],
+                "status": r["status"], "ms": r["ms"], "who": r["who"], "ip": r["ip"], "detail": r["detail"],
             }
             for r in rows
         ],
         "nextBefore": rows[-1]["id"] if has_more and rows else None,
+        "newest": newest,
         "counts": counts,
+        "kpi": {
+            "total": total,
+            "errorRate": (errors5 / total) if total else None,
+            "p50": p50,
+            "p95": p95,
+        },
+        "histogram": histogram,
+        "bucketSeconds": bucket,
+        "topPaths": top_paths,
         "topWho": top_who,
-        "series429": series,
+        "statusDist": status_dist,
         "retentionDays": ACCESS_RETENTION_DAYS,
     }
 
 
+def _filters_from_request(q) -> dict:
+    """把網址參數轉成篩選條件。q 是 request.query_params。"""
+    def num(key):
+        try:
+            return float(q[key]) if key in q and q[key] != "" else None
+        except ValueError:
+            return None
+    def integer(key):
+        v = num(key)
+        return int(v) if v is not None else None
+    kinds = [k for k in q.get("kind", "").split(",") if k in {"429", "query", "login", "denied", "error", "api"}]
+    return {
+        "from_ts": num("from"),
+        "to_ts": num("to"),
+        "source": q.get("source", "all"),
+        "kinds": kinds,
+        "method": q.get("method", ""),
+        "path": q.get("path", ""),
+        "who": q.get("who", ""),
+        "ip": q.get("ip", ""),
+        "status_min": integer("status_min"),
+        "status_max": integer("status_max"),
+        "ms_min": integer("ms_min"),
+        "q": q.get("q", "").strip(),
+        "before_id": integer("before"),
+        "after_id": integer("after"),
+        "limit": integer("limit") or 200,
+        "sort": q.get("sort", "time"),
+    }
+
+
 @app.get("/api/admin/logs")
-def admin_logs(request: Request, source: str = "all", kind: str = "all", who: str = "", path: str = "",
-               hours: int = 24, limit: int = 200, before: Optional[int] = None):
+def admin_logs(request: Request):
     if not _is_admin(request):
         return JSONResponse(status_code=403, content={"error": "只有管理員能看追蹤紀錄"})
-    if hours not in ACCESS_WINDOWS:
-        hours = 24
-    limit = max(20, min(limit, 500))
-    return access_log_query(source=source, kind=kind, who=who, path=path, hours=hours, limit=limit, before=before)
+    return access_log_query(_filters_from_request(request.query_params))
+
+
+@app.get("/api/admin/logs/export.csv")
+def admin_logs_csv(request: Request):
+    """同樣的篩選條件匯出 CSV（最多 5000 筆，依時間新到舊）。"""
+    if not _is_admin(request):
+        return JSONResponse(status_code=403, content={"error": "只有管理員能匯出"})
+    f = _filters_from_request(request.query_params)
+    f["limit"] = 5000
+    f["before_id"] = None
+    f["after_id"] = None
+    where, params = _access_where(f, skip_cursor=True)
+    import csv
+    import io
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["time", "source", "kind", "method", "path", "status", "ms", "who", "ip", "detail"])
+    with closing(_state_db()) as conn:
+        for r in conn.execute(
+            f"""SELECT ts, source, kind, method, path, status, ms, who, ip, detail
+                FROM access_log WHERE {where} ORDER BY id DESC LIMIT 5000""", params):
+            writer.writerow([time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(r["ts"])), r["source"], r["kind"],
+                             r["method"], r["path"], r["status"], r["ms"], r["who"], r["ip"], r["detail"]])
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="access-log.csv"'},
+    )
+
+
+@app.get("/api/admin/logs/{row_id}")
+def admin_log_row(row_id: int, request: Request):
+    if not _is_admin(request):
+        return JSONResponse(status_code=403, content={"error": "只有管理員能看追蹤紀錄"})
+    with closing(_state_db()) as conn:
+        r = conn.execute("SELECT * FROM access_log WHERE id = ?", (row_id,)).fetchone()
+    if r is None:
+        return JSONResponse(status_code=404, content={"error": "找不到這筆紀錄"})
+    d = dict(r)
+    d["time"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(d.pop("ts")))
+    return d
 
 
 @app.get("/api/config")
