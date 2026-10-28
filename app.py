@@ -576,6 +576,35 @@ async def require_login(request: Request, call_next):
     return HTMLResponse(login_page(), status_code=401)
 
 
+# 追蹤用的請求 log（只給公開模式）：每個 /api/ 請求一行，帶時間戳、狀態碼、耗時、是誰。
+# 這個中間層加在登入檢查之後，所以未登入被擋的請求也會記下來。狀態與圖示請求不記（太吵）。
+_NO_LOG_PATHS = {"/api/status"}
+
+
+@app.middleware("http")
+async def access_log(request: Request, call_next):
+    path = request.url.path
+    if not PUBLIC or not path.startswith("/api/") or path in _NO_LOG_PATHS or path.startswith("/api/icon"):
+        return await call_next(request)
+    started = time.time()
+    response = await call_next(request)
+    ms = int((time.time() - started) * 1000)
+    who = _session_label(request)
+    _log_line(f"{request.method} {path} {response.status_code} {ms}ms who={who}")
+    return response
+
+
+def _session_label(request: Request) -> str:
+    """log 裡的「是誰」：有 Discord 身分就用名字，否則用 session 雜湊（不記 token）。"""
+    try:
+        row = _session(request)
+    except Exception:  # noqa: BLE001 - 記 log 不能影響請求本身
+        row = None
+    if row and row.get("name"):
+        return row["name"]
+    return _rate_key(request)
+
+
 # 回應壓縮，只給對外的鏡像。加在登入檢查之後＝包在最外層。
 # 朋友是從外網經 Funnel 連進來的：圖表、表格套件各 1.1MB，玩家清單 267KB，原本全部原樣傳送，
 # 壓完是 372KB、302KB、88KB。本機走 127.0.0.1 沒有頻寬問題，壓縮只是多花 CPU（1MB 約 40ms），所以不開。
@@ -978,6 +1007,75 @@ def _is_admin(request: Request) -> bool:
     if not who or not who["discord_id"]:
         return False
     return _matches(oauth_config().get("admins", []), {"id": who["discord_id"], "username": who["username"] or ""})
+
+
+# 管理員的 log 檢視（唯讀）。來源是磁碟上的 log 檔：鏡像的（mirror.log）與本機的（autostart.log）。
+# 只回管理員；log 裡有朋友的名字與 IP，不能給一般的人看。
+LOG_SOURCES = {"mirror": "mirror.log", "local": "autostart.log"}
+LOG_TAIL_BYTES = 4 * 1024 * 1024
+LOG_LINE_TS = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) (.*)$")
+LOG_WHO = re.compile(r"who=(\S+)")
+
+
+def _read_log_tail(path: Path) -> list:
+    if not path.is_file():
+        return []
+    size = path.stat().st_size
+    with path.open("rb") as f:
+        if size > LOG_TAIL_BYTES:
+            f.seek(size - LOG_TAIL_BYTES)
+            f.readline()  # 丟掉可能被切斷的第一行
+        data = f.read()
+    return data.decode("utf-8", errors="replace").splitlines()
+
+
+def _classify_log_line(text: str) -> str:
+    if " 429 " in text or text.startswith("429 "):
+        return "429"
+    if "Traceback" in text or "ERROR" in text or re.search(r'(?:" |\s)5\d\d(?:\s|$)', text):
+        return "error"
+    if "/api/cube/" in text:
+        return "query"
+    if "登入" in text or "/auth/" in text or "/login" in text or "Discord" in text:
+        return "login"
+    return "other"
+
+
+@app.get("/api/admin/logs")
+def admin_logs(request: Request, source: str = "mirror", kind: str = "all", q: str = "", lines: int = 400):
+    if not _is_admin(request):
+        return JSONResponse(status_code=403, content={"error": "只有管理員能看 log"})
+    name = LOG_SOURCES.get(source)
+    if name is None:
+        return JSONResponse(status_code=400, content={"error": "不認得的 log 來源"})
+    lines = max(50, min(lines, 2000))
+    raw = _read_log_tail(BASE_DIR / name)[-lines:]
+    rows = []
+    needle = q.strip().lower()
+    for line in raw:
+        m = LOG_LINE_TS.match(line)
+        ts, text = (m.group(1), m.group(2)) if m else (None, line)
+        k = _classify_log_line(text)
+        if kind != "all" and k != kind:
+            continue
+        if needle and needle not in text.lower():
+            continue
+        who = LOG_WHO.search(text)
+        rows.append({"ts": ts, "kind": k, "text": text[:400], "who": who.group(1) if who else None})
+    counts: dict = {}
+    who_counts: dict = {}
+    for r in rows:
+        counts[r["kind"]] = counts.get(r["kind"], 0) + 1
+        if r["who"]:
+            who_counts[r["who"]] = who_counts.get(r["who"], 0) + 1
+    return {
+        "source": source,
+        "file": name,
+        "rows": list(reversed(rows)),
+        "counts": counts,
+        "topWho": sorted(who_counts.items(), key=lambda kv: -kv[1])[:8],
+        "scanned": len(raw),
+    }
 
 
 @app.get("/api/config")
@@ -1512,7 +1610,6 @@ async def cube_proxy(path: str, request: Request):
                 headers={"Retry-After": str(retry)},
                 content={"error": "查詢太頻繁，請稍後再試。", "retryAfter": retry},
             )
-        _log_line(f"cube/load who={who}")
 
     url = f"{CUBE_BASE}/{path}"
     if request.method == "POST":

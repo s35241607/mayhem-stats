@@ -86,9 +86,10 @@ export type PageId =
   | "recap"
   | "calc"
   | "settings"
+  | "logs"
 
 /** ADMIN 分組的頁面：側欄只對管理員（filters 的 canEditDefaults）顯示，直接開網址也擋下。 */
-const ADMIN_PAGES = new Set<PageId>(["tracked", "settings"])
+const ADMIN_PAGES = new Set<PageId>(["tracked", "settings", "logs"])
 
 const NAV: { group: string; admin?: boolean; items: { id: PageId; label: string; icon: typeof Zap }[] }[] = [
   {
@@ -125,6 +126,7 @@ const NAV: { group: string; admin?: boolean; items: { id: PageId; label: string;
     items: [
       { id: "tracked", label: "追蹤對象", icon: Radar },
       { id: "settings", label: "設定", icon: Settings },
+      { id: "logs", label: "系統記錄", icon: ScrollText },
     ],
   },
 ]
@@ -145,6 +147,7 @@ const PAGE_TITLES: Record<PageId, { title: string; caption: string }> = {
   calc: { title: "出裝計算機", caption: "依你現在的面板和對手的雙防，算每件裝備的傷害與坦度效益" },
   tracked: { title: "追蹤對象", caption: "除了自己以外，還要一併採集誰的戰績" },
   settings: { title: "設定", caption: "全站設定，只有管理員看得到" },
+  logs: { title: "系統記錄", caption: "請求與限流的 log，只有管理員看得到" },
 }
 
 function CollectorPill() {
