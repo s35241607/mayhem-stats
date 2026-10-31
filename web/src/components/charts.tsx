@@ -1535,3 +1535,180 @@ export function DailyChart({
     />
   )
 }
+
+// ─────────────────────────────────────────── 單場時間軸（戰報）
+
+export type TimelineFrame = { t: number; gold100: number; gold200: number }
+export type TimelineBuilding = { t: number; owner: number; kind: string; lane: string | null }
+export type TimelineKill = { t: number; team: number }
+
+const BUILDING_NAME: Record<string, string> = {
+  OUTER_TURRET: "外塔",
+  INNER_TURRET: "內塔",
+  BASE_TURRET: "兵營塔",
+  NEXUS_TURRET: "主堡塔",
+  INHIBITOR_BUILDING: "兵營",
+}
+// 形狀分辨建築種類：塔是三角形、兵營是菱形、主堡塔是方塊（最要緊的那一種最醒目）
+const BUILDING_SYMBOL: Record<string, string> = { INHIBITOR_BUILDING: "diamond", NEXUS_TURRET: "rect" }
+const mmss = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, "0")}`
+
+/** 一場的經濟差走勢（我方減對面，上下各用勝／敗色）、雙方拆了哪些建築、每分鐘擊殺。
+ *  三段上下排、共用時間軸（不用雙 y 軸）。「對面只剩主堡」「我方只剩主堡」各畫一條直線。 */
+export function TimelineChart({
+  frames,
+  buildings,
+  kills,
+  team,
+  duration,
+  enemyOpenSec,
+  ownOpenSec,
+}: {
+  frames: TimelineFrame[]
+  buildings: TimelineBuilding[]
+  kills: TimelineKill[]
+  /** 從哪一隊的角度看（戰報的主角那一隊） */
+  team: number
+  /** 對局秒數：時間軸最後一格常停在結束前幾十秒，x 軸要畫到真正結束 */
+  duration: number
+  enemyOpenSec: number | null
+  ownOpenSec: number | null
+}) {
+  const theme = useTheme()
+  const option = useMemo(() => {
+    const mine = (f: TimelineFrame) => (team === 100 ? f.gold100 - f.gold200 : f.gold200 - f.gold100)
+    const diff = frames.map((f) => [f.t / 60, mine(f)])
+    // 領先畫勝色、落後畫敗色：拆成上下兩條線，穿過 0 的地方補一個內插點，兩段才接得起來。
+    // （不用 visualMap：沒註冊那個元件，為了一張圖把它打包進首屏不划算）
+    const seg: number[][] = []
+    diff.forEach(([x, y], i) => {
+      seg.push([x, y])
+      const next = diff[i + 1]
+      if (next && y * next[1] < 0) seg.push([x + ((next[0] - x) * -y) / (next[1] - y), 0])
+    })
+    const half = (up: boolean) => seg.map(([x, y]) => [x, (up ? y >= 0 : y <= 0) ? y : null])
+    const end = Math.max(duration, ...frames.map((f) => f.t)) / 60
+    const minutes = Math.ceil(end)
+    const killsOf = (side: "me" | "foe") =>
+      Array.from({ length: minutes }, (_, m) => [m + 0.5, kills.filter((k) => (side === "me" ? k.team === team : k.team !== team) && Math.floor(k.t / 60) === m).length * (side === "me" ? 1 : -1)])
+    const maxAbs = Math.max(1000, ...diff.map((d) => Math.abs(d[1])))
+    const lines = [
+      ...(enemyOpenSec !== null ? [{ xAxis: enemyOpenSec / 60, label: { formatter: "對面只剩主堡", color: theme.win, position: "end", align: enemyOpenSec / 60 > end * 0.85 ? "right" : "center" }, lineStyle: { color: theme.win } }] : []),
+      ...(ownOpenSec !== null ? [{ xAxis: ownOpenSec / 60, label: { formatter: "我方只剩主堡", color: theme.loss, position: "end", align: ownOpenSec / 60 > end * 0.85 ? "right" : "center" }, lineStyle: { color: theme.loss } }] : []),
+    ]
+    const xAxis = (gridIndex: number, show: boolean) => ({
+      type: "value",
+      gridIndex,
+      min: 0,
+      max: end,
+      interval: end > 24 ? 4 : 2,
+      axisLabel: axisLabel(theme, { show, formatter: (v: number) => `${v}′` }),
+      axisLine: { lineStyle: { color: alpha(theme.muted, 0.3) } },
+      axisTick: { show: false },
+      splitLine: { show: false },
+    })
+    const fmtGold = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(Math.round(v)).toLocaleString()}`
+    return {
+      grid: [
+        { left: 56, right: 16, top: 22, height: 170 },
+        { left: 56, right: 16, top: 214, height: 44 },
+        { left: 56, right: 16, top: 278, height: 64 },
+      ],
+      xAxis: [xAxis(0, false), xAxis(1, false), xAxis(2, true)],
+      yAxis: [
+        {
+          type: "value",
+          gridIndex: 0,
+          min: -maxAbs * 1.1,
+          max: maxAbs * 1.1,
+          axisLabel: axisLabel(theme, { formatter: (v: number) => (Math.abs(v) >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)) }),
+          splitLine: splitLine(theme),
+          splitNumber: 4,
+        },
+        { type: "category", gridIndex: 1, data: ["對面拆", "我方拆"], axisLabel: axisLabel(theme, { fontFamily: undefined }), axisLine: { show: false }, axisTick: { show: false } },
+        { type: "value", gridIndex: 2, axisLabel: axisLabel(theme, { formatter: (v: number) => String(Math.abs(v)) }), splitLine: splitLine(theme), splitNumber: 2, minInterval: 1 },
+      ],
+      tooltip: {
+        trigger: "item",
+        ...baseTooltip(theme),
+      },
+      series: [
+        ...([true, false] as const).map((up) => ({
+          name: up ? "領先" : "落後",
+          type: "line",
+          xAxisIndex: 0,
+          yAxisIndex: 0,
+          data: half(up),
+          silent: true,
+          symbol: "none",
+          connectNulls: false,
+          lineStyle: { width: 2, color: up ? theme.win : theme.loss },
+          areaStyle: { origin: 0, color: alpha(up ? theme.win : theme.loss, 0.18) },
+          animationDuration: CHART_GROW_MS + 300,
+          animationEasing: "cubicInOut",
+          tooltip: { show: false },
+        })),
+        {
+          // 每分鐘一個點，只負責滑過的提示與兩條直線；線本身由上面兩段畫
+          name: "經濟差",
+          type: "line",
+          xAxisIndex: 0,
+          yAxisIndex: 0,
+          data: diff,
+          symbol: "circle",
+          symbolSize: 5,
+          lineStyle: { width: 0 },
+          itemStyle: { color: (p: { data: number[] }) => (p.data[1] >= 0 ? theme.win : theme.loss) },
+          animationDuration: CHART_GROW_MS + 300,
+          animationEasing: "cubicInOut",
+          tooltip: { formatter: (p: { data: number[] }) => `第 ${mmss(p.data[0] * 60)}<br/>經濟差 <b>${fmtGold(p.data[1])}</b>（我方減對面）` },
+          markLine: {
+            symbol: "none",
+            animationDelay: CHART_GROW_MS * 0.7,
+            animationDuration: 400,
+            label: { position: "insideEndTop", fontSize: 10 },
+            lineStyle: { type: "dashed", width: 1.5 },
+            data: [{ yAxis: 0, lineStyle: { color: alpha(theme.muted, 0.5), type: "solid", width: 1 }, label: { show: false } }, ...lines],
+          },
+        },
+        ...(["foe", "me"] as const).map((side, i) => ({
+          name: side === "me" ? "我方拆" : "對面拆",
+          type: "scatter",
+          xAxisIndex: 1,
+          yAxisIndex: 1,
+          // owner 是被拆的那一方：被拆的不是我方＝我方拆的
+          data: buildings
+            .filter((b) => (side === "me") === (b.owner !== team))
+            .map((b) => ({ value: [b.t / 60, i], kind: b.kind, symbol: BUILDING_SYMBOL[b.kind] ?? "triangle" })),
+          symbolSize: (_: unknown, p: { data: { kind: string } }) => (p.data.kind === "NEXUS_TURRET" ? 11 : 9),
+          itemStyle: { color: side === "me" ? theme.win : theme.loss, borderColor: theme.card, borderWidth: 1 },
+          animationEasing: "backOut",
+          animationDuration: 500,
+          animationDelay: (idx: number) => stagger(idx, 30),
+          animationDelayUpdate: 0,
+          tooltip: {
+            formatter: (p: { data: { value: number[]; kind: string } }) =>
+              `第 ${mmss(p.data.value[0] * 60)}<br/>${side === "me" ? "我方拆掉對面的" : "對面拆掉我方的"}${BUILDING_NAME[p.data.kind] ?? p.data.kind}`,
+          },
+        })),
+        ...(["me", "foe"] as const).map((side) => ({
+          name: side === "me" ? "我方擊殺" : "對面擊殺",
+          type: "bar",
+          xAxisIndex: 2,
+          yAxisIndex: 2,
+          stack: "kills",
+          barWidth: "60%",
+          data: killsOf(side),
+          itemStyle: { color: alpha(side === "me" ? theme.win : theme.loss, 0.75), borderRadius: side === "me" ? [2, 2, 0, 0] : [0, 0, 2, 2] },
+          animationDelay: (idx: number) => stagger(idx, 20),
+          animationDelayUpdate: 0,
+          tooltip: {
+            formatter: (p: { data: number[] }) => `第 ${Math.floor(p.data[0])}～${Math.floor(p.data[0]) + 1} 分鐘<br/>${side === "me" ? "我方" : "對面"}擊殺 ${Math.abs(p.data[1])}`,
+          },
+        })),
+      ],
+    }
+  }, [frames, buildings, kills, team, duration, enemyOpenSec, ownOpenSec, theme])
+
+  return <ResponsiveChart option={option} height={364} />
+}

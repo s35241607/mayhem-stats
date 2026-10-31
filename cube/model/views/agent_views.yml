@@ -18,6 +18,7 @@ views:
       多人視角下同一隊不會被算五次。
       以 augment 或 item 分組時一場會出現在多列底下，玩家對局數與勝率仍以 distinct 玩家對局列計算。
       participant_context 提供前一場結果、休息與 session 階段；team_context 提供我方／敵方隊伍差距與首塔等終場資訊。
+      swing（翻盤，由時間軸算）：門開被翻盤、領先被逆轉、門破仍翻盤、落後逆轉勝、正常、沒有時間軸；值是這位玩家那一隊的。
       best_* 是單場紀錄（max：範圍內每分鐘數值最高的那一場），和同名的平均指標（dpm、gpm…）算式相同；
       要知道是哪一場，用 participant_key 分組再依同一個 best_* 排序。
       只要「某個帳號也在場」的對局，用 co_player_puuid／co_player 篩（只能篩，不能分組：一對多，一場十列）。
@@ -199,6 +200,19 @@ views:
           - minutes_before
           - avg_break_minutes
           - avg_minutes_before
+
+      - join_path: participants.swing
+        includes:
+          - name: label
+            alias: swing
+          - name: enemy_open_left
+            alias: swing_enemy_open_left
+          - name: own_open_left
+            alias: swing_own_open_left
+          - name: max_lead
+            alias: swing_max_lead
+          - name: max_deficit
+            alias: swing_max_deficit
 
       - join_path: participants.team_context
         includes:

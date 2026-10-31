@@ -29,10 +29,12 @@ ARAM: Mayhem 的本機戰績採集與分析工具。FastAPI（`app.py`）+ Cube 
 - **Cube 跑正式模式**（`cube/.env` 的 `CUBEJS_DEV_MODE=false`）：開發模式不驗證身分，而 4000 埠開在所有網卡上。
   直接打 4000 要帶 `cube_process.auth_header()` 的 JWT；Playground 與 SQL API 都關了。
   改 yml 仍會自動生效（`cube/cube.js` 的 `schemaVersion`），不要為了方便改回開發模式。
-- **有視窗函數的衍生表 cube（builds、comp_context、contribution、participant_context）讀的是預先算好的 `mat_*` 表**：
+- **有視窗函數的衍生表 cube（builds、comp_context、contribution、participant_context、swing）讀的是預先算好的 `mat_*` 表**：
   規則寫在各 cube 的 `meta.materialize.sql`，`features.py` 在啟動時與每輪採集後照它重建。
   改這段 SQL **不會**被 Cube 的熱重載套用——要重啟服務或 `uv run features.py`。
   新的衍生表 cube 若要對全部參賽者跑視窗函數，也照這個做法，不要每個查詢現算（資料十倍時一個查詢十幾秒）。
+  swing（翻盤）讀時間軸：`match_timelines.raw_gz` 是 zlib 壓縮的 JSON，SQL 裡用 `features.py` 註冊的 `inflate()` 解開再 `json_each`；
+  yml 的 `sql: >` 會把多行接成一行，SQL 註解要用 `/* */`，不能用 `--`。
 - **貢獻分數的規格與實測依據在 `docs/contribution-scoring.md`**：規則本體在 `contribution.yml` 的 `meta.materialize.sql`，兩邊一起改。
   全站只有一個分數：**本場貢獻 v3**（`contribution.yml` → `mat_contribution`，欄位 `work_score`）。計分板、對局卡片、MVP／ACE、英雄頁、
   好友比較頁（含「打法」、稱號、徽章）都用它；不要再加第二套分數（v2、perf、score、builds 的 perf_index 都已刪除）。

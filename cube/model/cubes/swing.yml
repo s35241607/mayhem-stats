@@ -1,0 +1,143 @@
+cubes:
+  # 翻盤：從時間軸（match_timelines）看這場有沒有「優勢沒收掉被逆轉」或「劣勢翻盤」。
+  # 每位玩家每場一列（以 participant_rowid 對回 participants，一對一），值是他那一隊的。
+  #
+  # 時間軸是官方的 match timeline：每分鐘一格（十個人的累積經濟），加上擊殺與拆建築的事件和時間。
+  # 原始 JSON 壓縮存在 match_timelines.raw_gz；features.py 重建時註冊 inflate() 把它解開，規則照樣只寫在這裡。
+  # 改這段 SQL 不會被 Cube 熱重載套用：要重啟服務或 `uv run features.py`。
+  #
+  # 四種標籤（依序判斷，先符合的算）：
+  #   門開被翻盤：我方拆掉對面兩座主堡塔（只剩主堡）之後又過了 2 分鐘以上，最後輸了。
+  #              意圖看不出來，看的是「門開了很久沒收掉」這個結果；不到 2 分鐘多半是雙方門都開了在比快。
+  #   領先被逆轉：我方經濟曾領先 5,000 以上，最後輸了。2026-10 實測領先過 5,000 的隊伍有 12% 輸掉（412 隊裡 49 隊）。
+  #   門破仍翻盤：上面第一種的另一邊——我方兩座主堡塔都倒了 2 分鐘以上，最後贏了。
+  #   落後逆轉勝：我方經濟曾落後 5,000 以上，最後贏了。
+  # 其餘是「正常」；沒有時間軸（還沒抓到、或抓不到）的是「沒有時間軸」。重開局不列。
+  - name: swing
+    title: 翻盤
+    description: 從時間軸判斷這場對這位玩家的隊伍是不是翻盤：門開被翻盤、領先被逆轉、門破仍翻盤、落後逆轉勝。值是整隊的，每位玩家一列。
+    sql_table: mat_swing
+    meta:
+      materialize:
+        table: mat_swing
+        sql: >
+          /* 每段都 MATERIALIZED：不加的話 SQLite 會在每一列的 JOIN 裡重算整段（時間軸要解壓縮好幾遍），實測 5.5 秒 */
+          WITH tl AS (
+            SELECT t.platform_id, t.game_id, inflate(t.raw_gz) AS j
+            FROM match_timelines t
+            JOIN matches m ON m.platform_id = t.platform_id AND m.game_id = t.game_id AND m.is_remake = 0
+          ), frames AS MATERIALIZED (
+            SELECT tl.platform_id, tl.game_id, json_extract(f.value, '$.timestamp') AS ms, f.value AS fv
+            FROM tl, json_each(tl.j, '$.frames') AS f
+          ), pf AS MATERIALIZED (
+            SELECT fr.platform_id, fr.game_id, fr.ms,
+                   json_extract(p.value, '$.participantId') AS participant_id,
+                   json_extract(p.value, '$.totalGold') AS gold
+            FROM frames fr, json_each(fr.fv, '$.participantFrames') AS p
+          ), gold AS MATERIALIZED (
+            SELECT pf.platform_id, pf.game_id, pf.ms, mp.team_id, SUM(pf.gold) AS gold
+            FROM pf
+            JOIN match_participants mp
+              ON mp.platform_id = pf.platform_id AND mp.game_id = pf.game_id AND mp.participant_id = pf.participant_id
+            GROUP BY pf.platform_id, pf.game_id, pf.ms, mp.team_id
+          ), lead AS MATERIALIZED (
+            SELECT a.platform_id, a.game_id, a.team_id,
+                   MAX(a.gold - b.gold) AS max_lead,
+                   MAX(b.gold - a.gold) AS max_deficit
+            FROM gold a
+            JOIN gold b ON b.platform_id = a.platform_id AND b.game_id = a.game_id AND b.ms = a.ms AND b.team_id <> a.team_id
+            GROUP BY a.platform_id, a.game_id, a.team_id
+          ), nexus AS MATERIALIZED (
+            /* 主堡塔被拆的事件：teamId 是被拆的那一方 */
+            SELECT fr.platform_id, fr.game_id, json_extract(e.value, '$.teamId') AS owner, json_extract(e.value, '$.timestamp') AS ms
+            FROM frames fr, json_each(fr.fv, '$.events') AS e
+            WHERE json_extract(e.value, '$.type') = 'BUILDING_KILL' AND json_extract(e.value, '$.towerType') = 'NEXUS_TURRET'
+          ), opened AS MATERIALIZED (
+            /* 第二座主堡塔倒下的時間＝主堡門戶大開 */
+            SELECT platform_id, game_id, owner, ms / 1000.0 AS sec
+            FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY platform_id, game_id, owner ORDER BY ms) AS rn FROM nexus)
+            WHERE rn = 2
+          ), facts AS (
+            SELECT
+              mp.rowid AS participant_rowid,
+              mp.platform_id, mp.game_id, mp.team_id, mp.win,
+              m.game_duration,
+              EXISTS (SELECT 1 FROM match_timelines t WHERE t.platform_id = mp.platform_id AND t.game_id = mp.game_id) AS has_timeline,
+              en.sec AS enemy_open_sec,
+              ow.sec AS own_open_sec,
+              l.max_lead,
+              l.max_deficit
+            FROM match_participants mp
+            JOIN matches m ON m.platform_id = mp.platform_id AND m.game_id = mp.game_id AND m.is_remake = 0
+            LEFT JOIN opened en ON en.platform_id = mp.platform_id AND en.game_id = mp.game_id AND en.owner <> mp.team_id
+            LEFT JOIN opened ow ON ow.platform_id = mp.platform_id AND ow.game_id = mp.game_id AND ow.owner = mp.team_id
+            LEFT JOIN lead l ON l.platform_id = mp.platform_id AND l.game_id = mp.game_id AND l.team_id = mp.team_id
+          )
+          SELECT
+            participant_rowid, platform_id, game_id, team_id, win, has_timeline,
+            enemy_open_sec,
+            CASE WHEN enemy_open_sec IS NOT NULL THEN game_duration - enemy_open_sec END AS enemy_open_left,
+            own_open_sec,
+            CASE WHEN own_open_sec IS NOT NULL THEN game_duration - own_open_sec END AS own_open_left,
+            COALESCE(max_lead, 0) AS max_lead,
+            COALESCE(max_deficit, 0) AS max_deficit,
+            CASE
+              WHEN NOT has_timeline THEN '沒有時間軸'
+              WHEN win = 0 AND enemy_open_sec IS NOT NULL AND game_duration - enemy_open_sec >= 120 THEN '門開被翻盤'
+              WHEN win = 0 AND max_lead >= 5000 THEN '領先被逆轉'
+              WHEN win = 1 AND own_open_sec IS NOT NULL AND game_duration - own_open_sec >= 120 THEN '門破仍翻盤'
+              WHEN win = 1 AND max_deficit >= 5000 THEN '落後逆轉勝'
+              ELSE '正常'
+            END AS label
+          FROM facts
+
+    # 與 participants.yml 相同的 refresh key,理由寫在那裡。SQL 必須一字不差才會被合併。
+    refresh_key:
+      sql: >
+        SELECT (SELECT COALESCE(MAX(ingested_at), 0) FROM matches) || ':' || (SELECT COUNT(*) FROM dim_augments) || ':' || (SELECT group_concat(puuid || is_me || tracked) FROM accounts) || ':' || (SELECT COALESCE(MAX(version), 0) FROM mat_state)
+
+    dimensions:
+      - name: participant_rowid
+        sql: participant_rowid
+        type: number
+        primary_key: true
+
+      - name: label
+        title: 翻盤
+        description: "這場對這位玩家的隊伍：門開被翻盤（我方拆光對面主堡塔 2 分鐘以上沒收掉、最後輸）、領先被逆轉（經濟曾領先 5,000 以上卻輸）、門破仍翻盤（我方主堡塔全倒 2 分鐘以上仍贏）、落後逆轉勝（經濟曾落後 5,000 以上卻贏）、正常、沒有時間軸。"
+        sql: label
+        type: string
+        meta:
+          group: 翻盤
+
+      - name: enemy_open_left
+        title: 門開後又拖了幾秒
+        description: 我方拆掉對面第二座主堡塔（只剩主堡）之後，這場又打了幾秒才結束；沒拆到是空值。
+        sql: enemy_open_left
+        type: number
+        meta:
+          group: 翻盤
+
+      - name: own_open_left
+        title: 我方門破後撐了幾秒
+        description: 我方第二座主堡塔倒下之後，這場又打了幾秒才結束；沒倒是空值。
+        sql: own_open_left
+        type: number
+        meta:
+          group: 翻盤
+
+      - name: max_lead
+        title: 最大經濟領先
+        description: 時間軸每分鐘一格，我方累積經濟減對面的最大值（沒領先過是 0）。
+        sql: max_lead
+        type: number
+        meta:
+          group: 翻盤
+
+      - name: max_deficit
+        title: 最大經濟落後
+        description: 時間軸每分鐘一格，對面累積經濟減我方的最大值（沒落後過是 0）。
+        sql: max_deficit
+        type: number
+        meta:
+          group: 翻盤

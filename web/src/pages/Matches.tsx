@@ -14,16 +14,130 @@ import { NO_LIMIT } from "./shared"
 import { useFilters } from "@/lib/filters"
 import { CubeMatchList, MatchList } from "@/components/MatchList"
 import { RoleChip, RoleLegend } from "@/components/RoleChip"
-import { ContribRadarChart } from "@/components/charts"
+import { ContribRadarChart, TimelineChart, type TimelineBuilding, type TimelineFrame, type TimelineKill } from "@/components/charts"
 import { ContribBars, ContribInline, ContribMeter, ContribTagBadge } from "@/components/Contribution"
 import { WORK, WORK_GAP, WORK_PARTS, contribTagOf, isEstimate, useCardContribution, useContribution, workScore, type ContribTag } from "@/hooks/useContribution"
 import { participantKey, useBuildRoles } from "@/hooks/useBuildRoles"
 import { cn } from "@/lib/utils"
+import { useCrumb } from "@/lib/breadcrumb"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 type Item = { slot: number; item_id: number; name: string | null; icon_path: string | null }
 /** 同場十個人裡的一個，只要英雄（不帶名稱，列表不列出其他玩家的帳號）。 */
 type Mate = { participant_id: number; team_id: number; champion_name: string; champion_icon: string | null }
 type Augment = { slot: number; name: string | null; rarity: string | null; icon_path: string | null }
+
+// ── 翻盤（語意層 swing.label，規則只在 cube/model/cubes/swing.yml）──────────────────
+// 「正常」「沒有時間軸」不標；卡片、戰報、對局紀錄的篩選都用這四種
+const SWING_LABELS = ["門開被翻盤", "領先被逆轉", "門破仍翻盤", "落後逆轉勝"] as const
+type SwingLabel = (typeof SWING_LABELS)[number]
+const isSwing = (v: unknown): v is SwingLabel => SWING_LABELS.includes(v as SwingLabel)
+const SWING_TIP: Record<SwingLabel, string> = {
+  門開被翻盤: "我方拆光對面兩座主堡塔（只剩主堡）之後，又打了 2 分鐘以上沒收掉，最後輸了",
+  領先被逆轉: "我方經濟曾領先 5,000 以上，最後輸了",
+  門破仍翻盤: "我方兩座主堡塔都倒了 2 分鐘以上，最後還是贏了",
+  落後逆轉勝: "我方經濟曾落後 5,000 以上，最後贏了",
+}
+const SWING_WON = new Set<SwingLabel>(["門破仍翻盤", "落後逆轉勝"])
+
+function SwingChip({ label, className }: { label: SwingLabel; className?: string }) {
+  return (
+    <span
+      data-tip={SWING_TIP[label]}
+      data-testid="swing-chip"
+      className={cn(
+        "inline-flex items-center rounded border px-1 text-[10px] leading-4 whitespace-nowrap",
+        SWING_WON.has(label) ? "border-win/40 bg-win/10 text-win" : "border-loss/40 bg-loss/10 text-loss",
+        className,
+      )}
+    >
+      {label}
+    </span>
+  )
+}
+
+/** 一批卡片的翻盤標籤（參賽者鍵 → 標籤），只查有標籤的那幾列 */
+function useSwing(rows: { game_id: number }[]): Map<string, SwingLabel> {
+  const gameIds = [...new Set(rows.map((r) => r.game_id))]
+  const res = useCube(
+    gameIds.length
+      ? {
+          dimensions: ["participants.participant_key", "swing.label"],
+          measures: ["participants.games"],
+          filters: [
+            { member: "matches.game_id", operator: "equals", values: gameIds.map(String) },
+            { member: "swing.label", operator: "equals", values: [...SWING_LABELS] },
+          ],
+          limit: gameIds.length * 10,
+        }
+      : null,
+  )
+  return new Map(res.rows.flatMap((r) => (isSwing(r["swing.label"]) ? [[String(r["participants.participant_key"]), r["swing.label"]] as const] : [])))
+}
+
+// ── 戰報的時間軸分頁 ────────────────────────────────────────────────────────
+type SwingRow = {
+  label: string
+  enemy_open_sec: number | null
+  enemy_open_left: number | null
+  own_open_sec: number | null
+  own_open_left: number | null
+  max_lead: number
+  max_deficit: number
+}
+type TimelineData = {
+  available: boolean
+  frames?: TimelineFrame[]
+  buildings?: TimelineBuilding[]
+  kills?: TimelineKill[]
+  swing?: Record<string, SwingRow>
+}
+const clock = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, "0")}`
+
+function TimelinePanel({ tl, team, duration, win }: { tl: TimelineData | null; team: number; duration: number; win: boolean }) {
+  if (!tl) return <Skeleton className="h-[420px] w-full" />
+  if (!tl.available || !tl.frames?.length)
+    return <EmptyState>這場還沒有時間軸。採集器會自動補抓；太舊的場次官方可能已經不給。</EmptyState>
+  const sw = tl.swing?.[String(team)]
+  const frames = tl.frames
+  const leadOf = (f: TimelineFrame) => (team === 100 ? f.gold100 - f.gold200 : f.gold200 - f.gold100)
+  const peak = frames.reduce((a, f) => (leadOf(f) > leadOf(a) ? f : a), frames[0])
+  const low = frames.reduce((a, f) => (leadOf(f) < leadOf(a) ? f : a), frames[0])
+  const notes: string[] = []
+  if (sw?.enemy_open_sec != null && sw.enemy_open_left != null)
+    notes.push(`第 ${clock(sw.enemy_open_sec)} 拆光對面兩座主堡塔，之後又打了 ${clock(sw.enemy_open_left)}${win ? "才收掉" : "，最後還是輸了"}`)
+  if (sw?.own_open_sec != null && sw.own_open_left != null)
+    notes.push(`第 ${clock(sw.own_open_sec)} 我方兩座主堡塔都倒了，撐了 ${clock(sw.own_open_left)}${win ? "，最後反過來贏了" : ""}`)
+  if (leadOf(peak) > 0) notes.push(`經濟最多領先 ${leadOf(peak).toLocaleString()}（第 ${clock(peak.t)}）`)
+  if (leadOf(low) < 0) notes.push(`最多落後 ${(-leadOf(low)).toLocaleString()}（第 ${clock(low.t)}）`)
+  return (
+    <div className="space-y-2" data-testid="match-timeline">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+        {sw && isSwing(sw.label) && <SwingChip label={sw.label} className="text-[11px]" />}
+        <span className="text-muted-foreground">{notes.join("；") || "雙方經濟一路差不多"}</span>
+      </div>
+      <TimelineChart
+        frames={frames}
+        buildings={tl.buildings ?? []}
+        kills={tl.kills ?? []}
+        team={team}
+        duration={duration}
+        enemyOpenSec={sw?.enemy_open_sec ?? null}
+        ownOpenSec={sw?.own_open_sec ?? null}
+      />
+      <p className="text-xs text-muted-foreground">
+        上：經濟差（我方減對面，每分鐘一格；在 0 以上是我方領先）。中：雙方拆掉的建築，▲ 外塔／內塔、◆ 兵營、■ 主堡塔。下：每分鐘擊殺，上半是我方、下半是對面。
+        <Hint
+          text={
+            "資料來自官方的對局時間軸：每分鐘一格的累積經濟，加上擊殺與拆建築的時間點。沒有買裝事件。\n" +
+            "直線「對面只剩主堡」是我方拆掉對面第二座主堡塔的那一刻；之後拖了 2 分鐘以上還輸，就標「門開被翻盤」。\n" +
+            "標籤的規則在語意層（swing），對局紀錄可以依標籤篩選。"
+          }
+        />
+      </p>
+    </div>
+  )
+}
 
 export type MatchRow = {
   platform_id: string
@@ -558,6 +672,16 @@ export function MatchDetail({
   // 十個人各自的貢獻分數與六項百分位（語意層 contribution）
   const contrib = useContribution(data ? data.players.map(keyOf) : [], true)
 
+  // 時間軸：標頭的翻盤標籤與「時間軸」分頁都用它
+  const [tl, setTl] = useState<TimelineData | null>(null)
+  useEffect(() => {
+    setTl(null)
+    fetch(`/api/match/${platformId}/${gameId}/timeline`)
+      .then((r) => r.json())
+      .then((d: TimelineData) => setTl(d))
+      .catch(() => setTl({ available: false }))
+  }, [platformId, gameId])
+
   useEffect(() => {
     setData(null)
     const q = puuid ? `?puuid=${encodeURIComponent(puuid)}` : ""
@@ -572,6 +696,8 @@ export function MatchDetail({
 
   const { match, players } = data
   const subject = players.find((p) => p.is_me)
+  const team = subject?.team_id ?? 100
+  const swingLabel = tl?.swing?.[String(team)]?.label
 
   return (
     <div className="space-y-4">
@@ -591,12 +717,14 @@ export function MatchDetail({
           {match.game_mode} · {fmtDuration(match.game_duration)} · {fmtDate(match.game_creation)}
           {match.ended_surrender ? " · 投降結束" : ""}
         </span>
+        {isSwing(swingLabel) && <SwingChip label={swingLabel} className="text-[11px]" />}
       </div>
 
       <Tabs defaultValue="board">
         <TabsList className="mb-3">
           <TabsTrigger value="board">計分板</TabsTrigger>
           <TabsTrigger value="stats">數據</TabsTrigger>
+          <TabsTrigger value="timeline">時間軸</TabsTrigger>
         </TabsList>
         <TabsContent value="board">
           <div className="mb-2 flex justify-end">
@@ -622,6 +750,9 @@ export function MatchDetail({
           <p className="mt-2 text-xs text-muted-foreground">
             每一列的全場最高值以主色標示。上方色條藍＝隊伍 1、紅＝隊伍 2；色條下是這場的出裝定位。
           </p>
+        </TabsContent>
+        <TabsContent value="timeline">
+          <TimelinePanel tl={tl} team={team} duration={match.game_duration} win={!!subject?.win} />
         </TabsContent>
       </Tabs>
     </div>
@@ -681,6 +812,7 @@ function MatchCardChunk({
   // 這場的出裝定位：向 Cube 查（見 useBuildRoles）
   const roleOf = useBuildRoles(rows.map(keyOf))
   const contrib = useCardContribution(rows)
+  const swing = useSwing(rows)
   return (
     <>
       {rows.map((m, j) => {
@@ -730,7 +862,8 @@ function MatchCardChunk({
                 </span>
               </div>
 
-              <div className="w-[50px] shrink-0">
+              {/* 寬度放得下「門開被翻盤」五個字的標籤 */}
+              <div className="w-[64px] shrink-0">
                 <div className={cn("text-sm font-bold", m.win ? "text-win" : "text-loss")}>
                   {m.win ? "勝利" : "戰敗"}
                 </div>
@@ -739,6 +872,7 @@ function MatchCardChunk({
                   {m.penta_kills > 0 && <span className="ml-1 font-semibold text-gold">五殺</span>}
                   {m.penta_kills === 0 && m.quadra_kills > 0 && <span className="ml-1 font-semibold">四殺</span>}
                 </div>
+                {swing.get(keyOf(m)) && <SwingChip label={swing.get(keyOf(m))!} className="mt-0.5" />}
               </div>
 
               <div className="flex shrink-0 flex-col gap-0.5">
@@ -846,6 +980,21 @@ export function Matches() {
   // 帳號、模式、期間：和其他頁同一組全域條件（原本漏了期間，選「最近 7 天」仍列出全部場次）
   const params = matchParams()
   const drillKey = drills.map((d) => `${d.member}=${d.values.join(",")}`).join("&")
+  const [swingPick, setSwingPick] = useState<SwingLabel | null>(null)
+  useCrumb(10, swingPick ? `翻盤：${swingPick}` : null, () => setSwingPick(null))
+  // 各標籤有幾場（同一組全域條件），寫在選單裡
+  const swingCounts = useCube(
+    account && who !== "tracked"
+      ? apply({
+          measures: ["participants.games"],
+          dimensions: ["swing.label"],
+          filters: [{ member: "swing.label", operator: "equals", values: [...SWING_LABELS] }],
+          limit: 10,
+        })
+      : null,
+  )
+  const countOf = (label: string) => num(swingCounts.rows.find((r) => r["swing.label"] === label)?.["participants.games"]) ?? 0
+  const swingFilter = swingPick && who !== "tracked" ? [{ member: "swing.label", operator: "equals" as const, values: [swingPick] }] : []
 
   return (
     <div className="space-y-4">
@@ -857,18 +1006,38 @@ export function Matches() {
             ? "由新到舊，每一場只列一張卡片；同場有好幾位追蹤對象時，卡片上的人是主角（優先是目前帳號），其他人列在標頭。點任一場看完整戰報"
             : "由新到舊列出全部場次，捲到底會自動載入更多；點任一場看完整戰報。英雄名稱旁是這場的出裝定位"
         }
-        action={<RoleLegend />}
+        action={
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {who !== "tracked" && (
+              <Select value={swingPick ?? "all"} onValueChange={(v) => setSwingPick(v === "all" ? null : (v as SwingLabel))}>
+                <SelectTrigger size="sm" className="h-8 w-44 text-xs" data-testid="swing-filter" aria-label="依翻盤篩選">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部場次</SelectItem>
+                  {SWING_LABELS.map((l) => (
+                    <SelectItem key={l} value={l}>
+                      {l}（{countOf(l)}）
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <RoleLegend />
+          </div>
+        }
       >
         {!account ? null : who === "tracked" ? (
           <TrackedMatches scope={scope} />
-        ) : drills.length ? (
+        ) : drills.length || swingFilter.length ? (
           // 有全域下鑽（英雄、增幅……）時，是哪幾場交給 Cube 用同一組條件查，後端不必認得每一種維度
           <CubeMatchList
             gameIdKey="matches.game_id"
-            listKey={`${account.puuid}|${drillKey}`}
+            listKey={`${account.puuid}|${drillKey}|${swingPick ?? ""}`}
             query={apply({
               measures: ["participants.games"],
               dimensions: ["matches.game_id"],
+              filters: swingFilter,
               limit: MAX_GAME_IDS,
             })}
           />

@@ -70,6 +70,11 @@ cubes:
         sql: "{CUBE}.rowid = {participant_context}.participant_rowid"
         relationship: one_to_one
 
+      # 翻盤（時間軸算的，見 swing.yml）。每位玩家一列，值是他那一隊的
+      - name: swing
+        sql: "{CUBE}.rowid = {swing}.participant_rowid"
+        relationship: one_to_one
+
       # 出裝定位：每位參賽者每場一列，和 participant_context 一樣用 rowid 一對一對回來
       - name: builds
         sql: "{CUBE}.rowid = {builds}.participant_rowid"

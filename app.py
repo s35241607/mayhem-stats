@@ -1665,6 +1665,56 @@ def match_detail(platform_id: str, game_id: int, puuid: Optional[str] = None):
         conn.close()
 
 
+@app.get("/api/match/{platform_id}/{game_id}/timeline")
+def match_timeline(platform_id: str, game_id: int):
+    """單場時間軸：每分鐘雙方的累積經濟、拆建築與擊殺的時間點（給戰報畫圖），以及兩隊的翻盤標籤。
+    標籤直接讀 mat_swing，判斷規則只有 cube/model/cubes/swing.yml 一份，這裡不另外判斷。"""
+    conn = db.connect()
+    try:
+        timeline = db.load_timeline(conn, platform_id, game_id)
+        if timeline is None:
+            return {"available": False}
+        team_of = {
+            row["participant_id"]: row["team_id"]
+            for row in conn.execute(
+                "SELECT participant_id, team_id FROM match_participants WHERE platform_id = ? AND game_id = ?",
+                (platform_id, game_id),
+            )
+        }
+        frames, buildings, kills = [], [], []
+        for frame in timeline.get("frames", []):
+            gold = {100: 0, 200: 0}
+            for pf in (frame.get("participantFrames") or {}).values():
+                team = team_of.get(pf.get("participantId"))
+                if team in gold:
+                    gold[team] += pf.get("totalGold") or 0
+            frames.append({"t": frame.get("timestamp", 0) / 1000, "gold100": gold[100], "gold200": gold[200]})
+            for e in frame.get("events") or []:
+                t = e.get("timestamp", 0) / 1000
+                if e.get("type") == "BUILDING_KILL":
+                    # teamId 是被拆的那一方
+                    buildings.append({"t": t, "owner": e.get("teamId"), "kind": e.get("towerType") or e.get("buildingType"), "lane": e.get("laneType")})
+                elif e.get("type") == "CHAMPION_KILL":
+                    # 被塔、小兵打死時 killerId 是 0，所以用被殺的人反推：得分的是另一隊
+                    victim = team_of.get(e.get("victimId"))
+                    if victim in (100, 200):
+                        kills.append({"t": t, "team": 300 - victim})
+        try:
+            swing = {
+                row["team_id"]: dict(row)
+                for row in conn.execute(
+                    """SELECT team_id, label, enemy_open_sec, enemy_open_left, own_open_sec, own_open_left, max_lead, max_deficit
+                       FROM mat_swing WHERE platform_id = ? AND game_id = ? GROUP BY team_id""",
+                    (platform_id, game_id),
+                )
+            }
+        except sqlite3.OperationalError:
+            swing = {}  # 衍生表還沒建好（剛升級、鏡像比主服務先起來）
+        return {"available": True, "frames": frames, "buildings": buildings, "kills": kills, "swing": swing}
+    finally:
+        conn.close()
+
+
 @app.get("/api/accounts")
 def list_accounts():
     """追蹤對象，以及可以加入追蹤的候選人（曾與你同場的玩家）。"""

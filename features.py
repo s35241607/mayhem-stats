@@ -17,6 +17,7 @@ import re
 import sqlite3
 import sys
 import time
+import zlib
 from pathlib import Path
 
 import yaml
@@ -52,13 +53,20 @@ def definitions() -> list[tuple[str, str, str]]:
     return [(table, *found[table]) for table in ordered]
 
 
+def _inflate(blob):
+    """match_timelines.raw_gz 是 zlib 壓縮的 JSON；SQL 裡用 inflate(raw_gz) 解開，再交給 json_each（翻盤 cube 用）。"""
+    return zlib.decompress(blob).decode("utf-8") if blob else None
+
+
 # 衍生表是照哪一份對局資料算的。對局只會新增（INSERT OR IGNORE、沒有刪除），
 # 一場的參賽者、裝備、增幅在同一個 transaction 寫入，所以看參賽者表就夠了。
 # 貢獻分數也讀 eog_player_stats（賽後統計拆出來的治療／護盾隊友），所以列數也算進去：
 # 賽後統計若比對局明細晚幾秒到，或相同玩家列的值更新（kv.eog_revision），下一輪會重建。
+# 翻盤讀 match_timelines：時間軸常比對局晚到（另外排隊抓），之後也可能換成格數更多的版本，所以場數與格數也算進去。
 SOURCE_SQL = (
     "SELECT COALESCE(MAX(rowid), 0) || ':' || COUNT(*) || ':' || (SELECT COUNT(*) FROM eog_player_stats)"
     " || ':' || COALESCE((SELECT value FROM kv WHERE key='eog_revision'),'0')"
+    " || ':' || (SELECT COUNT(*) || '.' || COALESCE(SUM(frames), 0) FROM match_timelines)"
     " FROM match_participants"
 )
 
@@ -85,6 +93,7 @@ def rebuild(conn: sqlite3.Connection | None = None) -> float:
     own = conn is None
     conn = conn or db.connect()
     start = time.perf_counter()
+    conn.create_function("inflate", 1, _inflate, deterministic=True)
     specs = definitions()
     try:
         conn.execute("BEGIN")
