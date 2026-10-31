@@ -13,7 +13,7 @@ import db
 
 YML = Path(__file__).parent.parent / "cube" / "model" / "cubes" / "contribution.yml"
 SQL = yaml.safe_load(YML.read_text(encoding="utf-8"))["cubes"][0]["meta"]["materialize"]["sql"]
-SD_WORK = float(re.search(r"VALUES \([\d., ]+, ([\d.]+)\)\s*-- 校正常數結束", SQL).group(1))
+SD_WORK, MU_WORK = map(float, re.search(r"VALUES \([\d., ]+, ([\d.]+), (-?[\d.]+)\)\s*-- 校正常數結束", SQL).groups())
 WEIGHTS = {"d": 0.25, "t": 0.20, "h": 0.13, "c": 0.12, "kda": 0.12, "o": 0.08, "w": 0.06, "a": 0.04}
 
 
@@ -120,7 +120,16 @@ class ContributionTests(unittest.TestCase):
             pts = sum(r[k] for k in ("pts_d", "pts_w", "pts_o", "pts_t", "pts_c", "pts_h", "pts_a", "pts_kda"))
             self.assertAlmostEqual(pts, 20 * r["work_raw"] / SD_WORK, places=6)
             if 0 < r["work_score"] < 100:
-                self.assertAlmostEqual(r["work_score"], 50 + pts, places=6)
+                # v3.5：總分扣掉整體校正（每個人一樣），加減分本身不含它
+                self.assertAlmostEqual(r["work_score"], 50 + pts - 20 * MU_WORK / SD_WORK, places=6)
+
+    def test_crowd_control_only_adds(self):
+        """v3.5：技能組沒有控場（卡特、易大師）不再被扣分；控得多照樣加分。gene_c 照實顯示控場少"""
+        self.fx.game(1, over={3: {"time_ccing_others": 0}, 4: {"time_ccing_others": 300}})
+        none, lots = self.at(self.fx.result(), 1, 3), self.at(self.fx.result(), 1, 4)
+        self.assertEqual(none["pts_c"], 0)
+        self.assertLess(none["gene_c"], 50)
+        self.assertGreater(lots["pts_c"], 0)
 
     def test_weights_sum_to_one(self):
         m = re.search(r"SELECT \*,\s*(0\.\d+ \* z_\w+(?: \+ 0\.\d+ \* z_\w+)*) AS work_raw", SQL)

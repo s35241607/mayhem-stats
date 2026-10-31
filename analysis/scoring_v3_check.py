@@ -25,7 +25,7 @@ for m in re.finditer(r"\('([^']+)', ([^)]*)\)", blk):
     v = [float(x) for x in m.group(2).split(",")]
     MU[m.group(1)] = dict(zip(["d", "w", "o", "t", "c", "h_eog", "h_flag", "a", "kda"], v))
 sdv = [float(x) for x in re.search(r"VALUES \(([\d., ]+)\)\s*$", blk.strip()).group(1).split(",")]
-SD = dict(zip(["d", "w", "o", "t", "c", "h_eog", "h_flag", "a", "kda", "work"], sdv))
+SD = dict(zip(["d", "w", "o", "t", "c", "h_eog", "h_flag", "a", "kda", "work", "mu_work"], sdv))
 
 c = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
 c.row_factory = sqlite3.Row
@@ -108,11 +108,15 @@ for (pl, gid), ps in games.items():
                 z[k] = (P["h"] - mu["h_eog"]) / SD["h_eog"] if has_eog else 0.0
             else:
                 z[k] = (P[k] - mu[k]) / SD[k]
+        shown = dict(z)
+        # v3.5：控場只加不扣（計分用的 z 夾在 0 以上，gene_c 照實顯示）；總分扣掉整體校正 mu_work
+        z["c"] = max(0.0, z["c"])
         raw = sum(WEIGHTS[k] * z[k] for k in WEIGHTS)
-        out = {"work_score": min(100.0, max(0.0, 50 + 20 * raw / SD["work"])), "work_raw": raw, "unscored_reason": None,
+        out = {"work_score": min(100.0, max(0.0, 50 + 20 * (raw - SD["mu_work"]) / SD["work"])), "work_raw": raw, "unscored_reason": None,
                "score_status": "complete" if has_eog else "estimate", "x_a": a}
         for k in WEIGHTS:
-            out[GENE_COL[k]] = min(100.0, max(0.0, 50 + 20 * z[k]))
+            out[GENE_COL[k]] = min(100.0, max(0.0, 50 + 20 * shown[k]))
+            out["pts_" + k] = 20 * WEIGHTS[k] * z[k] / SD["work"]
         for k, col in (("d", "p_d"), ("w", "p_w"), ("o", "p_o"), ("t", "p_t"), ("c", "p_c"), ("h", "p_h"), ("a", "p_a"), ("kda", "p_kda")):
             out[col] = P[k]
         mine[p["rid"]] = out
