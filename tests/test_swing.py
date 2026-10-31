@@ -58,31 +58,38 @@ class SwingTests(unittest.TestCase):
 
     def test_labels(self):
         flat = [10000 * i for i in range(21)]
-        # 1：藍方 15:00 拆完兩座主堡塔，又拖了 4 分半，紅方贏 → 藍方門開被翻盤、紅方門破仍翻盤
-        self.add_match(1, 200, timeline(flat, flat, [tower(890_000, 200), tower(930_000, 200)]))
-        # 2：藍方 19:10 才拆完（只剩 50 秒，不算拖），但經濟曾領先 6,000 → 領先被逆轉；紅方落後 6,000 贏 → 落後逆轉勝
+        # 1：藍方 15:30 先拆光紅方主堡塔，紅方 19:00 才拆光藍方的、贏了 → 藍方門開被翻盤、紅方門破仍翻盤
+        self.add_match(1, 200, timeline(flat, flat, [tower(900_000, 200), tower(930_000, 200), tower(1_130_000, 100), tower(1_140_000, 100)]))
+        # 2：對面故意不拆、我們一波反打到底：藍方 18:50 拆光紅方主堡塔，紅方 70 秒內一路推回去贏了
+        #    （舊規則要求門開後再撐 2 分鐘，這種會被標成正常）
+        self.add_match(2, 200, timeline(flat, flat, [tower(1_120_000, 200), tower(1_130_000, 200), tower(1_170_000, 100), tower(1_180_000, 100)]))
+        # 3：雙方門都開在比快、紅方的門先倒但紅方輸了 → 紅方是正常（對面的門後開），藍方贏得正常
+        self.add_match(3, 100, timeline(flat, flat, [tower(1_080_000, 200), tower(1_090_000, 200), tower(1_110_000, 100), tower(1_120_000, 100)]))
+        # 4：沒拆到主堡塔，經濟曾領先 6,000 卻輸 → 領先被逆轉；另一邊落後逆轉勝
         lead = [g + (6000 if 5 <= i <= 8 else 0) for i, g in enumerate(flat)]
-        self.add_match(2, 200, timeline(lead, flat, [tower(1_140_000, 200), tower(1_150_000, 200)]))
-        # 3：只倒了一座主堡塔、經濟差不到 5,000 → 兩邊都正常
-        self.add_match(3, 100, timeline([g + 4000 for g in flat], flat, [tower(600_000, 200)]))
-        # 4：沒有時間軸
-        self.add_match(4, 100)
+        self.add_match(4, 200, timeline(lead, flat))
+        # 5：只倒了一座主堡塔、經濟差不到 5,000 → 兩邊都正常
+        self.add_match(5, 100, timeline([g + 4000 for g in flat], flat, [tower(600_000, 200)]))
+        # 6：沒有時間軸
+        self.add_match(6, 100)
         features.rebuild(self.conn)
 
         self.assertEqual(self.labels(1), {100: "門開被翻盤", 200: "門破仍翻盤"})
-        self.assertEqual(self.labels(2), {100: "領先被逆轉", 200: "落後逆轉勝"})
+        self.assertEqual(self.labels(2), {100: "門開被翻盤", 200: "門破仍翻盤"})
         self.assertEqual(self.labels(3), {100: "正常", 200: "正常"})
-        self.assertEqual(self.labels(4), {100: "沒有時間軸", 200: "沒有時間軸"})
-        left, lead_max = self.conn.execute("SELECT enemy_open_left, max_lead FROM mat_swing WHERE game_id = 1 AND team_id = 100").fetchone()
-        self.assertAlmostEqual(left, DURATION - 930)
+        self.assertEqual(self.labels(4), {100: "領先被逆轉", 200: "落後逆轉勝"})
+        self.assertEqual(self.labels(5), {100: "正常", 200: "正常"})
+        self.assertEqual(self.labels(6), {100: "沒有時間軸", 200: "沒有時間軸"})
+        left, lead_max = self.conn.execute("SELECT own_open_left, max_lead FROM mat_swing WHERE game_id = 2 AND team_id = 200").fetchone()
+        self.assertAlmostEqual(left, DURATION - 1130)
         self.assertEqual(lead_max, 0)
-        self.assertEqual(self.conn.execute("SELECT max_lead FROM mat_swing WHERE game_id = 2 AND team_id = 100").fetchone()[0], 6000)
+        self.assertEqual(self.conn.execute("SELECT max_lead FROM mat_swing WHERE game_id = 4 AND team_id = 100").fetchone()[0], 6000)
 
     def test_late_timeline_marks_features_stale(self):
-        self.add_match(5, 100)
+        self.add_match(7, 100)
         features.rebuild(self.conn)
         self.assertFalse(features.stale(self.conn))
-        db.store_timeline(self.conn, "TW2", 5, timeline([0, 100], [0, 50]))
+        db.store_timeline(self.conn, "TW2", 7, timeline([0, 100], [0, 50]))
         self.assertTrue(features.stale(self.conn))  # 時間軸晚到也要重算，不然一直是「沒有時間軸」
 
     def test_timeline_endpoint(self):

@@ -7,11 +7,14 @@ cubes:
   # 改這段 SQL 不會被 Cube 熱重載套用：要重啟服務或 `uv run features.py`。
   #
   # 四種標籤（依序判斷，先符合的算）：
-  #   門開被翻盤：我方拆掉對面兩座主堡塔（只剩主堡）之後又過了 2 分鐘以上，最後輸了。
-  #              意圖看不出來，看的是「門開了很久沒收掉」這個結果；不到 2 分鐘多半是雙方門都開了在比快。
+  #   門開被翻盤：我方先拆光對面兩座主堡塔（對面只剩主堡），最後卻輸了——不管之後拖了多久。
   #   領先被逆轉：我方經濟曾領先 5,000 以上，最後輸了。2026-10 實測領先過 5,000 的隊伍有 12% 輸掉（412 隊裡 49 隊）。
-  #   門破仍翻盤：上面第一種的另一邊——我方兩座主堡塔都倒了 2 分鐘以上，最後贏了。
+  #   門破仍翻盤：上面第一種的另一邊——我方兩座主堡塔先倒，最後還是贏了（含對面投降、沒拆到他們門的）。
   #   落後逆轉勝：我方經濟曾落後 5,000 以上，最後贏了。
+  # 「誰的門先開」決定是不是翻盤，不看門開了幾分鐘（2026-11-01 使用者要求）：
+  #   原本要求門開後拖 2 分鐘以上，結果「對面故意不拆主堡、我們一波反打到底」這種最典型的翻盤反而被漏掉。
+  #   實測贏的隊伍裡主堡塔被拆光的 53 隊：49 隊是自己的門先開（比對面晚 43 秒以上才開對面的門），
+  #   其中 19 隊不到 2 分鐘就結束，舊規則全標成正常；只有 3 隊是對面的門先開（雙方門都開在比快），那不算翻盤。
   # 其餘是「正常」；沒有時間軸（還沒抓到、或抓不到）的是「沒有時間軸」。重開局不列。
   - name: swing
     title: 翻盤
@@ -83,9 +86,9 @@ cubes:
             COALESCE(max_deficit, 0) AS max_deficit,
             CASE
               WHEN NOT has_timeline THEN '沒有時間軸'
-              WHEN win = 0 AND enemy_open_sec IS NOT NULL AND game_duration - enemy_open_sec >= 120 THEN '門開被翻盤'
+              WHEN win = 0 AND enemy_open_sec IS NOT NULL AND (own_open_sec IS NULL OR enemy_open_sec < own_open_sec) THEN '門開被翻盤'
               WHEN win = 0 AND max_lead >= 5000 THEN '領先被逆轉'
-              WHEN win = 1 AND own_open_sec IS NOT NULL AND game_duration - own_open_sec >= 120 THEN '門破仍翻盤'
+              WHEN win = 1 AND own_open_sec IS NOT NULL AND (enemy_open_sec IS NULL OR own_open_sec < enemy_open_sec) THEN '門破仍翻盤'
               WHEN win = 1 AND max_deficit >= 5000 THEN '落後逆轉勝'
               ELSE '正常'
             END AS label
@@ -104,7 +107,7 @@ cubes:
 
       - name: label
         title: 翻盤
-        description: "這場對這位玩家的隊伍：門開被翻盤（我方拆光對面主堡塔 2 分鐘以上沒收掉、最後輸）、領先被逆轉（經濟曾領先 5,000 以上卻輸）、門破仍翻盤（我方主堡塔全倒 2 分鐘以上仍贏）、落後逆轉勝（經濟曾落後 5,000 以上卻贏）、正常、沒有時間軸。"
+        description: "這場對這位玩家的隊伍：門開被翻盤（我方先拆光對面主堡塔、最後卻輸）、領先被逆轉（經濟曾領先 5,000 以上卻輸）、門破仍翻盤（我方主堡塔先全倒、最後仍贏）、落後逆轉勝（經濟曾落後 5,000 以上卻贏）、正常、沒有時間軸。雙方的門都開時，看誰的先開。"
         sql: label
         type: string
         meta:

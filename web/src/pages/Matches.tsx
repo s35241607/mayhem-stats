@@ -33,9 +33,9 @@ const SWING_LABELS = ["門開被翻盤", "領先被逆轉", "門破仍翻盤", "
 type SwingLabel = (typeof SWING_LABELS)[number]
 const isSwing = (v: unknown): v is SwingLabel => SWING_LABELS.includes(v as SwingLabel)
 const SWING_TIP: Record<SwingLabel, string> = {
-  門開被翻盤: "我方拆光對面兩座主堡塔（只剩主堡）之後，又打了 2 分鐘以上沒收掉，最後輸了",
+  門開被翻盤: "我方先拆光對面兩座主堡塔（對面只剩主堡），最後卻被反打輸了",
   領先被逆轉: "我方經濟曾領先 5,000 以上，最後輸了",
-  門破仍翻盤: "我方兩座主堡塔都倒了 2 分鐘以上，最後還是贏了",
+  門破仍翻盤: "我方兩座主堡塔先倒（只剩主堡），最後還是反打贏了",
   落後逆轉勝: "我方經濟曾落後 5,000 以上，最後贏了",
 }
 const SWING_WON = new Set<SwingLabel>(["門破仍翻盤", "落後逆轉勝"])
@@ -130,7 +130,7 @@ function TimelinePanel({ tl, team, duration, win }: { tl: TimelineData | null; t
         <Hint
           text={
             "資料來自官方的對局時間軸：每分鐘一格的累積經濟，加上擊殺與拆建築的時間點。沒有買裝事件。\n" +
-            "直線「對面只剩主堡」是我方拆掉對面第二座主堡塔的那一刻；之後拖了 2 分鐘以上還輸，就標「門開被翻盤」。\n" +
+            "直線「對面只剩主堡」是我方拆掉對面第二座主堡塔的那一刻。雙方誰的門先開：先開對面的門卻輸了標「門開被翻盤」，自己的門先開卻贏了標「門破仍翻盤」，不管之後打了多久。\n" +
             "標籤的規則在語意層（swing），對局紀錄可以依標籤篩選。"
           }
         />
