@@ -14,7 +14,7 @@ import { Hint } from "@/components/TipLayer"
 import { stripTip, tipLevelClass } from "@/lib/tip"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ContribRadarChart, SHRINK_K, shrunk } from "@/components/charts"
+import { BarChart, ContribRadarChart, SHRINK_K, TrendChart, shrunk } from "@/components/charts"
 import { DetailDrawer, useDrawerSettled } from "@/components/DetailDrawer"
 import { ForestAxis, ForestTrack } from "@/components/GapForest"
 import { useCube } from "@/hooks/useCube"
@@ -40,7 +40,7 @@ import {
   type Strength,
 } from "@/lib/gap"
 import { participantRows } from "@/lib/who"
-import { BUILD_ROLES, BUILD_SHORT, NO_LIMIT, round0, splitRiotId } from "./shared"
+import { BUILD_ROLES, BUILD_SHORT, MIN_GAMES, NO_LIMIT, round0, splitRiotId } from "./shared"
 
 // ── 判斷：和陣容、敗因、節奏三頁同一套「區間」講法 ─────────────────────────────
 // 判斷用本場貢獻（contribution.work，v3 起全站唯一的分數）：八個基因（輸出、承傷、治療護盾、控場、K/DA、推塔、清兵、功能裝）
@@ -924,7 +924,7 @@ function ExpandRow({
 type DrawerTab = "overview" | "picks" | "stats"
 
 /** 頂層分頁：全員一覽、數據總表、查英雄、查增幅裝置。一次只看一段，分頁列貼在頁首下面。 */
-type Section = "matrix" | "stats" | "champ" | "augment" | "badges"
+type Section = "matrix" | "stats" | "champ" | "augment" | "item" | "badges"
 
 /** 抽屜裡的一串對局：範圍條件交給 Cube 找出是哪幾場（PlayerMatches），或現成的列表參數（單場紀錄） */
 type GamesSource = { puuid: string; filters: CubeFilter[]; recordMetric?: string } | { params: Record<string, string> }
@@ -3070,7 +3070,7 @@ function PlayerDrawerBody({
   )
 }
 
-type LookupOption = { name: string; icon: string; games: number; players: number }
+type LookupOption = { name: string; icon: string; games: number; wins: number; players: number }
 
 /** 英雄／增幅選擇器：可搜尋，依「幾個人用過、合計幾場」排序 */
 function LookupPicker({
@@ -3144,6 +3144,8 @@ type LookupKind = {
   verb: string
   nameKey: string
   iconKey: string
+  /** 每個查詢都要帶的條件（裝備排除飾品格） */
+  filters?: CubeFilter[]
 }
 
 /** 選了一個東西之後，每個人用它的細項（只查選中的那一個，切到這個分頁才查） */
@@ -3162,6 +3164,16 @@ const LOOKUP_MEASURES = [
   ...WORK_PARTS.map((c) => c.key),
 ]
 const LOOKUP_GRID = "grid-cols-[minmax(9rem,1fr)_3.5rem_minmax(8rem,13rem)_4rem_3rem_5.5rem_5.5rem_4.5rem_3.5rem_3.5rem_minmax(7rem,9rem)]"
+
+/** 走勢圖有打的日子超過幾天就改成每週一點 */
+const TREND_DAYS = 30
+/** YYYY-MM-DD 所在那週的週一（本地日期） */
+const weekStart = (date: string) => {
+  const [y, m, d] = date.split("-").map(Number)
+  const t = new Date(y, m - 1, d)
+  t.setDate(t.getDate() - ((t.getDay() + 6) % 7))
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`
+}
 
 /** 這幾場最突出與最弱的基因（50＝同出裝定位的平均）；差不到 WORK_GAP 的不算 */
 function geneExtremes(r: CubeRow | undefined) {
@@ -3209,8 +3221,9 @@ function LookupPanel({
     for (const r of rows) {
       if (!puuids.includes(String(r["participants.puuid"]))) continue
       const name = String(r[kind.nameKey])
-      const cur = m.get(name) ?? { name, icon: r[kind.iconKey] as string, games: 0, players: 0 }
+      const cur = m.get(name) ?? { name, icon: r[kind.iconKey] as string, games: 0, wins: 0, players: 0 }
       cur.games += n0(r, "participants.games")
+      cur.wins += n0(r, "participants.wins")
       cur.players += 1
       m.set(name, cur)
     }
@@ -3218,10 +3231,44 @@ function LookupPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, puuids.join(), kind])
   const value = picked && options.some((o) => o.name === picked) ? picked : (options[0]?.name ?? null)
-  const details = useCube(
+  const thisOne: CubeFilter[] = value ? [{ member: kind.nameKey, operator: "equals", values: [value] }, ...(kind.filters ?? [])] : []
+  const details = useCube(value ? detail({ measures: LOOKUP_MEASURES, dimensions: ["participants.puuid"], filters: thisOne, limit: NO_LIMIT }) : null)
+  // 這群人每天用它幾場、贏幾成（全部人合計）；有打的日子超過 TREND_DAYS 天就併成每週，點才不會擠成一團
+  const trend = useCube(
     value
-      ? detail({ measures: LOOKUP_MEASURES, dimensions: ["participants.puuid"], filters: [{ member: kind.nameKey, operator: "equals", values: [value] }], limit: NO_LIMIT })
+      ? detail({
+          measures: ["participants.games", "participants.wins"],
+          timeDimensions: [{ dimension: "matches.played_at", granularity: "day" }],
+          filters: thisOne,
+          limit: NO_LIMIT,
+        })
       : null,
+  )
+  const trendPoints = useMemo(() => {
+    const days = trend.rows
+      .map((r) => ({ date: String(r["matches.played_at.day"] ?? "").slice(0, 10), games: n0(r, "participants.games"), wins: n0(r, "participants.wins") }))
+      .filter((p) => p.games)
+    const weekly = days.length > TREND_DAYS
+    const by = new Map<string, { games: number; wins: number }>()
+    for (const d of days) {
+      const key = weekly ? weekStart(d.date) : d.date
+      const cur = by.get(key) ?? { games: 0, wins: 0 }
+      cur.games += d.games
+      cur.wins += d.wins
+      by.set(key, cur)
+    }
+    const points = [...by].sort(([a], [b]) => (a < b ? -1 : 1)).map(([date, v]) => ({ date, games: v.games, winrate: (100 * v.wins) / v.games }))
+    return { weekly, points }
+  }, [trend.rows])
+  // 排行：這群人合計用了 MIN_GAMES 場以上的，長條是合計勝率；點一根就選它
+  const [rankBy, setRankBy] = useState<"games" | "winrate">("games")
+  const ranking = useMemo(
+    () =>
+      options
+        .filter((o) => o.games >= MIN_GAMES)
+        .map((o) => ({ label: o.name, value: (100 * o.wins) / o.games, games: o.games }))
+        .sort((a, b) => (rankBy === "games" ? b.games - a.games || b.value - a.value : b.value - a.value || b.games - a.games)),
+    [options, rankBy],
   )
 
   const byPlayer = people
@@ -3263,6 +3310,42 @@ function LookupPanel({
       ) : !value ? (
         <EmptyState>這群人還沒有對局。</EmptyState>
       ) : (
+        <>
+        <div className="mb-4 grid gap-4 lg:grid-cols-2">
+          <div className="min-w-0" data-testid="lookup-ranking">
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1 text-xs font-medium">
+                這群人最常{kind.verb}的{kind.noun}
+                <Hint text={`這群人合計${kind.verb}過 ${MIN_GAMES} 場以上的${kind.noun}；長條是合計勝率，顏色和這批${kind.noun}依場次加權的平均比（場次少的先往平均收縮）。點一根就選它`} />
+              </span>
+              <ToggleGroup type="single" size="sm" variant="outline" value={rankBy} onValueChange={(v) => v && setRankBy(v as typeof rankBy)}>
+                <ToggleGroupItem value="games" className="h-7 px-2 text-xs">依場次</ToggleGroupItem>
+                <ToggleGroupItem value="winrate" className="h-7 px-2 text-xs">依勝率</ToggleGroupItem>
+              </ToggleGroup>
+            </div>
+            {ranking.length ? (
+              <BarChart data={ranking} suffix="%" showGames selected={value} onPick={setPicked} />
+            ) : (
+              <EmptyState>還沒有{kind.noun}合計到 {MIN_GAMES} 場。</EmptyState>
+            )}
+          </div>
+          <div className="min-w-0 space-y-4">
+            <div data-testid="lookup-trend">
+              <span className="mb-1 flex items-center gap-1 text-xs font-medium">
+                {value}的{trendPoints.weekly ? "每週" : "每日"}走勢
+                <Hint text={`這群人${trendPoints.weekly ? "每週（週一起算）" : "每天"}合計${kind.verb}${value}的勝率；點越大代表場次越多。有打的日子超過 ${TREND_DAYS} 天時併成每週`} />
+              </span>
+              {trend.loading ? (
+                <LoadingBlock height={240} label="載入走勢…" />
+              ) : trend.error ? (
+                <QueryError error={trend.error} />
+              ) : (
+                <TrendChart points={trendPoints.points} />
+              )}
+            </div>
+            <GeneGrid rows={byPlayer} loading={details.loading} />
+          </div>
+        </div>
         <div className="overflow-x-auto">
         <div className="min-w-[1100px] space-y-1">
           <div className={cn("grid gap-3 px-2 text-[11px] text-muted-foreground", LOOKUP_GRID)}>
@@ -3357,7 +3440,7 @@ function LookupPanel({
                     title: `${name}${kind.verb}${value}的每一場`,
                     note: `${r.games} 場・${r.wins} 勝 ${r.losses} 敗`,
                     cell: { puuid: r.player.puuid, key: cellKey },
-                    source: { puuid: r.player.puuid, filters: [{ member: kind.nameKey, operator: "equals", values: [value] }] },
+                    source: { puuid: r.player.puuid, filters: thisOne },
                   })
                 }
                 className={cn(rowClass, "w-full text-left transition hover:bg-accent", isActive && "bg-primary/10 hover:bg-primary/15")}
@@ -3368,8 +3451,66 @@ function LookupPanel({
           })}
         </div>
         </div>
+        </>
       )}
     </Panel>
+  )
+}
+
+/** 選中的東西：每個人這幾場八個基因的平均（50＝同出裝定位的平均）。和 50 差不到 WORK_GAP 用中性灰，差 15 分是最深色 */
+function GeneGrid({ rows, loading }: { rows: { player: Player; games: number; d?: CubeRow }[]; loading: boolean }) {
+  const list = rows.filter((r) => r.games && r.d)
+  const cols = { gridTemplateColumns: `minmax(6rem,1fr) repeat(${WORK_PARTS.length}, minmax(2.6rem,1fr))` }
+  return (
+    <div data-testid="lookup-genes">
+      <span className="mb-1 flex items-center gap-1 text-xs font-medium">
+        每個人的八個基因
+        <Hint text={"這幾場本場貢獻八個基因的平均：50＝同出裝定位的人的平均，綠色高於、紅色低於，差不到 4 分是灰色。\n滑過一格看那一項量的是什麼"} />
+      </span>
+      {loading && !list.length ? (
+        <LoadingBlock height={160} label="載入基因…" />
+      ) : !list.length ? (
+        <EmptyState>沒有人有這幾場的本場貢獻。</EmptyState>
+      ) : (
+        <div className="overflow-x-auto">
+          <div className="min-w-[30rem] space-y-1">
+            <div className="grid gap-1 text-[10px] text-muted-foreground" style={cols}>
+              <span />
+              {WORK_PARTS.map((c) => (
+                <span key={c.key} className="truncate text-center" data-tip={`${c.label}（權重 ${c.weight}）\n${c.hint}`}>
+                  {c.label}
+                </span>
+              ))}
+            </div>
+            {list.map((r, i) => {
+              const name = splitId(r.player.riot_id, r.player.puuid).name
+              return (
+                <div key={r.player.puuid} className="slide-in grid items-center gap-1" style={{ ...cols, "--stagger": `${i * 35}ms` } as CSSProperties}>
+                  <PlayerName player={r.player} className="text-[12px]" />
+                  {WORK_PARTS.map((c) => {
+                    const v = opt(r.d, c.key)
+                    if (v === null) return <span key={c.key} className="h-7 rounded bg-muted/20" />
+                    const diff = v - 50
+                    const strength = Math.min(1, Math.abs(diff) / 15)
+                    const tone = Math.abs(diff) < WORK_GAP ? "var(--muted-foreground)" : diff > 0 ? "var(--win)" : "var(--loss)"
+                    return (
+                      <span
+                        key={c.key}
+                        data-tip={`${name}・${c.label} ${v.toFixed(1)}\n${r.games} 場的平均；50＝同出裝定位的平均\n${c.hint}`}
+                        style={{ background: `color-mix(in oklab, ${tone} ${Math.round(12 + strength * 40)}%, transparent)` }}
+                        className="flex h-7 items-center justify-center rounded font-mono text-[11px] tabular-nums"
+                      >
+                        {Math.round(v)}
+                      </span>
+                    )
+                  })}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -3395,6 +3536,19 @@ const AUGMENT_LOOKUP: LookupKind = {
   verb: "拿",
   nameKey: "augments.name",
   iconKey: "augments.icon_path",
+}
+
+const ITEM_LOOKUP: LookupKind = {
+  title: "查裝備",
+  short: "選一件裝備，看每個人帶它收場的戰績",
+  caption:
+    "選一件裝備，看每個人帶它收場的戰績；點一列開抽屜看他帶著它收場的每一場。看的是對局結束時身上的六格裝備（不含飾品），沒有買裝順序，中途賣掉的不算。欄位的意思和「查英雄」一樣。一場有好幾件裝備，同一場會同時出現在每件裝備底下，所以各裝備的場次不能加總",
+  noun: "裝備",
+  counter: "件",
+  verb: "出",
+  nameKey: "items.name",
+  iconKey: "items.icon_path",
+  filters: [{ member: "items.slot", operator: "lt", values: ["6"] }],
 }
 
 // ── 數據總表：每個人的各項平均，分成幾組切換 ─────────────────────────────────
@@ -4036,6 +4190,17 @@ export function Crew() {
         })
       : null,
   )
+  // 裝備同樣是一場多列（一件一列），理由同上只查 games 與 wins；排除第 7 格飾品（每場都有，選項裡沒意義）。切到「查裝備」才查
+  const items = useCube(
+    section === "item"
+      ? q({
+          measures: ["participants.games", "participants.wins", "participants.losses", WORK],
+          dimensions: ["participants.puuid", "items.name", "items.icon_path"],
+          filters: ITEM_LOOKUP.filters,
+          limit: NO_LIMIT,
+        })
+      : null,
+  )
   //   數據總表分頁專用（冷快取 1.5 秒），同樣切過去才查
   // 抽屜「數據」分頁要的全體數據與名次：只有抽屜開著看人的時候才查
   // 稱號用的幾項數據（每人一列）
@@ -4290,6 +4455,7 @@ export function Crew() {
             <TabsTrigger value="stats">數據總表</TabsTrigger>
             <TabsTrigger value="champ">查英雄</TabsTrigger>
             <TabsTrigger value="augment">查增幅裝置</TabsTrigger>
+            <TabsTrigger value="item">查裝備</TabsTrigger>
             <TabsTrigger value="badges">徽章</TabsTrigger>
           </TabsList>
           <div className="flex w-full min-w-0 items-center justify-between gap-2 text-xs text-muted-foreground sm:w-auto sm:flex-1 sm:justify-end">
@@ -4513,6 +4679,19 @@ export function Crew() {
             kind={AUGMENT_LOOKUP}
             rows={augments.rows}
             loading={loading || augments.loading}
+            people={ordered}
+            puuids={puuids}
+            wrOf={wrOf}
+            active={focusCell}
+            onOpen={openGames}
+            detail={q}
+          />
+        </TabsContent>
+        <TabsContent value="item">
+          <LookupPanel
+            kind={ITEM_LOOKUP}
+            rows={items.rows}
+            loading={loading || items.loading}
             people={ordered}
             puuids={puuids}
             wrOf={wrOf}
