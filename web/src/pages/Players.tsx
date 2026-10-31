@@ -601,14 +601,18 @@ function PeopleTable({
 }
 
 export function Players() {
-  const { queueId, subjectFilter, isMe, account, apply, drills, timeFilter } = useFilters()
+  const { queueId, subjectFilter, isMe, account, apply, drills, timeFilter, activeVersions } = useFilters()
   const queue = queueId ?? MAYHEM_QUEUE_ID
+  // 遊戲版本：teammates 不走 apply()，全域的版本條件要自己加。原本漏了，選「16.21 之後」時
+  // 表格與抽屜的場次仍算進舊版本，抽屜下面的逐場列表（後端有套版本）卻沒有，變成「同場 5 場、列表只有 4 場」
+  const patchFilter: CubeFilter[] = activeVersions.length ? [{ member: "matches.patch", operator: "equals", values: activeVersions }] : []
   // teammates 和 participants 之間沒有 join，apply() 的全域下鑽套不上去。
   // 英雄這一種可以換成 teammates.my_champion（視角玩家那場用的英雄）；其他的列在畫面上，不默默忽略。
   const champDrill = drills.find((d) => d.member === "champions.name")
   const ignoredDrills = drills.filter((d) => d.member !== "champions.name")
   const subject: CubeFilter[] = [
     ...subjectFilter("teammates.subject_puuid"),
+    ...patchFilter,
     ...(champDrill ? [{ member: "teammates.my_champion", operator: "equals", values: champDrill.values }] : []),
   ]
   const who = isMe ? "你" : (account?.riot_id ?? "這個帳號")
@@ -622,6 +626,7 @@ export function Players() {
     measures: ["participants.winrate"],
     filters: [
       ...subjectFilter("participants.puuid"),
+      ...patchFilter,
       { member: "matches.queue_id", operator: "equals", values: [queue] },
       ...(champDrill ? [{ member: "champions.name", operator: "equals", values: champDrill.values }] : []),
     ],
