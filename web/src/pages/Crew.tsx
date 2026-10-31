@@ -1,7 +1,6 @@
 import { Fragment, createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react"
-import { ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Swords, HandHeart, Bomb, Crosshair, Castle, Orbit, Rocket, Axe, ShieldHalf, Sword, Target, Droplets, Hourglass, ChevronsUp, Lock, LoaderCircle, BookOpen, Check, ChevronDown, ChevronRight, ChevronsUpDown, Crown, Flame, Hammer, HeartHandshake, Infinity as InfinityIcon, Medal, Search, Shield, Snowflake, Sparkles, Star, Trophy, Zap, Users, Skull, Award, Mountain, Heart, Moon, type LucideIcon } from "lucide-react"
-import { BarCell, RecordCell, StatCell } from "@/components/cells"
-import { RoleChip } from "@/components/RoleChip"
+import { ArrowRight, Swords, HandHeart, Bomb, Crosshair, Castle, Orbit, Rocket, Axe, ShieldHalf, Sword, Target, Droplets, Hourglass, ChevronsUp, Lock, LoaderCircle, BookOpen, Check, ChevronDown, ChevronRight, ChevronsUpDown, Crown, Flame, Hammer, HeartHandshake, Infinity as InfinityIcon, Medal, Search, Shield, Snowflake, Sparkles, Star, Trophy, Zap, Users, Skull, Award, Mountain, Heart, Moon, type LucideIcon } from "lucide-react"
+import { RecordCell, StatCell } from "@/components/cells"
 import { ContribBars, ContribScore } from "@/components/Contribution"
 import { WORK, WORK_GAMES, WORK_GAP, WORK_MEASURES, WORK_PARTS } from "@/hooks/useContribution"
 import { Badge } from "@/components/ui/badge"
@@ -3898,308 +3897,12 @@ function cellNote(c: StatCol) {
   return "這一欄是列出的這些場次的平均"
 }
 
-// ── 數據總表的畫面層：STAT_SETS 是指標的定義（抽屜的數據分頁也用），這裡決定總表怎麼排 ──────────
-// 每一項可以有「每場／每分鐘／加總」幾個版本（同一個量的不同語意層度量），由工具列的單位切換挑；
-// 沒有那個單位的版本就用它有的（表頭標出實際單位），所以切單位時欄位不會忽有忽無。
-type Unit = "game" | "min" | "total"
-const UNITS: { id: Unit; label: string }[] = [
-  { id: "min", label: "每分鐘" },
-  { id: "game", label: "每場" },
-  { id: "total", label: "加總" },
-]
-const UNIT_LABEL: Record<Unit, string> = { game: "每場", min: "每分鐘", total: "加總" }
-type TMetric = { label: string; flat?: string; keys?: Partial<Record<Unit, string>>; role?: true }
-type TSet = { id: string; label: string; caption: string; units?: true; metrics: TMetric[] }
-
-const TABLE_SETS: TSet[] = [
-  {
-    id: "overview",
-    label: "總覽",
-    caption: "每個人一列看完：勝率、本場貢獻、KDA、每分鐘輸出與承傷、參團、平均時長和最常出的定位",
-    metrics: [
-      { label: "勝率", flat: "participants.winrate" },
-      { label: "本場貢獻", flat: WORK },
-      { label: "KDA", flat: "participants.kda" },
-      { label: "每分鐘輸出", flat: "participants.dpm" },
-      { label: "每分鐘承傷", flat: "participants.soak_per_min" },
-      { label: "參團率", flat: "participants.kill_participation" },
-      { label: "平均時長", flat: "matches.avg_duration" },
-      { label: "最常出", role: true },
-    ],
-  },
-  {
-    id: "dmg",
-    label: "輸出",
-    units: true,
-    caption: "對英雄的傷害。傷害占全隊是零和的（五個人加起來 100%），和強的朋友同隊會被分走",
-    metrics: [
-      { label: "對英雄傷害", keys: { game: "participants.avg_damage", min: "participants.dpm" } },
-      { label: "傷害占全隊", flat: "participants.damage_share" },
-      { label: "每塊錢傷害", flat: "participants.damage_per_gold" },
-      { label: "打在英雄上的比例", flat: "participants.champion_damage_focus" },
-      { label: "擊殺", flat: "participants.avg_kills" },
-    ],
-  },
-  {
-    id: "tank",
-    label: "承傷與存活",
-    units: true,
-    caption: "承傷高不一定是壞事：前排本來就要吃傷害，要和死亡一起看。承傷＝承受的傷害＋自身減免掉的",
-    metrics: [
-      { label: "承傷（承受＋減免）", flat: "participants.soak_per_min" },
-      { label: "承受傷害", keys: { game: "participants.avg_taken", min: "participants.taken_per_min" } },
-      { label: "減免傷害", flat: "participants.mitigated_per_min" },
-      { label: "承傷占全隊", flat: "participants.soak_share" },
-      { label: "死亡", flat: "participants.avg_deaths" },
-      { label: "死亡時間", flat: "participants.avg_time_dead" },
-      { label: "死亡時間占全場", flat: "participants.time_dead_share" },
-    ],
-  },
-  {
-    id: "fight",
-    label: "團戰",
-    units: true,
-    caption: "參與擊殺、控場與治療：輔助、坦克的貢獻多半在這裡",
-    metrics: [
-      { label: "KDA", flat: "participants.kda" },
-      { label: "擊殺", flat: "participants.avg_kills" },
-      { label: "助攻", flat: "participants.avg_assists" },
-      { label: "參團率", flat: "participants.kill_participation" },
-      { label: "控場", flat: "participants.cc_time_per_min" },
-      { label: "治療（含自補）", flat: "participants.heal_per_min" },
-      { label: "多殺場次率", flat: "participants.multikill_rate" },
-      { label: "四殺", keys: { total: "participants.quadras" } },
-    ],
-  },
-  { id: "peak", label: "單場巔峰", caption: "每一項單場紀錄的前三名：這組是紀錄榜，不是穩定表現評分；點數字看創下紀錄的那一場", metrics: [] },
-  { id: "top", label: "單場前 10 場", caption: "", metrics: [] },
-  {
-    id: "push",
-    label: "推進與資源",
-    units: true,
-    caption: "大亂鬥是團戰贏了之後推塔決勝。射手天生打塔快，比人時開「和同定位比」或看「出裝比例」",
-    metrics: [
-      { label: "建築傷害占全隊", flat: "participants.objective_damage_share" },
-      { label: "對建築傷害", keys: { game: "participants.avg_objective_damage" } },
-      { label: "推塔", keys: { game: "participants.avg_turret_kills", total: "participants.total_turret_kills" } },
-      { label: "兵營", keys: { game: "participants.avg_inhibitor_kills" } },
-      { label: "小兵傷害（估）", keys: { game: "participants.avg_minion_damage" } },
-      { label: "補兵", keys: { min: "participants.cs_per_min" } },
-      { label: "經濟", keys: { min: "participants.gpm" } },
-      { label: "經濟占全隊", flat: "participants.gold_share" },
-    ],
-  },
-  {
-    id: "eog",
-    label: "賽後統計",
-    units: true,
-    caption: "施法、買裝、訊號、治療護盾隊友、閃現、消耗品只有賽後統計有（2026-10-03 起、採集器有抓到的場次），只算那些場次",
-    metrics: [
-      { label: "有統計的場次", flat: "participants.eog_games" },
-      { label: "施法", keys: { total: "participants.spell_casts_total", game: "participants.spell_casts_avg", min: "participants.spell_casts_per_min" } },
-      { label: "買裝", keys: { total: "participants.items_total", game: "participants.items_avg", min: "participants.items_per_min" } },
-      { label: "訊號", keys: { total: "participants.pings_total", game: "participants.pings_avg", min: "participants.pings_per_min" } },
-      { label: "治療隊友", keys: { total: "participants.ally_heal_total", game: "participants.ally_heal_avg", min: "participants.ally_heal_per_min" } },
-      { label: "護盾隊友", keys: { total: "participants.ally_shield_total", game: "participants.ally_shield_avg", min: "participants.ally_shield_per_min" } },
-      { label: "閃現", keys: { total: "participants.flash_total", game: "participants.flash_avg", min: "participants.flash_per_min" } },
-      { label: "消耗品", keys: { total: "participants.consumables_total", game: "participants.consumables_avg", min: "participants.consumables_per_min" } },
-    ],
-  },
-  { id: "mix", label: "出裝比例", caption: "六種出裝各占他場次的幾成。不是好壞，是拿來對照其他數字的；點數字開抽屜看那種出裝的每一場", metrics: [] },
-]
-
-/** 總表用到、但 STAT_SETS 沒有的兩欄 */
-const EXTRA_COLS: StatCol[] = [
-  { key: "participants.winrate", label: "勝率", fmt: pctFmt, hint: "這段期間的勝率" },
-  { key: WORK, label: "本場貢獻", fmt: (v) => v.toFixed(1), hint: "本場貢獻 v3 的平均：50＝同出裝定位的人的平均（本身就已經和同定位比過）" },
-]
-const COL_OF = new Map([...STAT_SETS.flatMap((g) => g.cols), ...EXTRA_COLS].map((c) => [c.key, c] as const))
-
-/** 這一項在選中的單位下用哪個度量；沒有那個單位就退到它有的版本 */
-function resolveMetric(m: TMetric, unit: Unit): { col: StatCol; unit: Unit | null } | null {
-  const pick = (key: string, u: Unit | null) => {
-    const c = COL_OF.get(key)
-    return c ? { col: { ...c, label: m.label }, unit: u } : null
-  }
-  if (m.flat) return pick(m.flat, null)
-  const u = ([unit, "min", "game", "total"] as Unit[]).find((x) => m.keys?.[x])
-  return u ? pick(m.keys![u]!, u) : null
-}
-
-// 「和同定位比」：只對「每場先算再平均」的度量有意義。勝率、本場貢獻（已經是同定位比過的分數）、比值算出來的 KDA／多殺率、
-// 加總類、場次類不參加；平均時長是整場的屬性，和定位無關
-const ROLE_SKIP = new Set([
-  "participants.winrate",
-  WORK,
-  "participants.kda",
-  "participants.multikill_rate",
-  "participants.quadras",
-  "participants.total_turret_kills",
-  "participants.eog_games",
-  "matches.avg_duration",
-])
-const roleOk = (key: string) => !ROLE_SKIP.has(key) && !key.endsWith("_total") && !key.startsWith("mix:")
-/** 每個度量的「有值的場次」：只有賽後統計有的量要用有統計的場次加權，閃現用帶閃現的場次，死亡時間用有死亡時間的場次 */
-const weightOf = (key: string) =>
-  key.includes("flash")
-    ? "participants.games_with_flash"
-    : key.includes("time_dead")
-      ? "participants.time_dead_games"
-      : /spell_casts|items_|pings_|ally_heal|ally_shield|consumables/.test(key)
-        ? "participants.eog_games"
-        : "participants.games"
-/** 和同定位差多少算「看得出」：不到這個百分比用灰色 */
-const ROLE_FLAT_PCT = 5
-const signedPct = (v: number) => (Math.round(v) === 0 ? "±0%" : `${v > 0 ? "+" : "−"}${Math.abs(v).toFixed(0)}%`)
-
-/** 和同定位比的格子：條從中間往左右長（±50% 到頂），好的方向用勝色；下面寫實際值與同定位的預期值 */
-function DiffCell({ diff, lower, label, sub }: { diff: number; lower?: boolean; label: ReactNode; sub: ReactNode }) {
-  const better = lower ? diff < 0 : diff > 0
-  const flat = Math.abs(diff) < ROLE_FLAT_PCT
-  const w = Math.min(Math.abs(diff), 50)
-  return (
-    <div className="flex w-full min-w-0 flex-col justify-center gap-1">
-      <div className="flex items-center gap-2.5">
-        <span className={cn("w-14 shrink-0 font-mono text-sm font-semibold tabular-nums", flat ? "text-muted-foreground" : better ? "text-win" : "text-loss")}>{label}</span>
-        <div className="relative h-1.5 flex-1 rounded-full bg-muted">
-          <span className="absolute -inset-y-1 left-1/2 w-px bg-muted-foreground/60" />
-          <span
-            className={cn("absolute inset-y-0 rounded-full", flat ? "bg-muted-foreground/50" : better ? "bg-win" : "bg-loss")}
-            style={diff >= 0 ? { left: "50%", width: `${w}%` } : { right: "50%", width: `${w}%` }}
-          />
-        </div>
-      </div>
-      <span className="truncate text-[11px] tabular-nums text-muted-foreground">{sub}</span>
-    </div>
-  )
-}
-
-/** 排序中那一欄的分布：一條數線，每個人一個點（滑過看是誰），強調色刻度是依場次加權的平均。兩端寫最低與最高的人 */
-function DistStrip({
-  points,
-  avg,
-  fmt,
-  label,
-}: {
-  points: { name: string; value: number; games: number }[]
-  avg: number | null
-  fmt: (v: number) => string
-  label: string
-}) {
-  if (points.length < 2) return null
-  const vals = points.map((p) => p.value)
-  const lo = Math.min(...vals, avg ?? Infinity)
-  const hi = Math.max(...vals, avg ?? -Infinity)
-  const at = (v: number) => (hi === lo ? 50 : ((v - lo) / (hi - lo)) * 100)
-  const maxGames = Math.max(...points.map((p) => p.games))
-  const min = points.reduce((a, p) => (p.value < a.value ? p : a))
-  const max = points.reduce((a, p) => (p.value > a.value ? p : a))
-  return (
-    <div className="rounded-lg border border-border/60 bg-muted/15 px-3 pt-1.5 pb-1" data-testid="crew-stats-strip">
-      <div className="flex items-baseline justify-between gap-2 text-[11px] text-muted-foreground">
-        <span className="truncate">
-          <span className="font-medium text-foreground">{label}</span> 的分布・點的大小是場次
-        </span>
-        {avg !== null && <span className="shrink-0">平均 <span className="font-mono text-primary">{fmt(avg)}</span></span>}
-      </div>
-      <div className="relative mx-2 h-8">
-        <span className="absolute inset-x-0 top-1/2 h-px bg-border" />
-        {avg !== null && <span className="absolute top-1 bottom-1 w-0.5 rounded-full bg-primary" style={{ left: `calc(${at(avg)}% - 1px)` }} />}
-        {points.map((p) => {
-          const size = 8 + 8 * Math.sqrt(p.games / maxGames)
-          return (
-            <span
-              key={p.name}
-              data-tip={`${p.name}\n{{big|${fmt(p.value)}}}・${p.games} 場`}
-              className="absolute top-1/2 rounded-full border border-card bg-data/80 transition hover:scale-125 hover:bg-data"
-              style={{ left: `${at(p.value)}%`, width: size, height: size, transform: "translate(-50%, -50%)" }}
-            />
-          )
-        })}
-      </div>
-      <div className="flex justify-between gap-2 text-[11px] text-muted-foreground">
-        <span className="truncate">最低 {min.name} <span className="font-mono">{fmt(min.value)}</span></span>
-        <span className="truncate text-right">最高 {max.name} <span className="font-mono">{fmt(max.value)}</span></span>
-      </div>
-    </div>
-  )
-}
-
-/** 單場巔峰：每一項紀錄一張卡，前三名與數值；點數字開抽屜看創下紀錄的那一場 */
-function RecordWall({ people, rows, onOpen, active }: { people: Player[]; rows: CubeRow[]; onOpen: (games: GamesFocus) => void; active: { puuid: string; key: string } | null }) {
-  const cols = STAT_SETS.find((g) => g.id === "peak")!.cols
-  const perMin = (c: StatCol) => /per_min|dpm|gpm/.test(c.key)
-  const groups = [
-    { title: "單場總量", cols: cols.filter((c) => !perMin(c)) },
-    { title: "單場每分鐘", cols: cols.filter(perMin) },
-  ]
-  const open = (p: Player, c: StatCol) => {
-    const name = splitId(p.riot_id, p.puuid).name
-    onOpen({ title: `${name}・${c.label}的紀錄場`, note: cellNote(c), cell: { puuid: p.puuid, key: c.key }, source: { puuid: p.puuid, filters: [], recordMetric: c.key } })
-  }
-  let idx = 0
-  return (
-    <div className="space-y-3" data-testid="crew-record-wall">
-      {groups.map((g) => (
-        <div key={g.title}>
-          <div className="mb-1.5 text-xs font-medium text-muted-foreground">{g.title}</div>
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-6">
-            {g.cols.map((c) => {
-              const ranked = people
-                .map((p) => ({ p, v: opt(rows.find((r) => r["participants.puuid"] === p.puuid), c.key) }))
-                .filter((x): x is { p: Player; v: number } => x.v !== null && x.v > 0)
-                .sort((a, b) => b.v - a.v)
-              const [first, ...rest] = ranked
-              const i = idx++
-              return (
-                <div key={c.key} className="rise min-w-0 rounded-lg border border-border/60 bg-muted/15 px-2.5 py-2" style={{ "--stagger": `${Math.min(i * 12, 240)}ms` } as CSSProperties} data-testid="crew-record-card">
-                  <div className="truncate text-[11px] text-muted-foreground" data-tip={c.hint}>
-                    {c.label.replace(/^單場最高/, "")}
-                  </div>
-                  {first ? (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => open(first.p, c)}
-                        data-tip={`看${splitId(first.p.riot_id, first.p.puuid).name}創下這項紀錄的那一場`}
-                        className={cn("block max-w-full rounded text-left transition hover:bg-accent", active?.puuid === first.p.puuid && active.key === c.key && "bg-primary/10")}
-                      >
-                        <span className="block font-mono text-lg font-semibold tabular-nums leading-tight">{c.fmt(first.v)}</span>
-                        <span className="block truncate text-[12px]">
-                          <Trophy className="mr-1 inline size-3 text-primary" />
-                          {splitId(first.p.riot_id, first.p.puuid).name}
-                        </span>
-                      </button>
-                      <div className="mt-1 space-y-0.5 border-t border-border/50 pt-1">
-                        {rest.slice(0, 2).map((x, j) => (
-                          <button key={x.p.puuid} type="button" onClick={() => open(x.p, c)} className="flex w-full items-baseline gap-1 rounded text-left text-[11px] text-muted-foreground transition hover:bg-accent hover:text-foreground">
-                            <span className="w-3 shrink-0 font-mono">{j + 2}</span>
-                            <span className="min-w-0 flex-1 truncate">{splitId(x.p.riot_id, x.p.puuid).name}</span>
-                            <span className="shrink-0 font-mono tabular-nums">{c.fmt(x.v)}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  ) : (
-                    <div className="py-2 text-xs text-muted-foreground">沒有紀錄</div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
 function StatsPanel({
   people,
   rows,
   loading,
   profiles,
   scoped,
-  everyone,
   centers,
   active,
   onOpen,
@@ -4209,308 +3912,149 @@ function StatsPanel({
   loading: boolean
   profiles: Map<string, Profile>
   scoped: (query: CubeQuery) => CubeQuery | null
-  /** 全部參賽者（不限這群人、不套中心），套全域的模式與期間：「和同定位比」的基準 */
-  everyone: (query: CubeQuery) => CubeQuery | null
   centers: Player[]
   /** 抽屜開著的那一格，原頁面亮著它 */
   active: { puuid: string; key: string } | null
   onOpen: (games: GamesFocus) => void
 }) {
   const [setId, setSetId] = useState<string>("overview")
-  const [unit, setUnit] = useState<Unit>("min")
-  const [byRole, setByRole] = useState(false)
-  const [sort, setSort] = useState<{ label: string; dir: "desc" | "asc" } | null>(null)
-  const set = TABLE_SETS.find((g) => g.id === setId) ?? TABLE_SETS[0]
+  const [sortKey, setSortKey] = useState<string>("participants.avg_damage")
   const isMix = setId === "mix"
-  const isPeak = setId === "peak"
+  // 「單場前 10 場」用的是單場巔峰那一組的指標，只是換成每場一列的看法
   const isTop = setId === "top"
-  const isTable = !isPeak && !isTop
+  const set = STAT_SETS.find((g) => g.id === (isTop ? "peak" : setId))
+  // 出裝比例那組：六種出裝各占幾成（AD／AP 寫在玩家類型裡，這裡不另列）
+  const mixCols: StatCol[] = BUILD_ROLES.map((r) => ({ key: `mix:${r}`, label: r, fmt: (v: number) => `${Math.round(v * 100)}%`, hint: `出裝是${r}的場次比例` }))
+  const cols = isMix ? mixCols : (set?.cols ?? [])
   const rowOf = (puuid: string) => rows.find((r) => r["participants.puuid"] === puuid)
-  const gamesOf = (puuid: string) => n0(rowOf(puuid), "participants.games")
-  const playing = people.filter((p) => gamesOf(p.puuid) > 0)
-  const idle = people.filter((p) => gamesOf(p.puuid) === 0)
-
-  // 這一組在選中單位下的欄位
-  type Col = { col: StatCol; unit: Unit | null; role?: true }
-  const cols: Col[] = isMix
-    ? BUILD_ROLES.map((r) => ({ col: { key: `mix:${r}`, label: r, fmt: (v: number) => `${Math.round(v * 100)}%`, hint: `出裝是${r}的場次比例` }, unit: null }))
-    : set.metrics.flatMap((m): Col[] => {
-        if (m.role) return [{ col: { key: "role:top", label: m.label, fmt: (v) => `${Math.round(v * 100)}%`, hint: "出最多場的出裝定位與它占的比例" }, unit: null, role: true }]
-        const r = resolveMetric(m, unit)
-        return r ? [r] : []
-      })
-  const roleMode = byRole && isTable && !isMix
-  const roleKeys = roleMode ? [...new Set(cols.map((c) => c.col.key).filter(roleOk))] : []
-
-  // 和同定位比：每個人各定位的場次（加權用）＋全部參賽者各定位的平均。只在開著的時候查
-  const weights = useCube(
-    roleKeys.length
-      ? scoped({ measures: [...new Set(roleKeys.map(weightOf))], dimensions: ["participants.puuid", "builds.build_role"], limit: NO_LIMIT })
-      : null,
-  )
-  const base = useCube(roleKeys.length ? everyone({ measures: roleKeys, dimensions: ["builds.build_role"], limit: NO_LIMIT }) : null)
-  const roleLoading = roleKeys.length > 0 && (weights.loading || base.loading)
-  /** 這個人「如果每場都表現得和同定位的人一樣」會是多少：各定位的平均依他打那個定位的場次加權 */
-  const expected = (puuid: string, key: string): number | null => {
-    let w = 0
-    let s = 0
-    for (const r of weights.rows) {
-      if (r["participants.puuid"] !== puuid) continue
-      const b = opt(
-        base.rows.find((x) => x["builds.build_role"] === r["builds.build_role"]),
-        key,
-      )
-      const ww = n0(r, weightOf(key))
-      if (b === null || !ww) continue
-      s += ww * b
-      w += ww
-    }
-    return w ? s / w : null
+  const valueOf = (puuid: string, key: string): number | null => {
+    if (key.startsWith("mix:")) return profiles.get(puuid)?.style.mix.find((m) => m.label === key.slice(4))?.share ?? 0
+    return opt(rowOf(puuid), key)
   }
-
-  const topRole = (puuid: string) => {
-    const mix = profiles.get(puuid)?.style.mix ?? []
-    return mix.reduce<{ label: string; share: number } | null>((a, m) => (!a || m.share > a.share ? m : a), null)
-  }
-  const valueOf = (puuid: string, c: Col): number | null => {
-    if (c.role) return topRole(puuid)?.share ?? null
-    if (c.col.key.startsWith("mix:")) return profiles.get(puuid)?.style.mix.find((m) => m.label === c.col.key.slice(4))?.share ?? 0
-    return opt(rowOf(puuid), c.col.key)
-  }
-  const diffOf = (puuid: string, c: Col): { diff: number; exp: number } | null => {
-    if (!roleMode || !roleOk(c.col.key) || c.role) return null
-    const v = valueOf(puuid, c)
-    const e = expected(puuid, c.col.key)
-    if (v === null || e === null || e === 0) return null
-    return { diff: (v / e - 1) * 100, exp: e }
-  }
-  // 排序的值：和同定位比時用差距（越少越好的欄位反過來比），否則用原值
-  const sortVal = (puuid: string, c: Col) => {
-    const d = diffOf(puuid, c)
-    return d ? d.diff : valueOf(puuid, c)
-  }
-
-  const sortCol = cols.find((c) => c.col.label === sort?.label && !c.role) ?? cols.find((c) => !c.role)
-  const dir = sort && sortCol && sort.label === sortCol.col.label ? sort.dir : sortCol?.col.lower ? "asc" : "desc"
-  const sorted = sortCol
-    ? [...playing].sort((a, b) => {
-        const va = sortVal(a.puuid, sortCol)
-        const vb = sortVal(b.puuid, sortCol)
-        if (va === null || vb === null) return va === null ? (vb === null ? 0 : 1) : -1
-        return dir === "asc" ? va - vb : vb - va
-      })
-    : playing
-  const clickHeader = (c: Col) => {
-    if (c.role) return
-    const natural = c.col.lower ? "asc" : "desc"
-    setSort((s) => (s?.label === c.col.label ? { label: c.col.label, dir: s.dir === "desc" ? "asc" : "desc" } : { label: c.col.label, dir: natural }))
-  }
-
-  // 每欄的刻度：最大值只看場次夠（MIN_GAMES）的人，免得一場的極端值把整欄壓扁；平均依場次加權。
-  // 條的起點不是 0：這群人的數字常常擠在一小段（勝率 47%～65%），從 0 畫每條都快滿。
-  // 起點放在最低值再往下留四分之一的全距，條看的是彼此的相對位置，數字照寫實際值
-  const scale = new Map(
+  const activeSort = cols.some((c) => c.key === sortKey) ? sortKey : cols[0]?.key
+  const lowerSort = cols.find((c) => c.key === activeSort)?.lower
+  const sorted = [...people].sort((a, b) => {
+    const va = valueOf(a.puuid, activeSort)
+    const vb = valueOf(b.puuid, activeSort)
+    if (va === null || vb === null) return va === null ? (vb === null ? 0 : 1) : -1
+    return lowerSort ? va - vb : vb - va
+  })
+  // 每欄最好的人標綠；死亡類越少越好。出裝比例不是好壞，不標
+  const best = new Map(
     cols.map((c) => {
-      const pts = playing.map((p) => ({ v: valueOf(p.puuid, c), g: gamesOf(p.puuid) })).filter((x): x is { v: number; g: number } => x.v !== null)
-      const solid = pts.filter((x) => x.g >= MIN_GAMES)
-      const ref = (solid.length ? solid : pts).map((x) => x.v)
-      const max = Math.max(0, ...ref)
-      const low = Math.min(...ref)
-      const floor = isMix || !ref.length ? 0 : Math.max(0, low - (max - low) * 0.25)
-      const g = pts.reduce((a, x) => a + x.g, 0)
-      const avg = g && !c.col.key.endsWith("_total") && c.col.key !== "participants.quadras" ? pts.reduce((a, x) => a + x.v * x.g, 0) / g : null
-      const best = isMix || c.role || !pts.length ? null : c.col.lower ? Math.min(...pts.map((x) => x.v)) : Math.max(...pts.map((x) => x.v))
-      return [c.col.key, { max, floor, avg, best }] as const
+      const vals = people.map((p) => valueOf(p.puuid, c.key)).filter((v): v is number => v !== null)
+      return [c.key, isMix || c.record || !vals.length ? null : c.lower ? Math.min(...vals) : Math.max(...vals)]
     }),
   )
-
-  const stripPoints = sortCol
-    ? playing.flatMap((p) => {
-        const d = diffOf(p.puuid, sortCol)
-        const v = d ? d.diff : valueOf(p.puuid, sortCol)
-        return v === null ? [] : [{ name: splitId(p.riot_id, p.puuid).name, value: v, games: gamesOf(p.puuid) }]
-      })
-    : []
-  const stripIsDiff = !!sortCol && roleMode && roleOk(sortCol.col.key)
-
-  const openCell = (p: Player, c: Col) => {
-    const name = splitId(p.riot_id, p.puuid).name
-    const roleFilter = c.role ? topRole(p.puuid)?.label : c.col.key.startsWith("mix:") ? c.col.key.slice(4) : null
-    onOpen({
-      title: `${name}・${c.role ? `出${roleFilter}` : c.col.label}的每一場`,
-      note: c.role ? `出裝是${roleFilter}的場次` : cellNote(c.col),
-      cell: { puuid: p.puuid, key: c.col.key },
-      source: { puuid: p.puuid, filters: roleFilter ? [{ member: "builds.build_role", operator: "equals", values: [roleFilter] }] : [] },
-    })
-  }
-
   return (
     <Panel
       title="數據總表"
-      caption="每個人的各項平均與單場紀錄；點欄位標題排序，點數字看算進去的每一場"
-      hint={"每個人的各項平均（每場先算再平均）。切換上方的分組看不同面向；「每分鐘／每場／加總」切換同一個量的單位，沒有那個版本的欄位會在表頭標出它實際的單位。\n格子裡的條：看的是這群人彼此的相對位置（起點不是 0），強調色刻度是依場次加權的平均；最佳值標綠（死亡類越少越好）。\n「和同定位比」把數字換成和全部參賽者同出裝定位平均的差（依他打每個定位的場次加權）：坦克的承傷、射手的推塔可以公平比"}
+      caption="每個人的各項平均與單場巔峰；點數字看算進去的每一場"
+      hint={"每個人的各項平均（每場先算再平均），另有單場巔峰紀錄。切換上方的分組看不同面向；點欄位標題換排序，點數字開抽屜看算進去的每一場；平均表現的最佳值標綠，單場紀錄維持中性。\n比人時記得出裝不同：射手天生打塔快、坦克天生承傷多，可以對照「出裝比例」"}
     >
       {loading ? (
-        <LoadingBlock height={480} label="載入數據中…" />
+        <LoadingBlock height={300} label="載入數據中…" />
       ) : (
-        <div className="reveal space-y-2.5">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <ToggleGroup type="single" size="sm" variant="outline" value={setId} onValueChange={(v) => v && setSetId(v)} className="flex-wrap">
-              {TABLE_SETS.map((g) => (
-                <ToggleGroupItem key={g.id} value={g.id}>
-                  {g.label}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
-            {set.caption && <Hint text={set.caption} />}
-            <div className="ml-auto flex flex-wrap items-center gap-2">
-              {set.units && (
-                <ToggleGroup type="single" size="sm" variant="outline" value={unit} onValueChange={(v) => v && setUnit(v as Unit)} data-testid="crew-stats-unit">
-                  {UNITS.map((u) => (
-                    <ToggleGroupItem key={u.id} value={u.id} className="h-7 px-2 text-xs">
-                      {u.label}
-                    </ToggleGroupItem>
-                  ))}
-                </ToggleGroup>
-              )}
-              {isTable && !isMix && (
-                <Button
-                  size="sm"
-                  variant={byRole ? "default" : "outline"}
-                  className="h-7 gap-1 px-2 text-xs"
-                  aria-pressed={byRole}
-                  onClick={() => setByRole((v) => !v)}
-                  data-tip={"把數字換成和「全部參賽者同出裝定位的平均」的差：+20% 是比同定位的人多兩成。\n依他打每個定位的場次加權，所以多半打坦克的人就和坦克比。勝率、本場貢獻、KDA、加總類不參加（本場貢獻本身已經和同定位比過）"}
-                >
-                  <Users className="size-3.5" />
-                  和同定位比
-                </Button>
-              )}
-            </div>
+        <div className="reveal space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+          <ToggleGroup type="single" size="sm" variant="outline" value={setId} onValueChange={(v) => v && setSetId(v)} className="flex-wrap">
+            {STAT_SETS.map((g) => (
+              <Fragment key={g.id}>
+                <ToggleGroupItem value={g.id}>{g.label}</ToggleGroupItem>
+                {/* 「單場前 10 場」緊接在單場巔峰後面：同一組指標，改成每場一列 */}
+                {g.id === "peak" && <ToggleGroupItem value="top">單場前 10 場</ToggleGroupItem>}
+              </Fragment>
+            ))}
+            <ToggleGroupItem value="mix">出裝比例</ToggleGroupItem>
+          </ToggleGroup>
+          <Hint text={isMix ? "六種出裝各占他場次的幾成。不是好壞，是拿來對照其他數字的；點數字開抽屜看那種出裝的每一場" : (set?.caption ?? "")} />
           </div>
           {isTop ? (
-            <PeakTop scoped={scoped} cols={STAT_SETS.find((g) => g.id === "peak")!.cols} centers={centers} onOpen={onOpen} />
-          ) : isPeak ? (
-            <RecordWall people={playing} rows={rows} onOpen={onOpen} active={active} />
+            <PeakTop scoped={scoped} cols={cols} centers={centers} onOpen={onOpen} />
           ) : (
-            <>
-              {sortCol && !sortCol.role && !isMix && (
-                <DistStrip
-                  points={stripPoints}
-                  avg={stripIsDiff ? 0 : (scale.get(sortCol.col.key)?.avg ?? null)}
-                  fmt={stripIsDiff ? signedPct : sortCol.col.fmt}
-                  label={`${sortCol.col.label}${sortCol.unit ? `（${UNIT_LABEL[sortCol.unit]}）` : ""}${stripIsDiff ? "・和同定位的差" : ""}`}
-                />
-              )}
-              {roleLoading && <div className="text-[11px] text-muted-foreground">載入同定位的平均…</div>}
-              <div className="overflow-x-auto">
-                {/* 每欄至少 7.5rem（數字＋條），欄多的組在窄視窗改成橫向捲動，不把條擠成一個點 */}
-                <table className="w-full table-fixed text-sm" style={{ minWidth: `${16.5 + cols.length * 7.5}rem` }} data-testid="crew-stats">
-                  <colgroup>
-                    <col className="w-[13rem]" />
-                    <col className="w-[3.5rem]" />
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[860px] text-sm" data-testid="crew-stats">
+                <thead>
+                  <tr className="border-b text-[11px] text-muted-foreground">
+                    <th className="px-2 py-1.5 text-left font-medium">玩家</th>
+                    <th className="px-2 py-1.5 text-right font-medium">場次</th>
                     {cols.map((c) => (
-                      <col key={c.col.key} />
+                      <th key={c.key} className="px-2 py-1.5 text-right font-medium" data-tip={c.hint}>
+                        <button
+                          type="button"
+                          onClick={() => setSortKey(c.key)}
+                          className={cn("cursor-pointer underline-offset-2 hover:text-foreground hover:underline", activeSort === c.key && "text-foreground underline")}
+                        >
+                          {c.label}
+                        </button>
+                      </th>
                     ))}
-                  </colgroup>
-                  <thead>
-                    <tr className="border-b text-[11px] text-muted-foreground">
-                      <th className="px-2 py-1.5 text-left font-medium">玩家</th>
-                      <th className="px-2 py-1.5 text-right font-medium">場次</th>
-                      {cols.map((c) => {
-                        const on = sortCol?.col.key === c.col.key
-                        const Arrow = dir === "asc" ? ArrowUp : ArrowDown
-                        return (
-                          <th key={c.col.key} className="px-2 py-1.5 text-left align-bottom font-medium" data-tip={c.col.hint}>
-                            <button
-                              type="button"
-                              disabled={c.role}
-                              onClick={() => clickHeader(c)}
-                              aria-sort={on ? (dir === "asc" ? "ascending" : "descending") : undefined}
-                              className={cn("flex max-w-full items-center gap-1 rounded text-left transition", !c.role && "cursor-pointer hover:text-foreground", on && "text-foreground")}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sorted.map((p) => {
+                    const r = rowOf(p.puuid)
+                    return (
+                      <tr key={p.puuid} className="border-b border-border/50 last:border-b-0" data-testid="crew-stats-row">
+                        <td className="px-2 py-1.5">
+                          <PlayerName player={p} className="text-sm" />
+                        </td>
+                        <td className="px-2 py-1.5 text-right font-mono tabular-nums text-muted-foreground">{n0(r, "participants.games")}</td>
+                        {cols.map((c) => {
+                          const v = valueOf(p.puuid, c.key)
+                          const name = splitId(p.riot_id, p.puuid).name
+                          return (
+                            <td
+                              key={c.key}
+                              data-key={c.key}
+                              className={cn(
+                                "px-2 py-1.5 text-right font-mono tabular-nums",
+                                v !== null && v === best.get(c.key) && "font-semibold text-win",
+                                active?.puuid === p.puuid && active.key === c.key && "bg-primary/10",
+                              )}
                             >
-                              <span className="truncate">{c.col.label}</span>
-                              {c.unit && <span className="shrink-0 rounded bg-muted px-1 text-[10px] font-normal">{UNIT_LABEL[c.unit]}</span>}
-                              {!c.role && (on ? <Arrow className="size-3 shrink-0 text-primary" /> : <ArrowUpDown className="size-3 shrink-0 opacity-40" />)}
-                            </button>
-                          </th>
-                        )
-                      })}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sorted.map((p, i) => {
-                      const r = rowOf(p.puuid)
-                      const name = splitId(p.riot_id, p.puuid).name
-                      return (
-                        <tr key={p.puuid} className="slide-in border-b border-border/50 last:border-b-0" style={{ "--stagger": `${Math.min(i * 30, 400)}ms` } as CSSProperties} data-testid="crew-stats-row">
-                          <td className="px-2 py-1.5">
-                            <PlayerName player={p} className="text-sm" />
-                          </td>
-                          <td className="px-2 py-1.5 text-right font-mono tabular-nums text-muted-foreground">{n0(r, "participants.games")}</td>
-                          {cols.map((c) => {
-                            const v = valueOf(p.puuid, c)
-                            const sc = scale.get(c.col.key)!
-                            const isActive = active?.puuid === p.puuid && active.key === c.col.key
-                            if (c.role) {
-                              const t = topRole(p.puuid)
-                              return (
-                                <td key={c.col.key} className={cn("px-2 py-1.5", isActive && "bg-primary/10")}>
-                                  {t ? (
-                                    <button type="button" onClick={() => openCell(p, c)} data-tip={`看${name}出${t.label}的每一場`} className="flex items-center gap-1.5 rounded px-0.5 transition hover:bg-accent">
-                                      <RoleChip role={t.label} />
-                                      <span className="font-mono text-xs tabular-nums text-muted-foreground">{Math.round(t.share * 100)}%</span>
-                                    </button>
-                                  ) : (
-                                    "—"
-                                  )}
-                                </td>
-                              )
-                            }
-                            const d = diffOf(p.puuid, c)
-                            const isBest = !roleMode && v !== null && v === sc.best
-                            const btn = (text: string) => (
-                              <button
-                                type="button"
-                                data-tip={`看${name}算進「${c.col.label}」的每一場`}
-                                onClick={() => openCell(p, c)}
-                                className={cn("cursor-pointer rounded underline-offset-2 hover:underline", isBest && "text-win")}
-                              >
-                                {text}
-                              </button>
-                            )
-                            const deadNote =
-                              (c.col.key === "participants.avg_time_dead" || c.col.key === "participants.time_dead_share") && v !== null ? `${n0(r, "participants.time_dead_games")} 場有紀錄` : undefined
-                            return (
-                              <td key={c.col.key} data-key={c.col.key} className={cn("px-2 py-1.5", isActive && "bg-primary/10")}>
-                                {v === null ? (
-                                  <span className="font-mono text-muted-foreground">—</span>
-                                ) : d ? (
-                                  <DiffCell diff={d.diff} lower={c.col.lower} label={btn(signedPct(d.diff))} sub={`${c.col.fmt(v)}／同定位 ${c.col.fmt(d.exp)}`} />
-                                ) : (
-                                  <BarCell value={Math.max(0, v - sc.floor)} max={sc.max - sc.floor} reference={sc.avg === null ? null : sc.avg - sc.floor} label={btn(c.col.fmt(v))} sub={deadNote} />
-                                )}
-                              </td>
-                            )
-                          })}
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              {idle.length > 0 && (
-                <div className="text-[11px] text-muted-foreground" data-testid="crew-stats-idle">
-                  這段期間沒有場次：{idle.map((p) => splitId(p.riot_id, p.puuid).name).join("、")}
-                </div>
-              )}
-            </>
+                              {v === null ? (
+                                "—"
+                              ) : (
+                                <button
+                                  type="button"
+                                  data-tip={c.record ? `看${name}創下「${c.label}」的那一場` : `看${name}算進「${c.label}」的每一場`}
+                                  onClick={() =>
+                                    onOpen({
+                                      title: `${name}・${c.label}${c.record ? "的紀錄場" : "的每一場"}`,
+                                      note: cellNote(c),
+                                      cell: { puuid: p.puuid, key: c.key },
+                                      source: {
+                                        puuid: p.puuid,
+                                        filters: c.key.startsWith("mix:") ? [{ member: "builds.build_role", operator: "equals", values: [c.key.slice(4)] }] : [],
+                                        recordMetric: c.record ? c.key : undefined,
+                                      },
+                                    })
+                                  }
+                                  className="cursor-pointer rounded px-0.5 underline-offset-2 transition hover:bg-accent hover:underline"
+                                >
+                                  {c.fmt(v)}
+                                </button>
+                              )}
+                              {(c.key === "participants.avg_time_dead" || c.key === "participants.time_dead_share") && v !== null && (
+                                <span className="ml-1 text-[10px] font-normal text-muted-foreground">{n0(r, "participants.time_dead_games")} 場</span>
+                              )}
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}
     </Panel>
   )
 }
+
 
 // ── 單場紀錄的前 10 場：數據總表「單場巔峰」的第二種看法（每人一格 ↔ 每場一列）────────
 // 指標就是那組的欄位（每分鐘與總量都有），一次一個。範圍與中心跟著整頁；點一列看那一場，和點數字看那一場一樣。
@@ -5267,7 +4811,6 @@ export function Crew() {
             loading={loading || summary.loading}
             profiles={profiles}
             scoped={q}
-            everyone={(query) => apply(query, "all")}
             centers={centers}
             active={focusCell}
             onOpen={openGames}
