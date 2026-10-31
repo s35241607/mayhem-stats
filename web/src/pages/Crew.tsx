@@ -14,7 +14,7 @@ import { Hint } from "@/components/TipLayer"
 import { stripTip, tipLevelClass } from "@/lib/tip"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { BarChart, ContribRadarChart, SHRINK_K, TrendChart, shrunk } from "@/components/charts"
+import { ContribRadarChart, SHRINK_K, TrendChart, shrunk } from "@/components/charts"
 import { DetailDrawer, useDrawerSettled } from "@/components/DetailDrawer"
 import { ForestAxis, ForestTrack } from "@/components/GapForest"
 import { useCube } from "@/hooks/useCube"
@@ -3135,6 +3135,8 @@ function LookupPicker({
 
 /** 「查英雄」「查增幅裝置」的差別：查哪個維度、用什麼量詞與動詞。其餘完全一樣。 */
 type LookupKind = {
+  /** 對應頂層分頁（互搭清單點一下跳過去） */
+  id: LookupId
   title: string
   /** Panel 下面那一句；完整說明（caption）收進 ⓘ */
   short: string
@@ -3147,6 +3149,8 @@ type LookupKind = {
   /** 每個查詢都要帶的條件（裝備排除飾品格） */
   filters?: CubeFilter[]
 }
+
+type LookupId = "champ" | "augment" | "item"
 
 /** 選了一個東西之後，每個人用它的細項（只查選中的那一個，切到這個分頁才查） */
 const LOOKUP_MEASURES = [
@@ -3186,6 +3190,9 @@ function LookupPanel({
   active,
   onOpen,
   detail,
+  picked,
+  onPicked,
+  onJump,
 }: {
   kind: LookupKind
   rows: CubeRow[]
@@ -3198,8 +3205,12 @@ function LookupPanel({
   onOpen: (games: GamesFocus) => void
   /** 選中的東西的細項查詢（每人一列）；套用全域條件的 q() 由頁面給 */
   detail: (query: CubeQuery) => CubeQuery | null
+  /** 選中的東西放在頁面：互搭清單從別的分頁跳過來時要能指定 */
+  picked: string | null
+  onPicked: (name: string) => void
+  onJump: (id: LookupId, name: string) => void
 }) {
-  const [picked, setPicked] = useState<string | null>(null)
+  const setPicked = onPicked
 
   // 選項是這群人用過的東西，依「幾個人用過、合計幾場」排
   const options = useMemo(() => {
@@ -3246,14 +3257,13 @@ function LookupPanel({
     const points = [...by].sort(([a], [b]) => (a < b ? -1 : 1)).map(([date, v]) => ({ date, games: v.games, winrate: (100 * v.wins) / v.games }))
     return { weekly, points }
   }, [trend.rows])
-  // 排行：這群人合計用了 MIN_GAMES 場以上的，長條是合計勝率；點一根就選它
+  // 排行：這群人合計用了 MIN_GAMES 場以上的；點一格就選它
   const [rankBy, setRankBy] = useState<"games" | "winrate">("games")
   const ranking = useMemo(
     () =>
       options
         .filter((o) => o.games >= MIN_GAMES)
-        .map((o) => ({ label: o.name, value: (100 * o.wins) / o.games, games: o.games }))
-        .sort((a, b) => (rankBy === "games" ? b.games - a.games || b.value - a.value : b.value - a.value || b.games - a.games)),
+        .sort((a, b) => (rankBy === "games" ? b.games - a.games || b.wins / b.games - a.wins / a.games : b.wins / b.games - a.wins / a.games || b.games - a.games)),
     [options, rankBy],
   )
 
@@ -3297,28 +3307,29 @@ function LookupPanel({
         <EmptyState>這群人還沒有對局。</EmptyState>
       ) : (
         <>
-        <div className="mb-5 grid gap-x-6 gap-y-4 lg:grid-cols-5">
-          <div className="min-w-0 lg:col-span-2" data-testid="lookup-ranking">
-            <div className="mb-1 flex items-center justify-between gap-2">
-              <span className="flex items-center gap-1 text-xs font-medium">
-                這群人最常{kind.verb}的{kind.noun}
-                <Hint text={`這群人合計${kind.verb}過 ${MIN_GAMES} 場以上的${kind.noun}；長條是合計勝率，顏色和這批${kind.noun}依場次加權的平均比（場次少的先往平均收縮）。點一根就選它`} />
-              </span>
-              <ToggleGroup type="single" size="sm" variant="outline" value={rankBy} onValueChange={(v) => v && setRankBy(v as typeof rankBy)}>
-                <ToggleGroupItem value="games" className="h-7 px-2 text-xs">依場次</ToggleGroupItem>
-                <ToggleGroupItem value="winrate" className="h-7 px-2 text-xs">依勝率</ToggleGroupItem>
-              </ToggleGroup>
-            </div>
-            {ranking.length ? (
-              <BarChart data={ranking} suffix="%" showGames selected={value} onPick={setPicked} />
-            ) : (
-              <EmptyState>還沒有{kind.noun}合計到 {MIN_GAMES} 場。</EmptyState>
-            )}
+        <div className="mb-3" data-testid="lookup-ranking">
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1 text-xs font-medium">
+              這群人最常{kind.verb}的{kind.noun}
+              <span className="font-normal text-muted-foreground">・{ranking.length} {kind.counter}</span>
+              <Hint text={`這群人合計${kind.verb}過 ${MIN_GAMES} 場以上的${kind.noun}，左右捲動看全部。百分比是合計勝率，顏色和這批${kind.noun}依場次加權的平均比（場次少的先往平均收縮）。點一格就選它`} />
+            </span>
+            <ToggleGroup type="single" size="sm" variant="outline" value={rankBy} onValueChange={(v) => v && setRankBy(v as typeof rankBy)}>
+              <ToggleGroupItem value="games" className="h-6 px-2 text-xs">依場次</ToggleGroupItem>
+              <ToggleGroupItem value="winrate" className="h-6 px-2 text-xs">依勝率</ToggleGroupItem>
+            </ToggleGroup>
           </div>
-          <div className="flex min-w-0 flex-col gap-3 lg:col-span-3">
+          {ranking.length ? (
+            <RankStrip items={ranking} selected={value} onPick={setPicked} />
+          ) : (
+            <div className="rounded-md border border-dashed px-3 py-3 text-xs text-muted-foreground">還沒有{kind.noun}合計到 {MIN_GAMES} 場。</div>
+          )}
+        </div>
+        <div className="mb-4 grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
+          <div className="flex min-w-0 flex-col gap-2 lg:col-span-2">
             <LookupStats rows={played} people={people.length} verb={kind.verb} />
             <div data-testid="lookup-trend">
-              <span className="mb-1 flex items-center gap-1 text-xs font-medium">
+              <span className="flex items-center gap-1 text-xs font-medium">
                 {value}的{trendPoints.weekly ? "每週" : "每日"}走勢
                 <Hint text={`這群人${trendPoints.weekly ? "每週（週一起算）" : "每天"}合計${kind.verb}${value}的勝率；點越大代表場次越多。有打的日子超過 ${TREND_DAYS} 天時併成每週`} />
               </span>
@@ -3331,6 +3342,9 @@ function LookupPanel({
               )}
             </div>
           </div>
+          {LOOKUP_KINDS_OF().filter((k) => k.id !== kind.id).map((k) => (
+            <PairList key={k.id} kind={k} from={kind} value={value} filters={thisOne} total={total} wins={wins} detail={detail} onJump={onJump} />
+          ))}
         </div>
         <div className="overflow-x-auto border-t border-border/60 pt-3">
         <div className="min-w-[1180px] space-y-1">
@@ -3351,7 +3365,7 @@ function LookupPanel({
             const cellKey = `${kind.nameKey}=${value}`
             const isActive = active?.puuid === r.player.puuid && active.key === cellKey
             const name = splitId(r.player.riot_id, r.player.puuid).name
-            const rowClass = cn("slide-in grid items-center gap-3 rounded-md px-2 py-1.5", LOOKUP_GRID)
+            const rowClass = cn("slide-in grid items-center gap-3 rounded-md px-2 py-1", LOOKUP_GRID)
             const right = "flex justify-end text-right"
             const style = { "--stagger": `${i * 35}ms` } as CSSProperties
             const cells = (
@@ -3439,8 +3453,143 @@ function LookupPanel({
   )
 }
 
-/** 走勢圖的高度：和左邊排行（14 根長條）加上方摘要差不多高，兩欄底部對齊 */
-const TREND_H = 380
+/** 走勢圖的高度：加上方摘要，和右邊兩欄互搭清單一樣高 */
+const TREND_H = 200
+/** 互搭清單的捲動區高度（和左邊摘要＋走勢對齊） */
+const PAIR_H = 268
+
+/** 這群人最常用的東西，排成一條橫向可捲的格子：圖示、名稱、場次、勝率。選中的那格會捲到看得到的位置 */
+function RankStrip({ items, selected, onPick }: { items: LookupOption[]; selected: string | null; onPick: (name: string) => void }) {
+  const box = useRef<HTMLDivElement>(null)
+  const games = items.reduce((a, o) => a + o.games, 0)
+  const base = games ? (100 * items.reduce((a, o) => a + o.wins, 0)) / games : 50
+  // 選中的那格捲到正中間；只動這條自己的 scrollLeft，不會把整頁捲走
+  useEffect(() => {
+    const el = box.current?.querySelector<HTMLElement>("[data-selected=true]")
+    if (!el || !box.current) return
+    const c = box.current
+    const left = el.offsetLeft - c.clientWidth / 2 + el.clientWidth / 2
+    c.scrollTo({ left: Math.max(0, left), behavior: prefersReducedMotion() ? "auto" : "smooth" })
+  }, [selected, items])
+  return (
+    <div ref={box} className="relative flex gap-1.5 overflow-x-auto pb-1.5">
+      {items.map((o) => {
+        const wr = (100 * o.wins) / o.games
+        const diff = shrunk(o.games, wr, base) - base
+        const on = o.name === selected
+        return (
+          <button
+            key={o.name}
+            type="button"
+            data-selected={on}
+            data-testid="lookup-rank-item"
+            onClick={() => onPick(o.name)}
+            data-tip={`${o.name}\n這群人合計 ${o.games} 場・${o.wins} 勝 ${o.games - o.wins} 敗（{{${Math.abs(diff) < 2 ? "mute" : diff > 0 ? "win" : "loss"}|${wr.toFixed(1)}%}}）\n${o.players} 人用過；這批平均 ${base.toFixed(1)}%`}
+            className={cn(
+              "flex w-[8.5rem] shrink-0 items-center gap-2 rounded-md border px-1.5 py-1 text-left transition hover:bg-accent",
+              on ? "border-primary bg-primary/10 ring-1 ring-primary" : "border-border/60",
+            )}
+          >
+            <img src={iconUrl(o.icon)} alt="" className="size-8 shrink-0 rounded bg-icon-tile" />
+            <span className="min-w-0 leading-tight">
+              <span className="block truncate text-[12px]">{o.name}</span>
+              <span className="flex items-baseline gap-1.5 font-mono text-[11px] tabular-nums">
+                <span className={Math.abs(diff) < 2 ? "text-muted-foreground" : diff > 0 ? "text-win" : "text-loss"}>{Math.round(wr)}%</span>
+                <span className="text-muted-foreground">{o.games} 場</span>
+              </span>
+            </span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+/** 互搭：這群人用「選中的東西」的那幾場，同時用了哪些另一類的東西（英雄／增幅／裝備）。
+ *  條是搭配率（佔這幾場的比例），勝率和選中東西的合計勝率比；點一列跳到那一類的分頁並選它 */
+function PairList({
+  kind,
+  from,
+  value,
+  filters,
+  total,
+  wins,
+  detail,
+  onJump,
+}: {
+  kind: LookupKind
+  from: LookupKind
+  value: string
+  filters: CubeFilter[]
+  total: number
+  wins: number
+  detail: (query: CubeQuery) => CubeQuery | null
+  onJump: (id: LookupId, name: string) => void
+}) {
+  // 一場多列的維度只查 games 與 wins（理由見頁面的 augments 查詢）
+  const res = useCube(
+    detail({
+      measures: ["participants.games", "participants.wins"],
+      dimensions: [kind.nameKey, kind.iconKey],
+      filters: [...filters, ...(kind.filters ?? [])],
+      order: { "participants.games": "desc" },
+      limit: NO_LIMIT,
+    }),
+  )
+  const base = total ? (100 * wins) / total : 50
+  const list = res.rows.map((r) => {
+    const games = n0(r, "participants.games")
+    const w = n0(r, "participants.wins")
+    return { name: String(r[kind.nameKey]), icon: r[kind.iconKey] as string, games, wins: w, wr: games ? (100 * w) / games : 0 }
+  })
+  const label = from.id === "champ" ? `${value}常搭的${kind.noun}` : `搭配的${kind.noun}`
+  return (
+    <div className="min-w-0" data-testid={`lookup-pair-${kind.id}`}>
+      <span className="mb-1 flex items-center gap-1 text-xs font-medium">
+        <span className="truncate">{label}</span>
+        <span className="shrink-0 font-normal text-muted-foreground">・{list.length} {kind.counter}</span>
+        <Hint
+          text={`這群人${from.verb}${value}的那 ${total} 場，同時${kind.verb}了哪些${kind.noun}。\n條是搭配率（佔這 ${total} 場的比例）；勝率和${value}的合計勝率 ${base.toFixed(1)}% 比，場次少的先往它收縮再上色。\n點一列跳到「${kind.title}」看它${kind.id === "item" ? "\n裝備看的是終場六格（不含飾品）" : ""}`}
+        />
+      </span>
+      {res.loading ? (
+        <LoadingBlock height={PAIR_H} label={`載入搭配的${kind.noun}…`} />
+      ) : res.error ? (
+        <QueryError error={res.error} />
+      ) : !list.length ? (
+        <EmptyState>沒有資料。</EmptyState>
+      ) : (
+        <div className="space-y-0.5 overflow-y-auto pr-1" style={{ height: PAIR_H }}>
+          {list.map((o, i) => {
+            const diff = shrunk(o.games, o.wr, base) - base
+            const share = total ? (100 * o.games) / total : 0
+            return (
+              <button
+                key={o.name}
+                type="button"
+                data-testid="lookup-pair-row"
+                onClick={() => onJump(kind.id, o.name)}
+                data-tip={`${o.name}\n搭配 ${o.games} 場（${share.toFixed(0)}%）・${o.wins} 勝 ${o.games - o.wins} 敗（{{${Math.abs(diff) < 2 ? "mute" : diff > 0 ? "win" : "loss"}|${o.wr.toFixed(1)}%}}）\n點一下到「${kind.title}」看它`}
+                style={{ "--stagger": `${Math.min(i, 12) * 30}ms` } as CSSProperties}
+                className="slide-in grid w-full grid-cols-[1.5rem_minmax(0,1fr)_minmax(3rem,5rem)_2.5rem_2.25rem] items-center gap-1.5 rounded px-1 py-0.5 text-left transition hover:bg-accent"
+              >
+                <img src={iconUrl(o.icon)} alt="" className="size-6 rounded bg-icon-tile" />
+                <span className="truncate text-[12px]">{o.name}</span>
+                <span className="h-1.5 overflow-hidden rounded-full bg-muted/40">
+                  <span className="bar-grow block h-full rounded-full bg-data" style={{ width: `${Math.min(100, share)}%` }} />
+                </span>
+                <span className="text-right font-mono text-[11px] tabular-nums text-muted-foreground">{o.games} 場</span>
+                <span className={cn("text-right font-mono text-[11px] tabular-nums", Math.abs(diff) < 2 ? "text-muted-foreground" : diff > 0 ? "text-win" : "text-loss")}>
+                  {Math.round(o.wr)}%
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
 const GENE_COLS = "grid grid-cols-8 gap-1"
 
 /** 表格最後一欄的表頭：八個基因的名稱 */
@@ -3509,7 +3658,11 @@ function LookupStats({ rows, people, verb }: { rows: { player: Player; games: nu
   )
 }
 
+// 互搭清單依序列出「另外兩類」；用函式取，三個常數在下面才定義
+const LOOKUP_KINDS_OF = () => [CHAMPION_LOOKUP, AUGMENT_LOOKUP, ITEM_LOOKUP]
+
 const CHAMPION_LOOKUP: LookupKind = {
+  id: "champ",
   title: "查英雄",
   short: "選一隻英雄，看每個人玩它的戰績",
   caption:
@@ -3522,6 +3675,7 @@ const CHAMPION_LOOKUP: LookupKind = {
 }
 
 const AUGMENT_LOOKUP: LookupKind = {
+  id: "augment",
   title: "查增幅裝置",
   short: "選一個增幅裝置，看每個人拿它的戰績",
   caption:
@@ -3534,6 +3688,7 @@ const AUGMENT_LOOKUP: LookupKind = {
 }
 
 const ITEM_LOOKUP: LookupKind = {
+  id: "item",
   title: "查裝備",
   short: "選一件裝備，看每個人帶它收場的戰績",
   caption:
@@ -4078,6 +4233,13 @@ export function Crew() {
   const [drawerWide, setDrawerWide] = useState(false)
   // 頂層分頁：一次只看一段
   const [section, setSection] = useState<Section>("matrix")
+  // 查英雄／增幅／裝備各自選中的東西；互搭清單點一列會改另一頁的並切過去
+  const [lookupPick, setLookupPick] = useState<Record<LookupId, string | null>>({ champ: null, augment: null, item: null })
+  const pickFor = (id: LookupId) => (name: string) => setLookupPick((p) => ({ ...p, [id]: name }))
+  const jumpTo = (id: LookupId, name: string) => {
+    setLookupPick((p) => ({ ...p, [id]: name }))
+    setSection(id)
+  }
   const headerHeight = useHeaderHeight()
 
   const byId = useMemo(() => new Map(crew.map((p) => [p.puuid, p])), [crew])
@@ -4659,6 +4821,9 @@ export function Crew() {
         <TabsContent value="champ">
           <LookupPanel
             kind={CHAMPION_LOOKUP}
+            picked={lookupPick.champ}
+            onPicked={pickFor("champ")}
+            onJump={jumpTo}
             rows={champs.rows}
             loading={loading}
             people={ordered}
@@ -4672,6 +4837,9 @@ export function Crew() {
         <TabsContent value="augment">
           <LookupPanel
             kind={AUGMENT_LOOKUP}
+            picked={lookupPick.augment}
+            onPicked={pickFor("augment")}
+            onJump={jumpTo}
             rows={augments.rows}
             loading={loading || augments.loading}
             people={ordered}
@@ -4685,6 +4853,9 @@ export function Crew() {
         <TabsContent value="item">
           <LookupPanel
             kind={ITEM_LOOKUP}
+            picked={lookupPick.item}
+            onPicked={pickFor("item")}
+            onJump={jumpTo}
             rows={items.rows}
             loading={loading || items.loading}
             people={ordered}
