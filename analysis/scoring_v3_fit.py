@@ -19,10 +19,11 @@ import yaml
 ARGS = [a for a in sys.argv[1:] if not a.startswith("--")]
 DB = ARGS[0] if ARGS else "mayhem.db"
 YML = Path(__file__).parent.parent / "cube" / "model" / "cubes" / "contribution.yml"
+ADD_ONLY = {"c", "h", "a"}
 ROLES = ["射手", "法師", "刺客", "鬥士", "坦克", "輔助"]
 GENES = ["d", "w", "o", "t", "c", "h", "a", "kda"]
 # 和 yml 第 5 步相同（改權重要兩邊一起改）
-WEIGHTS = {"d": 0.25, "t": 0.20, "h": 0.13, "c": 0.12, "kda": 0.12, "o": 0.08, "w": 0.06, "a": 0.04}
+WEIGHTS = {"d": 0.28, "t": 0.23, "h": 0.13, "c": 0.12, "kda": 0.06, "o": 0.08, "w": 0.06, "a": 0.04}
 BLOCK = re.compile(r"(-- 校正常數開始[^\n]*\n)(.*?)(\n\s*-- 校正常數結束)", re.S)
 
 
@@ -71,8 +72,8 @@ for g in GENES:
         # 改用「有治療到隊友的人」之間的標準差，代表治療量本身的分布寬度
         sd[name] = round(float(P[g][sel & (P[g] > 0)].std() if g == "h" else r_all[sel].std()), 3)
         r_all[sel] = r_all[sel] / sd[name]
-    # v3.5：控場只加不扣。標準差用沒夾的分布算（z 的刻度不變），計分時才把負的夾成 0
-    resid[g] = np.maximum(r_all, 0.0) if g == "c" else r_all
+    # 只加不扣（控場 v3.5、治療護盾與功能裝 v3.6）。標準差用沒夾的分布算（z 的刻度不變），計分時才把負的夾成 0
+    resid[g] = np.maximum(r_all, 0.0) if g in ADD_ONLY else r_all
 # flag 場次的治療護盾不計分：常數寫 0／1，yml 的 sd 與 calib 欄位仍在但不會被用到
 for r in ROLES + ["未成形"]:
     mu[r]["h_flag"] = 0.0

@@ -15,7 +15,7 @@ DB = sys.argv[1] if len(sys.argv) > 1 else "mayhem.db"
 YML = Path(__file__).parent.parent / "cube" / "model" / "cubes" / "contribution.yml"
 ANTI_HEAL = {3033, 3075, 3076, 3123, 3165, 3916, 6609, 223033, 223075, 223165, 226609, 323075, 773075, 773123, 773165}
 ANTI_SHIELD = {6695, 226695}
-WEIGHTS = {"d": 0.25, "t": 0.20, "h": 0.13, "c": 0.12, "kda": 0.12, "o": 0.08, "w": 0.06, "a": 0.04}
+WEIGHTS = {"d": 0.28, "t": 0.23, "h": 0.13, "c": 0.12, "kda": 0.06, "o": 0.08, "w": 0.06, "a": 0.04}
 GENE_COL = {"d": "gene_d", "w": "gene_w", "o": "gene_o", "t": "gene_t", "c": "gene_c", "h": "gene_h", "a": "gene_a", "kda": "gene_kda"}
 
 text = YML.read_text(encoding="utf-8")
@@ -109,8 +109,9 @@ for (pl, gid), ps in games.items():
             else:
                 z[k] = (P[k] - mu[k]) / SD[k]
         shown = dict(z)
-        # v3.5：控場只加不扣（計分用的 z 夾在 0 以上，gene_c 照實顯示）；總分扣掉整體校正 mu_work
-        z["c"] = max(0.0, z["c"])
+        # 只加不扣：控場（v3.5）、治療護盾與功能裝（v3.6）計分用的 z 夾在 0 以上，基因分數照實顯示；總分扣掉整體校正 mu_work
+        for k in ("c", "h", "a"):
+            z[k] = max(0.0, z[k])
         raw = sum(WEIGHTS[k] * z[k] for k in WEIGHTS)
         out = {"work_score": min(100.0, max(0.0, 50 + 20 * (raw - SD["mu_work"]) / SD["work"])), "work_raw": raw, "unscored_reason": None,
                "score_status": "complete" if has_eog else "estimate", "x_a": a}

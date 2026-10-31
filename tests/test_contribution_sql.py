@@ -14,7 +14,7 @@ import db
 YML = Path(__file__).parent.parent / "cube" / "model" / "cubes" / "contribution.yml"
 SQL = yaml.safe_load(YML.read_text(encoding="utf-8"))["cubes"][0]["meta"]["materialize"]["sql"]
 SD_WORK, MU_WORK = map(float, re.search(r"VALUES \([\d., ]+, ([\d.]+), (-?[\d.]+)\)\s*-- 校正常數結束", SQL).groups())
-WEIGHTS = {"d": 0.25, "t": 0.20, "h": 0.13, "c": 0.12, "kda": 0.12, "o": 0.08, "w": 0.06, "a": 0.04}
+WEIGHTS = {"d": 0.28, "t": 0.23, "h": 0.13, "c": 0.12, "kda": 0.06, "o": 0.08, "w": 0.06, "a": 0.04}
 
 
 class Fixture:
@@ -130,6 +130,14 @@ class ContributionTests(unittest.TestCase):
         self.assertEqual(none["pts_c"], 0)
         self.assertLess(none["gene_c"], 50)
         self.assertGreater(lots["pts_c"], 0)
+
+    def test_heal_and_anti_items_only_add(self):
+        """v3.6：不補血、不出重創的人這兩項加減分是 0（以前會被扣）"""
+        self.fx.game(1)
+        for i in range(1, 11):
+            r = self.at(self.fx.result(), 1, i)
+            self.assertGreaterEqual(r["pts_h"], 0)
+            self.assertGreaterEqual(r["pts_a"], 0)
 
     def test_weights_sum_to_one(self):
         m = re.search(r"SELECT \*,\s*(0\.\d+ \* z_\w+(?: \+ 0\.\d+ \* z_\w+)*) AS work_raw", SQL)
