@@ -3163,7 +3163,7 @@ const LOOKUP_MEASURES = [
   "participants.ace_games",
   ...WORK_PARTS.map((c) => c.key),
 ]
-const LOOKUP_GRID = "grid-cols-[minmax(9rem,1fr)_3.5rem_minmax(8rem,13rem)_4rem_3rem_5.5rem_5.5rem_4.5rem_3.5rem_3.5rem_minmax(7rem,9rem)]"
+const LOOKUP_GRID = "grid-cols-[minmax(9rem,14rem)_3.5rem_minmax(9rem,13rem)_4rem_3rem_5.5rem_5.5rem_4.5rem_3.5rem_3.5rem_minmax(17rem,1fr)]"
 
 /** 走勢圖有打的日子超過幾天就改成每週一點 */
 const TREND_DAYS = 30
@@ -3173,20 +3173,6 @@ const weekStart = (date: string) => {
   const t = new Date(y, m - 1, d)
   t.setDate(t.getDate() - ((t.getDay() + 6) % 7))
   return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`
-}
-
-/** 這幾場最突出與最弱的基因（50＝同出裝定位的平均）；差不到 WORK_GAP 的不算 */
-function geneExtremes(r: CubeRow | undefined) {
-  const genes = WORK_PARTS.flatMap((c) => {
-    const v = opt(r, c.key)
-    return v === null ? [] : [{ label: c.label as string, v }]
-  })
-  const best = genes.reduce<{ label: string; v: number } | null>((a, g) => (!a || g.v > a.v ? g : a), null)
-  const worst = genes.reduce<{ label: string; v: number } | null>((a, g) => (!a || g.v < a.v ? g : a), null)
-  return {
-    best: best && best.v >= 50 + WORK_GAP ? best : null,
-    worst: worst && worst.v <= 50 - WORK_GAP ? worst : null,
-  }
 }
 
 /** 選一個東西（一隻英雄、一個增幅），看這群人各自用它的戰績；點一列開抽屜看他用它的每一場。 */
@@ -3311,8 +3297,8 @@ function LookupPanel({
         <EmptyState>這群人還沒有對局。</EmptyState>
       ) : (
         <>
-        <div className="mb-4 grid gap-4 lg:grid-cols-2">
-          <div className="min-w-0" data-testid="lookup-ranking">
+        <div className="mb-5 grid gap-x-6 gap-y-4 lg:grid-cols-5">
+          <div className="min-w-0 lg:col-span-2" data-testid="lookup-ranking">
             <div className="mb-1 flex items-center justify-between gap-2">
               <span className="flex items-center gap-1 text-xs font-medium">
                 這群人最常{kind.verb}的{kind.noun}
@@ -3329,25 +3315,25 @@ function LookupPanel({
               <EmptyState>還沒有{kind.noun}合計到 {MIN_GAMES} 場。</EmptyState>
             )}
           </div>
-          <div className="min-w-0 space-y-4">
+          <div className="flex min-w-0 flex-col gap-3 lg:col-span-3">
+            <LookupStats rows={played} people={people.length} verb={kind.verb} />
             <div data-testid="lookup-trend">
               <span className="mb-1 flex items-center gap-1 text-xs font-medium">
                 {value}的{trendPoints.weekly ? "每週" : "每日"}走勢
                 <Hint text={`這群人${trendPoints.weekly ? "每週（週一起算）" : "每天"}合計${kind.verb}${value}的勝率；點越大代表場次越多。有打的日子超過 ${TREND_DAYS} 天時併成每週`} />
               </span>
               {trend.loading ? (
-                <LoadingBlock height={240} label="載入走勢…" />
+                <LoadingBlock height={TREND_H} label="載入走勢…" />
               ) : trend.error ? (
                 <QueryError error={trend.error} />
               ) : (
-                <TrendChart points={trendPoints.points} />
+                <TrendChart points={trendPoints.points} height={TREND_H} />
               )}
             </div>
-            <GeneGrid rows={byPlayer} loading={details.loading} />
           </div>
         </div>
-        <div className="overflow-x-auto">
-        <div className="min-w-[1100px] space-y-1">
+        <div className="overflow-x-auto border-t border-border/60 pt-3">
+        <div className="min-w-[1180px] space-y-1">
           <div className={cn("grid gap-3 px-2 text-[11px] text-muted-foreground", LOOKUP_GRID)}>
             <span>玩家</span>
             <span>場次</span>
@@ -3359,14 +3345,13 @@ function LookupPanel({
             <span className="text-right" data-tip="每分鐘承受＋自身減免的傷害">承傷</span>
             <span className="text-right" data-tip="（擊殺＋助攻）÷ 我方擊殺">參團</span>
             <span className="text-right" data-tip="贏的一隊本場貢獻最高是 MVP、輸的一隊是 ACE">MVP</span>
-            <span data-tip="本場貢獻八個基因裡最突出與最弱的一項（50＝同出裝定位的平均，差 4 分以上才列）">強項／弱項</span>
+            <GeneHead />
           </div>
           {byPlayer.map((r, i) => {
             const cellKey = `${kind.nameKey}=${value}`
             const isActive = active?.puuid === r.player.puuid && active.key === cellKey
             const name = splitId(r.player.riot_id, r.player.puuid).name
             const rowClass = cn("slide-in grid items-center gap-3 rounded-md px-2 py-1.5", LOOKUP_GRID)
-            const ex = geneExtremes(r.d)
             const right = "flex justify-end text-right"
             const style = { "--stagger": `${i * 35}ms` } as CSSProperties
             const cells = (
@@ -3408,10 +3393,7 @@ function LookupPanel({
                     <span className={right}>
                       <StatCell main={n0(r.d, "participants.mvp_games")} sub={`ACE ${n0(r.d, "participants.ace_games")}`} />
                     </span>
-                    <span className="flex min-w-0 flex-col text-[11px] leading-tight">
-                      <span className={ex.best ? "text-win" : "text-muted-foreground"}>{ex.best ? `${ex.best.label} ${Math.round(ex.best.v)}` : "沒有特別突出"}</span>
-                      {ex.worst && <span className="text-loss">{`${ex.worst.label} ${Math.round(ex.worst.v)}`}</span>}
-                    </span>
+                    <GeneStrip d={r.d} name={name} games={r.games} />
                   </>
                 ) : r.games && details.loading ? (
                   <span className="col-span-6 text-[11px] text-muted-foreground">載入細項…</span>
@@ -3457,59 +3439,72 @@ function LookupPanel({
   )
 }
 
-/** 選中的東西：每個人這幾場八個基因的平均（50＝同出裝定位的平均）。和 50 差不到 WORK_GAP 用中性灰，差 15 分是最深色 */
-function GeneGrid({ rows, loading }: { rows: { player: Player; games: number; d?: CubeRow }[]; loading: boolean }) {
-  const list = rows.filter((r) => r.games && r.d)
-  const cols = { gridTemplateColumns: `minmax(6rem,1fr) repeat(${WORK_PARTS.length}, minmax(2.6rem,1fr))` }
+/** 走勢圖的高度：和左邊排行（14 根長條）加上方摘要差不多高，兩欄底部對齊 */
+const TREND_H = 380
+const GENE_COLS = "grid grid-cols-8 gap-1"
+
+/** 表格最後一欄的表頭：八個基因的名稱 */
+function GeneHead() {
   return (
-    <div data-testid="lookup-genes">
-      <span className="mb-1 flex items-center gap-1 text-xs font-medium">
-        每個人的八個基因
-        <Hint text={"這幾場本場貢獻八個基因的平均：50＝同出裝定位的人的平均，綠色高於、紅色低於，差不到 4 分是灰色。\n滑過一格看那一項量的是什麼"} />
-      </span>
-      {loading && !list.length ? (
-        <LoadingBlock height={160} label="載入基因…" />
-      ) : !list.length ? (
-        <EmptyState>沒有人有這幾場的本場貢獻。</EmptyState>
-      ) : (
-        <div className="overflow-x-auto">
-          <div className="min-w-[30rem] space-y-1">
-            <div className="grid gap-1 text-[10px] text-muted-foreground" style={cols}>
-              <span />
-              {WORK_PARTS.map((c) => (
-                <span key={c.key} className="truncate text-center" data-tip={`${c.label}（權重 ${c.weight}）\n${c.hint}`}>
-                  {c.label}
-                </span>
-              ))}
-            </div>
-            {list.map((r, i) => {
-              const name = splitId(r.player.riot_id, r.player.puuid).name
-              return (
-                <div key={r.player.puuid} className="slide-in grid items-center gap-1" style={{ ...cols, "--stagger": `${i * 35}ms` } as CSSProperties}>
-                  <PlayerName player={r.player} className="text-[12px]" />
-                  {WORK_PARTS.map((c) => {
-                    const v = opt(r.d, c.key)
-                    if (v === null) return <span key={c.key} className="h-7 rounded bg-muted/20" />
-                    const diff = v - 50
-                    const strength = Math.min(1, Math.abs(diff) / 15)
-                    const tone = Math.abs(diff) < WORK_GAP ? "var(--muted-foreground)" : diff > 0 ? "var(--win)" : "var(--loss)"
-                    return (
-                      <span
-                        key={c.key}
-                        data-tip={`${name}・${c.label} ${v.toFixed(1)}\n${r.games} 場的平均；50＝同出裝定位的平均\n${c.hint}`}
-                        style={{ background: `color-mix(in oklab, ${tone} ${Math.round(12 + strength * 40)}%, transparent)` }}
-                        className="flex h-7 items-center justify-center rounded font-mono text-[11px] tabular-nums"
-                      >
-                        {Math.round(v)}
-                      </span>
-                    )
-                  })}
-                </div>
-              )
-            })}
-          </div>
+    <span className={cn(GENE_COLS, "text-center")}>
+      {WORK_PARTS.map((c) => (
+        <span key={c.key} className="truncate" data-tip={`${c.label}（權重 ${c.weight}）\n${c.hint}\n格子裡是這幾場的平均：50＝同出裝定位的平均，綠色高於、紅色低於，差不到 ${WORK_GAP} 分是灰色`}>
+          {c.label}
+        </span>
+      ))}
+    </span>
+  )
+}
+
+/** 一個人用它那幾場的八個基因平均（50＝同出裝定位的平均）。和 50 差不到 WORK_GAP 用中性灰，差 15 分是最深色 */
+function GeneStrip({ d, name, games }: { d: CubeRow; name: string; games: number }) {
+  return (
+    <span className={GENE_COLS}>
+      {WORK_PARTS.map((c) => {
+        const v = opt(d, c.key)
+        if (v === null) return <span key={c.key} className="h-7 rounded bg-muted/20" />
+        const diff = v - 50
+        const strength = Math.min(1, Math.abs(diff) / 15)
+        const tone = Math.abs(diff) < WORK_GAP ? "var(--muted-foreground)" : diff > 0 ? "var(--win)" : "var(--loss)"
+        return (
+          <span
+            key={c.key}
+            data-tip={`${name}・${c.label} ${v.toFixed(1)}\n${games} 場的平均；50＝同出裝定位的平均\n${c.hint}`}
+            style={{ background: `color-mix(in oklab, ${tone} ${Math.round(10 + strength * 40)}%, transparent)` }}
+            className="flex h-7 items-center justify-center rounded font-mono text-[11px] tabular-nums"
+          >
+            {Math.round(v)}
+          </span>
+        )
+      })}
+    </span>
+  )
+}
+
+/** 走勢上方的四個數字：合計場次、合計勝率、幾個人用過、誰用最多 */
+function LookupStats({ rows, people, verb }: { rows: { player: Player; games: number; wins: number }[]; people: number; verb: string }) {
+  const games = rows.reduce((a, r) => a + r.games, 0)
+  const wins = rows.reduce((a, r) => a + r.wins, 0)
+  const top = rows[0]
+  const tiles = [
+    { label: "合計場次", value: `${games} 場`, sub: `${wins} 勝 ${games - wins} 敗` },
+    { label: "合計勝率", value: games ? `${((100 * wins) / games).toFixed(1)}%` : "—", sub: "每個人的場次加總", tone: games ? ((100 * wins) / games >= 50 ? "text-win" : "text-loss") : "" },
+    { label: `${verb}過的人`, value: `${rows.length} 人`, sub: `比較對象共 ${people} 人` },
+    { label: `${verb}最多`, value: top ? splitId(top.player.riot_id, top.player.puuid).name : "—", sub: top ? `${top.games} 場・${Math.round((100 * top.wins) / top.games)}%` : "", text: true },
+  ]
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" data-testid="lookup-stats">
+      {tiles.map((t) => (
+        <div key={t.label} className="min-w-0 rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+          <div className="text-[11px] text-muted-foreground">{t.label}</div>
+          {t.text ? (
+            <div className="truncate text-base font-semibold" data-tip={t.value}>{t.value}</div>
+          ) : (
+            <CountUp text={t.value} className={cn("block font-mono text-base font-semibold tabular-nums", t.tone)} />
+          )}
+          <div className="truncate text-[11px] text-muted-foreground">{t.sub}</div>
         </div>
-      )}
+      ))}
     </div>
   )
 }
@@ -3518,7 +3513,7 @@ const CHAMPION_LOOKUP: LookupKind = {
   title: "查英雄",
   short: "選一隻英雄，看每個人玩它的戰績",
   caption:
-    "選一隻英雄，看每個人玩它的戰績；點一列開抽屜看他玩這隻英雄的每一場。「勝率」是和他自己整體勝率的差距（依場次收縮後），戰績條的刻度也是他自己的整體勝率；「貢獻」是這幾場的本場貢獻平均（50＝同出裝定位的平均）。右邊是這幾場的平均：KDA（下面是平均擊殺／死亡／助攻）、每分鐘輸出（下面是傷害占隊伍的比例）、每分鐘承傷（承受＋減免）、參團率、MVP 與 ACE 次數，以及本場貢獻八個基因裡最突出（綠）與最弱（紅）的一項",
+    "選一隻英雄，看每個人玩它的戰績；點一列開抽屜看他玩這隻英雄的每一場。「勝率」是和他自己整體勝率的差距（依場次收縮後），戰績條的刻度也是他自己的整體勝率；「貢獻」是這幾場的本場貢獻平均（50＝同出裝定位的平均）。右邊是這幾場的平均：KDA（下面是平均擊殺／死亡／助攻）、每分鐘輸出（下面是傷害占隊伍的比例）、每分鐘承傷（承受＋減免）、參團率、MVP 與 ACE 次數，以及本場貢獻八個基因各自的平均（50＝同出裝定位的平均，綠高紅低）",
   noun: "英雄",
   counter: "隻",
   verb: "玩",

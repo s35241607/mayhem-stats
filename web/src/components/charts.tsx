@@ -277,7 +277,7 @@ export const HOURS_24 = Array.from({ length: 24 }, (_, i) => String(i))
 
 export type TrendPoint = { date: string; games: number; winrate: number | null }
 
-export function TrendChart({ points }: { points: TrendPoint[] }) {
+export function TrendChart({ points, height = 240 }: { points: TrendPoint[]; height?: number }) {
   const theme = useTheme()
 
   const option = useMemo(() => {
@@ -348,7 +348,7 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
     }
   }, [points, theme])
 
-  return <ResponsiveChart option={option} height={240} />
+  return <ResponsiveChart option={option} height={height} />
 }
 
 // ─────────────────────────────────────────── 星期 × 時段熱力圖
