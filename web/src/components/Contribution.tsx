@@ -21,13 +21,15 @@ export function ContribScore({ dev: d, className, gap = WORK_GAP }: { dev: numbe
   )
 }
 
-/** 以 50 為中線的橫條：往右是比同出裝定位的平均高，往左是比較低。
- *  scale：放大倍數（多場平均都貼近 50，原尺寸幾乎看不見），超過的部分截在兩端 */
-function DivergingBar({ v, className, scale = 1 }: { v: number | null; className?: string; scale?: number }) {
-  const d = v === null ? null : Math.max(-50, Math.min(50, (v - 50) * scale))
+/** 以 0 為中線的橫條：這一項讓總分加減幾分，往右加分、往左扣分。
+ *  畫的是加減分而不是基因分數：只加不扣的項目（承傷、擊殺、控場……）低於平均時基因在 50 以下、加減分卻是 0，
+ *  多場平均時甚至會「基因平均 43、加減分平均 +2」（有幾場加分、其他場是 0）。條和右邊的數字畫同一個東西才不會一紅一藍。
+ *  full：半條代表幾分（單場 15 分、多場平均 6 分），超過的截在兩端 */
+function DivergingBar({ pts, className, full = 15 }: { pts: number | null; className?: string; full?: number }) {
+  const d = pts === null ? null : Math.max(-50, Math.min(50, (pts / full) * 50))
   return (
     <span className={cn("relative block rounded-full bg-muted/50", className)}>
-      {v !== null && d !== null && (
+      {d !== null && Math.abs(d) >= 0.5 && (
         <span
           className={cn("absolute inset-y-0 rounded-full", d >= 0 ? "bg-win/70" : "bg-loss/70")}
           style={d >= 0 ? { left: "50%", width: `${d}%` } : { left: `${50 + d}%`, width: `${-d}%` }}
@@ -40,8 +42,8 @@ function DivergingBar({ v, className, scale = 1 }: { v: number | null; className
 
 const signed = (v: number) => (Math.abs(v) < 0.05 ? "0.0" : `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(1)}`)
 
-/** 八個計分基因的橫條：中間的刻度是 50（同出裝定位的平均），右邊的數字是這一項讓總分加減幾分；沒有值的項目顯示「—」。
- *  compact：好友比較全員一覽每人一欄用的小尺寸；放的是多場平均，橫條放大 3 倍 */
+/** 八個計分基因的橫條：條和右邊的數字都是這一項讓總分加減幾分（中線 0）；基因分數（50＝同出裝定位的平均）在滑過的提示裡。
+ *  compact：好友比較全員一覽每人一欄用的小尺寸；放的是多場平均，半條代表 6 分 */
 export function ContribBars({ row, className, compact }: { row: CubeRow | undefined; className?: string; compact?: boolean }) {
   return (
     <div className={className ?? (compact ? "space-y-[3px]" : "space-y-1.5")}>
@@ -49,8 +51,9 @@ export function ContribBars({ row, className, compact }: { row: CubeRow | undefi
         const v = row ? num(row[c.key]) : null
         const pts = row ? num(row[c.pts]) : null
         const tip =
-          `{{lab|${c.label}}}{{big|${v === null ? "—" : Math.round(v)}}} 50＝同出裝定位的平均\n> ${c.hint}` +
-          (pts === null ? "" : `\n{{lab|總分}}{{${pts >= 0 ? "win" : "loss"}|${signed(pts)}}} 分（這一項占 ${c.weight}%）`)
+          (pts === null ? "" : `{{lab|總分}}{{${pts >= 0 ? "win" : "loss"}|${signed(pts)}}} 分（這一項占 ${c.weight}%；橫條畫的就是它）\n`) +
+          `{{lab|${c.label}}}{{big|${v === null ? "—" : Math.round(v)}}} 基因分數，50＝同出裝定位的平均\n> ${c.hint}` +
+          (c.key === "contribution.gene_dmg" ? "" : "\n> 只加不扣：基因低於 50 的場次這一項是 0，所以多場平均時基因可能低於 50、加減分仍是正的")
         return (
           <div
             key={c.key}
@@ -58,7 +61,7 @@ export function ContribBars({ row, className, compact }: { row: CubeRow | undefi
             data-tip={tip}
           >
             <span className={compact ? "text-[10px] leading-[13px] text-muted-foreground" : "text-[12px]"}>{c.label}</span>
-            <DivergingBar v={v} className={compact ? "h-1.5" : "h-2"} scale={compact ? 3 : 1} />
+            <DivergingBar pts={pts} className={compact ? "h-1.5" : "h-2"} full={compact ? 6 : 15} />
             <span
               className={cn(
                 "text-right font-mono tabular-nums",
@@ -150,7 +153,8 @@ export function ContribMeter({
         {tag && <ContribTagBadge tag={tag} />}
         <ChevronDown className={cn("ml-auto size-3.5 text-muted-foreground transition-transform", expanded && "rotate-180")} />
       </span>
-      <DivergingBar v={score} className="h-1.5" />
+      {/* 總分以 50 為中線：差距 50 分是半條，等於把 score − 50 當加減分畫 */}
+      <DivergingBar pts={score === null ? null : score - 50} full={50} className="h-1.5" />
     </button>
   )
 }

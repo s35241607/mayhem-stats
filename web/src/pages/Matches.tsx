@@ -434,7 +434,7 @@ function Scoreboard({
                     </div>
                     <div className="min-w-[260px] flex-1 space-y-1.5">
                       <div className="text-[11px] text-muted-foreground">
-                        八個基因：先和同一場的人比、再和同出裝定位的平均比（50＝平均）；右邊的數字是這一項讓總分加減幾分。
+                        八個基因：先和同一場的人比、再和同出裝定位的平均比（雷達，50＝平均）；橫條和右邊的數字是這一項讓總分加減幾分。
                         {isEstimate(contrib.get(keyOf(p))) && " *暫估：這場沒有賽後統計，治療護盾不計分。"}
                       </div>
                       <ContribBars row={contrib.get(keyOf(p))} className="grid gap-x-8 gap-y-1.5 sm:grid-cols-2" />
