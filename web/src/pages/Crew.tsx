@@ -3071,7 +3071,8 @@ function PlayerDrawerBody({
   )
 }
 
-type LookupOption = { name: string; icon: string; games: number; wins: number; players: number }
+/** workSum／workGames：本場貢獻依「有分數的場次」加權的合計（平均＝workSum ÷ workGames；重開局等沒分數的場不算） */
+type LookupOption = { name: string; icon: string; games: number; wins: number; players: number; workSum: number; workGames: number }
 
 /** 英雄／增幅選擇器：可搜尋，依「幾個人用過、合計幾場」排序 */
 function LookupPicker({
@@ -3219,9 +3220,15 @@ function LookupPanel({
     for (const r of rows) {
       if (!puuids.includes(String(r["participants.puuid"]))) continue
       const name = String(r[kind.nameKey])
-      const cur = m.get(name) ?? { name, icon: r[kind.iconKey] as string, games: 0, wins: 0, players: 0 }
+      const cur = m.get(name) ?? { name, icon: r[kind.iconKey] as string, games: 0, wins: 0, players: 0, workSum: 0, workGames: 0 }
       cur.games += n0(r, "participants.games")
       cur.wins += n0(r, "participants.wins")
+      // 每個人的本場貢獻平均依他有分數的場次加權，合起來才是這群人用它的平均
+      const work = opt(r, WORK)
+      if (work !== null) {
+        cur.workSum += work * n0(r, WORK_GAMES)
+        cur.workGames += n0(r, WORK_GAMES)
+      }
       cur.players += 1
       m.set(name, cur)
     }
@@ -3478,6 +3485,7 @@ function RankStrip({ items, selected, onPick }: { items: LookupOption[]; selecte
         const wr = (100 * o.wins) / o.games
         const diff = shrunk(o.games, wr, base) - base
         const on = o.name === selected
+        const work = o.workGames ? o.workSum / o.workGames : null
         return (
           <button
             key={o.name}
@@ -3485,9 +3493,9 @@ function RankStrip({ items, selected, onPick }: { items: LookupOption[]; selecte
             data-selected={on}
             data-testid="lookup-rank-item"
             onClick={() => onPick(o.name)}
-            data-tip={`${o.name}\n這群人合計 ${o.games} 場・${o.wins} 勝 ${o.games - o.wins} 敗（{{${Math.abs(diff) < 2 ? "mute" : diff > 0 ? "win" : "loss"}|${wr.toFixed(1)}%}}）\n${o.players} 人用過；這批平均 ${base.toFixed(1)}%`}
+            data-tip={`${o.name}\n這群人合計 ${o.games} 場・${o.wins} 勝 ${o.games - o.wins} 敗（{{${Math.abs(diff) < 2 ? "mute" : diff > 0 ? "win" : "loss"}|${wr.toFixed(1)}%}}）\n${o.players} 人用過；這批平均 ${base.toFixed(1)}%${work === null ? "" : `\n本場貢獻平均 {{big|${work.toFixed(1)}}}（${o.workGames} 場有分數；50＝同出裝定位的平均）`}`}
             className={cn(
-              "flex w-[8.5rem] shrink-0 items-center gap-2 rounded-md border px-1.5 py-1 text-left transition hover:bg-accent",
+              "flex w-[9.5rem] shrink-0 items-center gap-2 rounded-md border px-1.5 py-1 text-left transition hover:bg-accent",
               on ? "border-primary bg-primary/10 ring-1 ring-primary" : "border-border/60",
             )}
           >
@@ -3497,6 +3505,7 @@ function RankStrip({ items, selected, onPick }: { items: LookupOption[]; selecte
               <span className="flex items-baseline gap-1.5 font-mono text-[11px] tabular-nums">
                 <span className={Math.abs(diff) < 2 ? "text-muted-foreground" : diff > 0 ? "text-win" : "text-loss"}>{Math.round(wr)}%</span>
                 <span className="text-muted-foreground">{o.games} 場</span>
+                {work !== null && <ContribScore dev={work - 50} className="ml-auto" />}
               </span>
             </span>
           </button>
@@ -3530,7 +3539,7 @@ function PairList({
   // 一場多列的維度只查 games 與 wins（理由見頁面的 augments 查詢）
   const res = useCube(
     detail({
-      measures: ["participants.games", "participants.wins"],
+      measures: ["participants.games", "participants.wins", WORK],
       dimensions: [kind.nameKey, kind.iconKey],
       filters: [...filters, ...(kind.filters ?? [])],
       order: { "participants.games": "desc" },
@@ -3541,7 +3550,7 @@ function PairList({
   const list = res.rows.map((r) => {
     const games = n0(r, "participants.games")
     const w = n0(r, "participants.wins")
-    return { name: String(r[kind.nameKey]), icon: r[kind.iconKey] as string, games, wins: w, wr: games ? (100 * w) / games : 0 }
+    return { name: String(r[kind.nameKey]), icon: r[kind.iconKey] as string, games, wins: w, wr: games ? (100 * w) / games : 0, work: opt(r, WORK) }
   })
   const label = from.id === "champ" ? `${value}常搭的${kind.noun}` : `搭配的${kind.noun}`
   return (
@@ -3570,9 +3579,9 @@ function PairList({
                 type="button"
                 data-testid="lookup-pair-row"
                 onClick={() => onJump(kind.id, o.name)}
-                data-tip={`${o.name}\n搭配 ${o.games} 場（${share.toFixed(0)}%）・${o.wins} 勝 ${o.games - o.wins} 敗（{{${Math.abs(diff) < 2 ? "mute" : diff > 0 ? "win" : "loss"}|${o.wr.toFixed(1)}%}}）\n點一下到「${kind.title}」看它`}
+                data-tip={`${o.name}\n搭配 ${o.games} 場（${share.toFixed(0)}%）・${o.wins} 勝 ${o.games - o.wins} 敗（{{${Math.abs(diff) < 2 ? "mute" : diff > 0 ? "win" : "loss"}|${o.wr.toFixed(1)}%}}）${o.work === null ? "" : `\n本場貢獻平均 {{big|${o.work.toFixed(1)}}}（50＝同出裝定位的平均）`}\n點一下到「${kind.title}」看它`}
                 style={{ "--stagger": `${Math.min(i, 12) * 30}ms` } as CSSProperties}
-                className="slide-in grid w-full grid-cols-[1.5rem_minmax(0,1fr)_minmax(3rem,5rem)_2.5rem_2.25rem] items-center gap-1.5 rounded px-1 py-0.5 text-left transition hover:bg-accent"
+                className="slide-in grid w-full grid-cols-[1.5rem_minmax(0,1fr)_minmax(3rem,5rem)_2.5rem_2.25rem_1.75rem] items-center gap-1.5 rounded px-1 py-0.5 text-left transition hover:bg-accent"
               >
                 <img src={iconUrl(o.icon)} alt="" className="size-6 rounded bg-icon-tile" />
                 <span className="truncate text-[12px]">{o.name}</span>
@@ -3583,6 +3592,7 @@ function PairList({
                 <span className={cn("text-right font-mono text-[11px] tabular-nums", Math.abs(diff) < 2 ? "text-muted-foreground" : diff > 0 ? "text-win" : "text-loss")}>
                   {Math.round(o.wr)}%
                 </span>
+                <span className="text-right text-[11px]">{o.work === null ? "" : <ContribScore dev={o.work - 50} />}</span>
               </button>
             )
           })}
@@ -4343,7 +4353,7 @@ export function Crew() {
   const augments = useCube(
     section === "augment"
       ? q({
-          measures: ["participants.games", "participants.wins", "participants.losses", WORK],
+          measures: ["participants.games", "participants.wins", "participants.losses", WORK, WORK_GAMES],
           dimensions: ["participants.puuid", "augments.name", "augments.icon_path"],
           limit: NO_LIMIT,
         })
@@ -4353,7 +4363,7 @@ export function Crew() {
   const items = useCube(
     section === "item"
       ? q({
-          measures: ["participants.games", "participants.wins", "participants.losses", WORK],
+          measures: ["participants.games", "participants.wins", "participants.losses", WORK, WORK_GAMES],
           dimensions: ["participants.puuid", "items.name", "items.icon_path"],
           filters: ITEM_LOOKUP.filters,
           limit: NO_LIMIT,
