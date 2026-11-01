@@ -15,7 +15,8 @@ DB = sys.argv[1] if len(sys.argv) > 1 else "mayhem.db"
 YML = Path(__file__).parent.parent / "cube" / "model" / "cubes" / "contribution.yml"
 ANTI_HEAL = {3033, 3075, 3076, 3123, 3165, 3916, 6609, 223033, 223075, 223165, 226609, 323075, 773075, 773123, 773165}
 ANTI_SHIELD = {6695, 226695}
-WEIGHTS = {"d": 0.24, "t": 0.19, "h": 0.11, "c": 0.10, "kda": 0.05, "o": 0.07, "w": 0.05, "a": 0.03, "ks": 0.16}
+# kda 權重 0（v3.9 不計分），只拿來比對 gene_kda
+WEIGHTS = {"d": 0.25, "t": 0.20, "h": 0.12, "c": 0.11, "kda": 0.0, "o": 0.07, "w": 0.05, "a": 0.03, "ks": 0.17}
 GENE_COL = {"d": "gene_d", "w": "gene_w", "o": "gene_o", "t": "gene_t", "c": "gene_c", "h": "gene_h", "a": "gene_a", "kda": "gene_kda", "ks": "gene_ks"}
 
 text = YML.read_text(encoding="utf-8")
@@ -122,7 +123,8 @@ for (pl, gid), ps in games.items():
                "score_status": "complete" if has_eog else "estimate", "x_a": a}
         for k in WEIGHTS:
             out[GENE_COL[k]] = min(100.0, max(0.0, 50 + 20 * shown[k]))
-            out["pts_" + k] = 20 * WEIGHTS[k] * z[k] / SD["work"]
+            if WEIGHTS[k]:
+                out["pts_" + k] = 20 * WEIGHTS[k] * z[k] / SD["work"]
         out["pts_base"] = -20 * SD["mu_work"] / SD["work"]
         out["p_ks"] = P["ks"]
         for k, col in (("d", "p_d"), ("w", "p_w"), ("o", "p_o"), ("t", "p_t"), ("c", "p_c"), ("h", "p_h"), ("a", "p_a"), ("kda", "p_kda")):

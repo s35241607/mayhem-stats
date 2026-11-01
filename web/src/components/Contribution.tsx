@@ -40,7 +40,7 @@ function DivergingBar({ v, className, scale = 1 }: { v: number | null; className
 
 const signed = (v: number) => (Math.abs(v) < 0.05 ? "0.0" : `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(1)}`)
 
-/** 九個基因的橫條：中間的刻度是 50（同出裝定位的平均），右邊的數字是這一項讓總分加減幾分；沒有值的項目顯示「—」。
+/** 八個計分基因的橫條：中間的刻度是 50（同出裝定位的平均），右邊的數字是這一項讓總分加減幾分；沒有值的項目顯示「—」。
  *  compact：好友比較全員一覽每人一欄用的小尺寸；放的是多場平均，橫條放大 3 倍 */
 export function ContribBars({ row, className, compact }: { row: CubeRow | undefined; className?: string; compact?: boolean }) {
   return (
@@ -75,7 +75,7 @@ export function ContribBars({ row, className, compact }: { row: CubeRow | undefi
       {row && num(row[WORK_BASE]) !== null && (
         <div
           className={cn("grid items-center border-t border-border/50", compact ? "grid-cols-[3rem_minmax(0,1fr)_2.25rem] gap-1.5 pt-[3px]" : "grid-cols-[3.5rem_minmax(0,1fr)_2.75rem] gap-2 pt-1.5")}
-          data-tip={"{{lab|整體校正}}每個人一樣\n> 九項裡多數只加不扣（承傷、擊殺、治療護盾、控場、推塔、清兵、功能裝），不扣掉這一點，全站平均會高於 50。上面的加減分加起來再加上它，就是總分 − 50"}
+          data-tip={"{{lab|整體校正}}每個人一樣\n> 八項裡除了輸出都只加不扣（承傷、擊殺、治療護盾、控場、推塔、清兵、功能裝），不扣掉這一點，全站平均會高於 50。上面的加減分加起來再加上它，就是總分 − 50"}
         >
           <span className={compact ? "text-[10px] leading-[13px] text-muted-foreground" : "text-[12px] text-muted-foreground"}>校正</span>
           <span className="text-[10px] text-muted-foreground">{compact ? "" : "每個人一樣"}</span>
@@ -89,7 +89,7 @@ export function ContribBars({ row, className, compact }: { row: CubeRow | undefi
 }
 
 const WORK_TITLE =
-  "本場貢獻（0～100）：輸出、承傷、擊殺、治療護盾、控場、K/DA、推塔、清兵、功能裝九項，先和同一場的人比、再和同出裝定位的平均比，加權成總分。50＝同出裝定位的平均"
+  "本場貢獻（0～100）：輸出、承傷、擊殺、治療護盾、控場、推塔、清兵、功能裝八項，先和同一場的人比、再和同出裝定位的平均比，加權成總分。50＝同出裝定位的平均"
 const ESTIMATE_NOTE = "*暫估：這場沒有賽後統計，治療護盾隊友不計分（這一項視為平均）"
 
 /** 對局卡片裡的一個小數字：「貢獻 62」；暫估的場次數字後面加「*」 */
@@ -122,7 +122,7 @@ export function ContribTagBadge({ tag, className }: { tag: ContribTag; className
   )
 }
 
-/** 計分板每列：大數字（本場貢獻，暫估加「*」）＋ 以 50 為中線的橫條；點了展開九個基因。 */
+/** 計分板每列：大數字（本場貢獻，暫估加「*」）＋ 以 50 為中線的橫條；點了展開八個基因。 */
 export function ContribMeter({
   score,
   tag,
@@ -141,7 +141,7 @@ export function ContribMeter({
       type="button"
       onClick={onToggle}
       aria-expanded={expanded}
-      data-tip={`${WORK_TITLE}${estimate ? `\n${ESTIMATE_NOTE}` : ""}\n點一下看九個基因${tag === "MVP" ? "\nMVP：贏的一隊本場貢獻最高" : tag === "ACE" ? "\nACE：輸的一隊本場貢獻最高" : ""}`}
+      data-tip={`${WORK_TITLE}${estimate ? `\n${ESTIMATE_NOTE}` : ""}\n點一下看八個基因${tag === "MVP" ? "\nMVP：贏的一隊本場貢獻最高" : tag === "ACE" ? "\nACE：輸的一隊本場貢獻最高" : ""}`}
       className="flex w-[150px] shrink-0 flex-col gap-1 rounded-md px-1.5 py-1 text-left transition hover:bg-secondary/60"
     >
       <span className="flex items-center gap-1.5">

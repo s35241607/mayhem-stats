@@ -1,5 +1,5 @@
 """本場貢獻 v3 的 SQL（contribution.yml）：用小型合成資料釘住規格裡最容易悄悄壞掉的性質——
-只和同場比、每一項多做不會變少、坦克打出高輸出會加分、基準依出裝定位、K/DA 的死亡會扣、功能裝的算法、
+只和同場比、每一項多做不會變少、坦克打出高輸出會加分、基準依出裝定位、K/DA 不計分（v3.9）、功能裝的算法、
 治療護盾哪一種場次走哪一種資料、不完整的對局不計分。整套分數和獨立 Python 實作的逐筆比對見 analysis/scoring_v3_check.py。"""
 import re
 import sqlite3
@@ -14,7 +14,7 @@ import db
 YML = Path(__file__).parent.parent / "cube" / "model" / "cubes" / "contribution.yml"
 SQL = yaml.safe_load(YML.read_text(encoding="utf-8"))["cubes"][0]["meta"]["materialize"]["sql"]
 SD_WORK, MU_WORK = map(float, re.search(r"VALUES \([\d., ]+, ([\d.]+), (-?[\d.]+)\)\s*-- 校正常數結束", SQL).groups())
-WEIGHTS = {"d": 0.24, "t": 0.19, "ks": 0.16, "h": 0.11, "c": 0.10, "kda": 0.05, "o": 0.07, "w": 0.05, "a": 0.03}
+WEIGHTS = {"d": 0.25, "t": 0.20, "ks": 0.17, "h": 0.12, "c": 0.11, "o": 0.07, "w": 0.05, "a": 0.03}
 
 
 class Fixture:
@@ -87,13 +87,14 @@ class ContributionTests(unittest.TestCase):
         base = self.score(1, 3)
         for g, field, value in ((2, "dmg_to_champions", 60000), (3, "dmg_taken", 80000), (4, "dmg_mitigated", 60000),
                                 (5, "time_ccing_others", 120), (6, "dmg_to_objectives", 9000), (7, "total_damage", 200000),
-                                (8, "kills", 15), (9, "assists", 25)):
+                                (8, "kills", 15)):
             self.fx.game(g, over={3: {field: value}})
-            self.assertGreater(self.score(g, 3), base, field)
-        self.fx.game(10, over={3: {"deaths": 1}})
-        self.assertGreater(self.score(10, 3), base, "死得少")
-        self.fx.game(11, over={3: {"deaths": 12}})
-        self.assertLess(self.score(11, 3), base, "K/DA 的死亡會扣分")
+            self.assertGreaterEqual(self.score(g, 3), base, field)
+        # v3.9：K/DA 不計分，死亡、助攻不影響分數（gene_kda 仍照算給「打法」看）
+        for g, field, value in ((9, "assists", 25), (10, "deaths", 1), (11, "deaths", 12)):
+            self.fx.game(g, over={3: {field: value}})
+            self.assertAlmostEqual(self.score(g, 3), base, places=6, msg=field)
+        self.assertLess(self.at(self.fx.result(), 11, 3)["gene_kda"], 50)
 
     def test_a_tank_who_deals_carry_damage_scores_high(self):
         """使用者 2026-10-24：坦克輸出高，就是這場打出了其他價值，分數要高。"""
@@ -117,7 +118,7 @@ class ContributionTests(unittest.TestCase):
         self.fx.game(1)
         for i in range(1, 11):
             r = self.at(self.fx.result(), 1, i)
-            pts = sum(r[k] for k in ("pts_d", "pts_w", "pts_o", "pts_t", "pts_c", "pts_h", "pts_a", "pts_kda", "pts_ks"))
+            pts = sum(r[k] for k in ("pts_d", "pts_w", "pts_o", "pts_t", "pts_c", "pts_h", "pts_a", "pts_ks"))
             self.assertAlmostEqual(pts, 20 * r["work_raw"] / SD_WORK, places=6)
             if 0 < r["work_score"] < 100:
                 # v3.5：總分扣掉整體校正（每個人一樣），加減分本身不含它
