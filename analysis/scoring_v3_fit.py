@@ -19,11 +19,13 @@ import yaml
 ARGS = [a for a in sys.argv[1:] if not a.startswith("--")]
 DB = ARGS[0] if ARGS else "mayhem.db"
 YML = Path(__file__).parent.parent / "cube" / "model" / "cubes" / "contribution.yml"
-ADD_ONLY = {"t", "c", "h", "a"}
+# 只加不扣的基因（ks 是擊殺和輸出取小之後再夾，見下面的 kd）
+ADD_ONLY = {"t", "c", "h", "a", "w", "o"}
 ROLES = ["射手", "法師", "刺客", "鬥士", "坦克", "輔助"]
-GENES = ["d", "w", "o", "t", "c", "h", "a", "kda"]
+GENES = ["d", "w", "o", "t", "c", "h", "a", "kda", "ks"]
 # 和 yml 第 5 步相同（改權重要兩邊一起改）
-WEIGHTS = {"d": 0.28, "t": 0.23, "h": 0.13, "c": 0.12, "kda": 0.06, "o": 0.08, "w": 0.06, "a": 0.04}
+# kd＝擊殺（擊殺占比和輸出的 z 取小，只加不扣，v3.8）
+WEIGHTS = {"d": 0.24, "t": 0.19, "kd": 0.16, "h": 0.11, "c": 0.10, "o": 0.07, "kda": 0.05, "w": 0.05, "a": 0.03}
 BLOCK = re.compile(r"(-- 校正常數開始[^\n]*\n)(.*?)(\n\s*-- 校正常數結束)", re.S)
 
 
@@ -32,23 +34,23 @@ def block(mu: dict, sd: dict, sd_work: float, mu_work: float) -> str:
     rows = []
     for role in ROLES + ["未成形"]:
         m = mu[role]
-        vals = [m["d"], m["w"], m["o"], m["t"], m["c"], m["h_eog"], m["h_flag"], m["a"], m["kda"]]
+        vals = [m["d"], m["w"], m["o"], m["t"], m["c"], m["h_eog"], m["h_flag"], m["a"], m["kda"], m["ks"]]
         rows.append(f"              ('{role}', " + ", ".join(f"{v:.3f}" for v in vals) + ")")
-    s = [sd["d"], sd["w"], sd["o"], sd["t"], sd["c"], sd["h_eog"], sd["h_flag"], sd["a"], sd["kda"]]
+    s = [sd["d"], sd["w"], sd["o"], sd["t"], sd["c"], sd["h_eog"], sd["h_flag"], sd["a"], sd["kda"], sd["ks"]]
     return ("            VALUES\n" + ",\n".join(rows) + "\n          ),\n"
-            "          sd(sd_d, sd_w, sd_o, sd_t, sd_c, sd_h_eog, sd_h_flag, sd_a, sd_kda, sd_work, mu_work) AS (\n"
+            "          sd(sd_d, sd_w, sd_o, sd_t, sd_c, sd_h_eog, sd_h_flag, sd_a, sd_kda, sd_ks, sd_work, mu_work) AS (\n"
             "            VALUES (" + ", ".join(f"{v:.3f}" for v in s) + f", {sd_work:.4f}, {mu_work:.4f})")
 
 
 text = YML.read_text(encoding="utf-8")
 sql = yaml.safe_load(text)["cubes"][0]["meta"]["materialize"]["sql"]
-zero = {r: {k: 0.0 for k in ["d", "w", "o", "t", "c", "h_eog", "h_flag", "a", "kda"]} for r in ROLES + ["未成形"]}
-one = {k: 1.0 for k in ["d", "w", "o", "t", "c", "h_eog", "h_flag", "a", "kda"]}
+zero = {r: {k: 0.0 for k in ["d", "w", "o", "t", "c", "h_eog", "h_flag", "a", "kda", "ks"]} for r in ROLES + ["未成形"]}
+one = {k: 1.0 for k in ["d", "w", "o", "t", "c", "h_eog", "h_flag", "a", "kda", "ks"]}
 neutral = BLOCK.sub(lambda m: m.group(1) + block(zero, one, 1.0, 0.0) + m.group(3), sql)
 assert neutral != sql or "VALUES (1.000" in sql, "找不到常數區塊"
 
 c = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
-rows = c.execute(f"""SELECT build_role, heal_src, p_d, p_w, p_o, p_t, p_c, p_h, p_a, p_kda FROM ({neutral}) WHERE work_score IS NOT NULL""").fetchall()
+rows = c.execute(f"""SELECT build_role, heal_src, p_d, p_w, p_o, p_t, p_c, p_h, p_a, p_kda, p_ks FROM ({neutral}) WHERE work_score IS NOT NULL""").fetchall()
 role = np.array([r[0] for r in rows])
 src = np.array([r[1] for r in rows])
 P = {g: np.array([r[2 + i] for r in rows], float) for i, g in enumerate(GENES)}
@@ -78,7 +80,9 @@ for g in GENES:
 for r in ROLES + ["未成形"]:
     mu[r]["h_flag"] = 0.0
 sd["h_flag"] = 1.0
-raw = sum(WEIGHTS[g] * resid[g] for g in GENES)
+# v3.8 擊殺：擊殺占比的 z 和輸出的 z 取小（沒夾的輸出），只加不扣
+resid["kd"] = np.maximum(np.minimum(resid["ks"], resid["d"]), 0.0)
+raw = sum(WEIGHTS[g] * resid[g] for g in WEIGHTS)
 sd_work = round(float(raw.std()), 4)
 mu_work = round(float(raw.mean()), 4)
 new_block = block(mu, sd, sd_work, mu_work)

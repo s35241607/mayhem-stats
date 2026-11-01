@@ -15,17 +15,17 @@ DB = sys.argv[1] if len(sys.argv) > 1 else "mayhem.db"
 YML = Path(__file__).parent.parent / "cube" / "model" / "cubes" / "contribution.yml"
 ANTI_HEAL = {3033, 3075, 3076, 3123, 3165, 3916, 6609, 223033, 223075, 223165, 226609, 323075, 773075, 773123, 773165}
 ANTI_SHIELD = {6695, 226695}
-WEIGHTS = {"d": 0.28, "t": 0.23, "h": 0.13, "c": 0.12, "kda": 0.06, "o": 0.08, "w": 0.06, "a": 0.04}
-GENE_COL = {"d": "gene_d", "w": "gene_w", "o": "gene_o", "t": "gene_t", "c": "gene_c", "h": "gene_h", "a": "gene_a", "kda": "gene_kda"}
+WEIGHTS = {"d": 0.24, "t": 0.19, "h": 0.11, "c": 0.10, "kda": 0.05, "o": 0.07, "w": 0.05, "a": 0.03, "ks": 0.16}
+GENE_COL = {"d": "gene_d", "w": "gene_w", "o": "gene_o", "t": "gene_t", "c": "gene_c", "h": "gene_h", "a": "gene_a", "kda": "gene_kda", "ks": "gene_ks"}
 
 text = YML.read_text(encoding="utf-8")
 blk = re.search(r"-- 校正常數開始[^\n]*\n(.*?)-- 校正常數結束", text, re.S).group(1)
 MU = {}
 for m in re.finditer(r"\('([^']+)', ([^)]*)\)", blk):
     v = [float(x) for x in m.group(2).split(",")]
-    MU[m.group(1)] = dict(zip(["d", "w", "o", "t", "c", "h_eog", "h_flag", "a", "kda"], v))
+    MU[m.group(1)] = dict(zip(["d", "w", "o", "t", "c", "h_eog", "h_flag", "a", "kda", "ks"], v))
 sdv = [float(x) for x in re.search(r"VALUES \(([\d., ]+)\)\s*$", blk.strip()).group(1).split(",")]
-SD = dict(zip(["d", "w", "o", "t", "c", "h_eog", "h_flag", "a", "kda", "work", "mu_work"], sdv))
+SD = dict(zip(["d", "w", "o", "t", "c", "h_eog", "h_flag", "a", "kda", "ks", "work", "mu_work"], sdv))
 
 c = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
 c.row_factory = sqlite3.Row
@@ -71,6 +71,8 @@ for (pl, gid), ps in games.items():
         # 參團率（v3.1）：擊殺＋助攻 ÷ 我方擊殺；我方 0 殺時是 0
         team_kills = sum(q["kills"] for q in ps if q["team_id"] == p["team_id"])
         p["_k"] = (p["kills"] + p["assists"]) / team_kills if team_kills else 0.0
+        # 擊殺占比（v3.8）：自己擊殺 ÷ 我方擊殺
+        p["_ks"] = p["kills"] / team_kills if team_kills else 0.0
         p["_death"] = p["deaths"] / m
         if has_eog:
             h, s = eog[(gid, p["puuid"])]
@@ -93,7 +95,7 @@ for (pl, gid), ps in games.items():
         if p["_ash"]:
             a += 0.4 * foe_shield / sum(q["_ash"] for q in team)
         others = [q for q in ps if q is not p]
-        P = {k: rel(p["_" + k], [q["_" + k] for q in others]) for k in ("d", "w", "o", "t", "c", "k")}
+        P = {k: rel(p["_" + k], [q["_" + k] for q in others]) for k in ("d", "w", "o", "t", "c", "k", "ks")}
         e_death = sum(q["_death"] for q in others) / 9
         P["s"] = 100.0 if p["_death"] == 0 else 0.0 if e_death == 0 else 100.0 * e_death / (p["_death"] + e_death)
         P["kda"] = (P["k"] + P["s"]) / 2
@@ -106,11 +108,14 @@ for (pl, gid), ps in games.items():
             if k == "h":
                 # v3.4：flag（沒有賽後統計）不計治療護盾，z＝0
                 z[k] = (P["h"] - mu["h_eog"]) / SD["h_eog"] if has_eog else 0.0
+            elif k == "ks":
+                # v3.8 擊殺：擊殺占比的 z 和輸出的 z 取小
+                z[k] = min((P["ks"] - mu["ks"]) / SD["ks"], (P["d"] - mu["d"]) / SD["d"])
             else:
                 z[k] = (P[k] - mu[k]) / SD[k]
         shown = dict(z)
         # 只加不扣：控場（v3.5）、治療護盾與功能裝（v3.6）、承傷（v3.7）計分用的 z 夾在 0 以上，基因分數照實顯示；總分扣掉整體校正 mu_work
-        for k in ("t", "c", "h", "a"):
+        for k in ("t", "c", "h", "a", "w", "o", "ks"):  # 清兵、推塔、擊殺：v3.8
             z[k] = max(0.0, z[k])
         raw = sum(WEIGHTS[k] * z[k] for k in WEIGHTS)
         out = {"work_score": min(100.0, max(0.0, 50 + 20 * (raw - SD["mu_work"]) / SD["work"])), "work_raw": raw, "unscored_reason": None,
@@ -118,6 +123,8 @@ for (pl, gid), ps in games.items():
         for k in WEIGHTS:
             out[GENE_COL[k]] = min(100.0, max(0.0, 50 + 20 * shown[k]))
             out["pts_" + k] = 20 * WEIGHTS[k] * z[k] / SD["work"]
+        out["pts_base"] = -20 * SD["mu_work"] / SD["work"]
+        out["p_ks"] = P["ks"]
         for k, col in (("d", "p_d"), ("w", "p_w"), ("o", "p_o"), ("t", "p_t"), ("c", "p_c"), ("h", "p_h"), ("a", "p_a"), ("kda", "p_kda")):
             out[col] = P[k]
         mine[p["rid"]] = out

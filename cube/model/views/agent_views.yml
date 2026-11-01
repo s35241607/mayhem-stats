@@ -334,6 +334,7 @@ views:
           - name: gene_obj
           - name: gene_wave
           - name: gene_anti
+          - name: gene_kill
           - name: pts_dmg
           - name: pts_soak
           - name: pts_heal
@@ -342,6 +343,8 @@ views:
           - name: pts_obj
           - name: pts_wave
           - name: pts_anti
+          - name: pts_kill
+          - name: pts_base
           - name: rel_dmg
           - name: rel_soak
           - name: rel_cc

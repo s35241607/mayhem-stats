@@ -2,7 +2,7 @@ cubes:
   # 本場貢獻（work_score）：全站唯一的分數。計分板大數字、對局卡片、MVP／ACE、英雄頁、好友比較頁（含「打法」）都用它。
   # 規格與實測依據見 docs/contribution-scoring.md；基因的實測與組合比較在 analysis/scoring_v3_genes.py。
   #
-  # 規則版本 v3.7（2026-11-01）。改下面任何一個常數、權重或公式，都要把 score_version 往上升，並重跑
+  # 規則版本 v3.8（2026-11-01）。改下面任何一個常數、權重或公式，都要把 score_version 往上升，並重跑
   # analysis/scoring_v3_fit.py（重新產生校正常數）與 analysis/scoring_v3_check.py（獨立 Python 逐筆比對）。
   #   v3.0 取代 v2.3（contribution_v2.yml）與更早的 perf／score。使用者 2026-10-24 的要求：計分方式統一，
   #   拆成「基因」逐項算；不要再依定位挑項目（v2 依裝備決定哪幾項算分，全防禦裝卻打出全場最高輸出的坦克只拿 27 分），
@@ -27,6 +27,11 @@ cubes:
   #   承傷多又死得多的 730 人次反而 57.8。模擬（analysis/scoring_v37_soak_eval.py）只加不扣後兩群是 51.4 對 54.1，
   #   各出裝平均仍在 50 附近、分得出人的程度（η²）不變；代價是和勝負的相關 0.183 → 0.239（輸的一隊吃得多，以前扣分剛好抵銷一部分）。
   #   只依定位決定扣不扣（只有射手、法師不扣）違反「每個人八項都算」，而且會讓射手法師整體高 2 分，不採用。gene_t 照實顯示。
+  #   v3.7 → v3.8（使用者 2026-11-01 要求）：加第九個基因「擊殺」，清兵、推塔也只加不扣。
+  #   起因：24 殺的烏迪爾只拿 46（推塔、清兵少），使用者同意同場全面型的伊瑞莉雅較高，但收割該有分。參團率把擊殺和助攻算成一樣，擊殺數本身不加分。
+  #   擊殺＝擊殺占比（自己擊殺 ÷ 我方擊殺）同場比、再和同出裝定位比，然後和輸出的 z 取小、只加不扣：殺得多而且打得多才加分，
+  #   只會尾刀、輸出低的「搶頭」拿不到（使用者的疑慮；單純加擊殺占比 12% 會讓搶頭的人平均 41.7 → 49.7，取小之後不變）。
+  #   權重 16%，其他八項等比例讓出（×0.84 再取整數）。依據見 analysis/scoring_v38_kills_eval.py 與 docs/contribution-scoring.md。
   #
   # 1. 計分範圍：queue 2400、非重開、≥ 360 秒、雙方各 5 人。其他場次留一列但分數是空值，unscored_reason 寫原因。
   # 2. 八個基因，每分鐘的量（本場十人時長相同）：
@@ -43,12 +48,13 @@ cubes:
   #      z = (P − 同出裝定位的平均) ÷ 該基因的標準差。每個人八個基因都算，沒有「這個定位只看哪幾項」——
   #      坦克打出高輸出，輸出那一項就比坦克平常高很多，直接加分。H 依資料來源（eog／flag）各有一組平均與標準差。
   #      基因分數 gene_* = 50 + 20 × z（夾在 0～100）：50＝同出裝定位的人在一場裡的平均。
-  # 5. 總分：raw = 0.28 D + 0.23 max(T, 0) + 0.13 max(H, 0) + 0.12 max(C, 0) + 0.06 KDA + 0.08 O + 0.06 W + 0.04 max(A, 0)（各基因的 z；控場 v3.5、治療護盾與功能裝 v3.6、承傷 v3.7 起只加不扣），
+  # 5. 總分：raw = 0.24 D + 0.19 max(T, 0) + 0.16 max(min(KS, D), 0) + 0.11 max(H, 0) + 0.10 max(C, 0) + 0.07 max(O, 0) + 0.05 KDA + 0.05 max(W, 0) + 0.03 max(A, 0)
+  #      （各基因的 z；只有輸出、K/DA 會扣分：控場 v3.5、治療護盾與功能裝 v3.6、承傷 v3.7、擊殺與清兵推塔 v3.8 起只加不扣），
   #      work_score = 50 + 20 × (raw − mu_work) ÷ SD（夾在 0～100）。mu_work 是整體校正（定版時 raw 的平均），讓平均仍是 50。
   #      pts_* 是每個基因讓總分加減幾分（20 × 權重 × z ÷ SD），加起來＝總分 − 50 + 20 × mu_work ÷ SD（夾之前；後面那項約 2 分，每個人一樣）。
   #      權重怎麼定的見 docs/contribution-scoring.md：隊伍層級「兩隊差距 → 勝負」的迴歸會把 78% 給推塔（拆塔就是贏，是結果），不能直接用；
   #      所以輸出、承傷、治療、控場這些「工作」占大部分，K/DA 與推塔這種和勝負綁很緊的只給一點，功能裝看不出讓勝率變高、給最少。
-  # 6. 校正常數（各出裝定位的平均、各基因的標準差、總分的 SD 與整體校正）是 v3.7 定版時（2026-11-01）算出來寫死的：
+  # 6. 校正常數（各出裝定位的平均、各基因的標準差、總分的 SD 與整體校正）是 v3.8 定版時（2026-11-01）算出來寫死的：
   #      之後新增對局不會改舊分。所以 50 是「定版當時、同出裝定位的人的平均」，不是同英雄的中位數。
   #
   # 限制（畫面與說明要講清楚）：這是本場相對工作量，不是操作實力；同樣的數值在不同陣容下會不同分；承傷分不出有效開戰與無效吃傷；
@@ -115,7 +121,9 @@ cubes:
               CASE WHEN heal_src = 'eog' THEN SUM(shield_eog) OVER g - SUM(shield_eog) OVER t ELSE 0.0 END AS foe_shield,
               SUM(anti_heal_item) OVER t AS team_anti_heal, SUM(anti_shield_item) OVER t AS team_anti_shield,
               -- 參團率：擊殺＋助攻 ÷ 我方擊殺
-              CASE WHEN SUM(kills) OVER t = 0 THEN 0.0 ELSE (kills + assists) * 1.0 / SUM(kills) OVER t END AS x_kp
+              CASE WHEN SUM(kills) OVER t = 0 THEN 0.0 ELSE (kills + assists) * 1.0 / SUM(kills) OVER t END AS x_kp,
+              -- v3.8 擊殺占比：自己擊殺 ÷ 我方擊殺（我方 0 殺時是 0）
+              CASE WHEN SUM(kills) OVER t = 0 THEN 0.0 ELSE kills * 1.0 / SUM(kills) OVER t END AS x_ks
             FROM gate
             WHERE unscored_reason IS NULL AND heal_src IS NOT NULL
             WINDOW g AS (PARTITION BY platform_id, game_id), t AS (PARTITION BY platform_id, game_id, team_id)
@@ -127,7 +135,7 @@ cubes:
                 + CASE WHEN anti_shield_item = 1 THEN 0.4 * foe_shield / team_anti_shield ELSE 0.0 END AS x_a,
               (SUM(x_d) OVER g - x_d) / 9.0 AS e_d, (SUM(x_w) OVER g - x_w) / 9.0 AS e_w, (SUM(x_o) OVER g - x_o) / 9.0 AS e_o,
               (SUM(x_t) OVER g - x_t) / 9.0 AS e_t, (SUM(x_c) OVER g - x_c) / 9.0 AS e_c, (SUM(x_kp) OVER g - x_kp) / 9.0 AS e_k,
-              (SUM(x_death) OVER g - x_death) / 9.0 AS e_death
+              (SUM(x_death) OVER g - x_death) / 9.0 AS e_death, (SUM(x_ks) OVER g - x_ks) / 9.0 AS e_ks
             FROM team
             WINDOW g AS (PARTITION BY platform_id, game_id)
           ),
@@ -139,31 +147,38 @@ cubes:
               CASE WHEN x_t = 0 THEN 0.0 WHEN e_t = 0 THEN 100.0 ELSE 100.0 * x_t / (x_t + e_t) END AS p_t,
               CASE WHEN x_c = 0 THEN 0.0 WHEN e_c = 0 THEN 100.0 ELSE 100.0 * x_c / (x_c + e_c) END AS p_c,
               CASE WHEN x_kp = 0 THEN 0.0 WHEN e_k = 0 THEN 100.0 ELSE 100.0 * x_kp / (x_kp + e_k) END AS p_k,
+              CASE WHEN x_ks = 0 THEN 0.0 WHEN e_ks = 0 THEN 100.0 ELSE 100.0 * x_ks / (x_ks + e_ks) END AS p_ks,
               CASE WHEN x_death = 0 THEN 100.0 WHEN e_death = 0 THEN 0.0 ELSE 100.0 * e_death / (x_death + e_death) END AS p_s,
               100.0 * x_h / (x_h + CASE heal_src WHEN 'eog' THEN 1250.0 ELSE 1100.0 END) AS p_h,
               100.0 * x_a / (x_a + 630.0) AS p_a
             FROM genes
           ),
-          calib(build_role, mu_d, mu_w, mu_o, mu_t, mu_c, mu_h_eog, mu_h_flag, mu_a, mu_kda) AS (
-            -- 校正常數開始（analysis/scoring_v3_fit.py 產生，v3.7 定版時 2026-11-01 的資料；寫死，新增對局不會改舊分）
+          calib(build_role, mu_d, mu_w, mu_o, mu_t, mu_c, mu_h_eog, mu_h_flag, mu_a, mu_kda, mu_ks) AS (
+            -- 校正常數開始（analysis/scoring_v3_fit.py 產生，v3.8 定版時 2026-11-01 的資料；寫死，新增對局不會改舊分）
             VALUES
-              ('射手', 51.913, 57.417, 50.301, 36.859, 26.754, 1.473, 0.000, 8.555, 50.059),
-              ('法師', 49.612, 48.290, 37.050, 38.430, 51.259, 2.885, 0.000, 9.479, 51.311),
-              ('刺客', 51.173, 42.562, 38.641, 45.285, 32.452, 0.623, 0.000, 5.420, 48.845),
-              ('鬥士', 49.385, 48.976, 40.155, 54.313, 42.903, 1.291, 0.000, 8.746, 48.647),
-              ('坦克', 41.870, 33.983, 27.236, 66.651, 57.165, 4.813, 0.000, 19.288, 50.470),
-              ('輔助', 26.443, 20.733, 27.211, 35.858, 52.188, 44.394, 0.000, 4.621, 56.943),
-              ('未成形', 48.243, 46.339, 38.473, 46.628, 43.773, 3.599, 0.000, 10.017, 50.268)
+              ('射手', 51.913, 57.417, 50.301, 36.859, 26.754, 1.473, 0.000, 8.555, 50.059, 53.042),
+              ('法師', 49.612, 48.290, 37.050, 38.430, 51.259, 2.885, 0.000, 9.479, 51.311, 44.614),
+              ('刺客', 51.173, 42.562, 38.641, 45.285, 32.452, 0.623, 0.000, 5.420, 48.845, 54.450),
+              ('鬥士', 49.385, 48.976, 40.155, 54.313, 42.903, 1.291, 0.000, 8.746, 48.647, 49.071),
+              ('坦克', 41.870, 33.983, 27.236, 66.651, 57.165, 4.813, 0.000, 19.288, 50.470, 38.794),
+              ('輔助', 26.443, 20.733, 27.211, 35.858, 52.188, 44.394, 0.000, 4.621, 56.943, 22.192),
+              ('未成形', 48.243, 46.339, 38.473, 46.628, 43.773, 3.599, 0.000, 10.017, 50.268, 46.651)
           ),
-          sd(sd_d, sd_w, sd_o, sd_t, sd_c, sd_h_eog, sd_h_flag, sd_a, sd_kda, sd_work, mu_work) AS (
-            VALUES (9.393, 12.897, 25.526, 8.815, 17.878, 16.678, 1.000, 20.327, 4.429, 0.4012, 0.1579)
+          sd(sd_d, sd_w, sd_o, sd_t, sd_c, sd_h_eog, sd_h_flag, sd_a, sd_kda, sd_ks, sd_work, mu_work) AS (
+            VALUES (9.393, 12.897, 25.526, 8.815, 17.878, 16.678, 1.000, 20.327, 4.429, 13.432, 0.3651, 0.2163)
             -- 校正常數結束
           ),
           z AS (
             SELECT p.*, (p.p_k + p.p_s) / 2 AS p_kda,
               (p.p_d - k.mu_d) / s.sd_d AS z_d,
-              (p.p_w - k.mu_w) / s.sd_w AS z_w,
-              (p.p_o - k.mu_o) / s.sd_o AS z_o,
+              -- v3.8：清兵、推塔只加不扣（_shown 照實給基因分數看）
+              (p.p_w - k.mu_w) / s.sd_w AS z_w_shown,
+              MAX(0.0, (p.p_w - k.mu_w) / s.sd_w) AS z_w,
+              (p.p_o - k.mu_o) / s.sd_o AS z_o_shown,
+              MAX(0.0, (p.p_o - k.mu_o) / s.sd_o) AS z_o,
+              -- v3.8 擊殺：擊殺占比的 z 和輸出的 z 取小，只加不扣（殺得多而且打得多才加分，只尾刀的人拿不到）
+              MIN((p.p_ks - k.mu_ks) / s.sd_ks, (p.p_d - k.mu_d) / s.sd_d) AS z_ks_shown,
+              MAX(0.0, MIN((p.p_ks - k.mu_ks) / s.sd_ks, (p.p_d - k.mu_d) / s.sd_d)) AS z_ks,
               -- v3.7：承傷只加不扣（z_t_shown 照實給 gene_t 看吃了多少）
               (p.p_t - k.mu_t) / s.sd_t AS z_t_shown,
               MAX(0.0, (p.p_t - k.mu_t) / s.sd_t) AS z_t,
@@ -184,28 +199,32 @@ cubes:
           total AS (
             -- 第 5 步的權重（加起來 1）
             SELECT *,
-              0.28 * z_d + 0.23 * z_t + 0.13 * z_h + 0.12 * z_c + 0.06 * z_kda + 0.08 * z_o + 0.06 * z_w + 0.04 * z_a AS work_raw
+              0.24 * z_d + 0.19 * z_t + 0.16 * z_ks + 0.11 * z_h + 0.10 * z_c + 0.05 * z_kda + 0.07 * z_o + 0.05 * z_w + 0.03 * z_a AS work_raw
             FROM z
           )
-          SELECT g.participant_rowid, 'v3.7' AS score_version,
+          SELECT g.participant_rowid, 'v3.8' AS score_version,
             CASE WHEN g.unscored_reason IS NOT NULL OR g.heal_src IS NULL THEN 'unscored'
                  WHEN t.heal_src = 'eog' THEN 'complete' ELSE 'estimate' END AS score_status,
             COALESCE(g.unscored_reason, CASE WHEN g.heal_src IS NULL THEN 'missing_heal_data' END) AS unscored_reason,
             ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * (t.work_raw - t.mu_work) / t.sd_work)), 9) AS work_score,
             ROUND(t.work_raw, 9) AS work_raw, g.build_role, t.heal_src,
             -- 基因分數（50＝同出裝定位的平均）
-            ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.z_d)), 9) AS gene_d, ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.z_w)), 9) AS gene_w,
-            ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.z_o)), 9) AS gene_o, ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.z_t_shown)), 9) AS gene_t,
+            ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.z_d)), 9) AS gene_d, ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.z_w_shown)), 9) AS gene_w,
+            ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.z_o_shown)), 9) AS gene_o, ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.z_t_shown)), 9) AS gene_t,
             ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.z_c_shown)), 9) AS gene_c, ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.z_h_shown)), 9) AS gene_h,
             ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.z_a_shown)), 9) AS gene_a, ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.z_kda)), 9) AS gene_kda,
+            ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.z_ks_shown)), 9) AS gene_ks,
             -- 每個基因讓總分加減幾分（夾在 0～100 之前，加起來＝總分 − 50 ＋ 整體校正 20 × mu_work ÷ sd_work）
-            ROUND(20.0 * 0.28 * t.z_d / t.sd_work, 9) AS pts_d, ROUND(20.0 * 0.06 * t.z_w / t.sd_work, 9) AS pts_w,
-            ROUND(20.0 * 0.08 * t.z_o / t.sd_work, 9) AS pts_o, ROUND(20.0 * 0.23 * t.z_t / t.sd_work, 9) AS pts_t,
-            ROUND(20.0 * 0.12 * t.z_c / t.sd_work, 9) AS pts_c, ROUND(20.0 * 0.13 * t.z_h / t.sd_work, 9) AS pts_h,
-            ROUND(20.0 * 0.04 * t.z_a / t.sd_work, 9) AS pts_a, ROUND(20.0 * 0.06 * t.z_kda / t.sd_work, 9) AS pts_kda,
+            ROUND(20.0 * 0.24 * t.z_d / t.sd_work, 9) AS pts_d, ROUND(20.0 * 0.05 * t.z_w / t.sd_work, 9) AS pts_w,
+            ROUND(20.0 * 0.07 * t.z_o / t.sd_work, 9) AS pts_o, ROUND(20.0 * 0.19 * t.z_t / t.sd_work, 9) AS pts_t,
+            ROUND(20.0 * 0.10 * t.z_c / t.sd_work, 9) AS pts_c, ROUND(20.0 * 0.11 * t.z_h / t.sd_work, 9) AS pts_h,
+            ROUND(20.0 * 0.03 * t.z_a / t.sd_work, 9) AS pts_a, ROUND(20.0 * 0.05 * t.z_kda / t.sd_work, 9) AS pts_kda,
+            ROUND(20.0 * 0.16 * t.z_ks / t.sd_work, 9) AS pts_ks,
+            -- 整體校正（每個人一樣）：加減分加起來再加上它就是總分 − 50
+            ROUND(-20.0 * t.mu_work / t.sd_work, 9) AS pts_base,
             -- 和同一場的人比（第 3 步）
-            t.p_d, t.p_w, t.p_o, t.p_t, t.p_c, t.p_h, t.p_a, t.p_k, t.p_s, t.p_kda,
-            t.x_d, t.x_w, t.x_o, t.x_t, t.x_c, t.x_h, t.x_a, t.x_kp, t.x_death, t.foe_heal, t.foe_shield,
+            t.p_d, t.p_w, t.p_o, t.p_t, t.p_c, t.p_h, t.p_a, t.p_k, t.p_s, t.p_kda, t.p_ks,
+            t.x_d, t.x_w, t.x_o, t.x_t, t.x_c, t.x_h, t.x_a, t.x_kp, t.x_ks, t.x_death, t.foe_heal, t.foe_shield,
             g.anti_heal_item, g.anti_shield_item
           FROM gate g LEFT JOIN total t ON t.participant_rowid = g.participant_rowid
 
@@ -237,7 +256,7 @@ cubes:
 
       - name: score_version
         title: 貢獻規則版本
-        description: "本場貢獻的規則版本（例如 v3.7）。跨場比較或聚合時要同版本。"
+        description: "本場貢獻的規則版本（例如 v3.8）。跨場比較或聚合時要同版本。"
         sql: score_version
         type: string
         meta:
@@ -326,6 +345,16 @@ cubes:
           decimals: 0
           higherIsBetter: true
 
+      - name: gene_kill
+        title: 基因・擊殺
+        description: "擊殺占比（自己擊殺 ÷ 我方擊殺）先和同場比、再和同出裝定位比，然後和輸出取小：殺得多而且打得多才高，只會尾刀、輸出低的拿不到。只加不扣（v3.8）。占總分 16%。"
+        sql: gene_ks
+        type: avg
+        meta:
+          group: 貢獻
+          decimals: 0
+          higherIsBetter: true
+
       - name: gene_kda
         title: 基因・K/DA
         description: "參團率（擊殺＋助攻 ÷ 我方擊殺）與存活（每分鐘死亡越少越好）各半，比法同輸出。死亡有一半是結果（輸的隊死得多），所以只占總分 12%。"
@@ -397,6 +426,24 @@ cubes:
         title: 加減分・控場
         description: "控場這一項讓本場貢獻加減幾分。"
         sql: pts_c
+        type: avg
+        meta:
+          group: 貢獻
+          decimals: 1
+
+      - name: pts_kill
+        title: 加減分・擊殺
+        description: "擊殺這一項讓本場貢獻加減幾分（只加不扣，不會是負的）。"
+        sql: pts_ks
+        type: avg
+        meta:
+          group: 貢獻
+          decimals: 1
+
+      - name: pts_base
+        title: 加減分・整體校正
+        description: "每個人一樣的整體校正（負的）：九項加減分加起來再加上它，就是本場貢獻 − 50。因為多數項目只加不扣，扣掉它平均才會是 50。"
+        sql: pts_base
         type: avg
         meta:
           group: 貢獻

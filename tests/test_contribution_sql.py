@@ -14,7 +14,7 @@ import db
 YML = Path(__file__).parent.parent / "cube" / "model" / "cubes" / "contribution.yml"
 SQL = yaml.safe_load(YML.read_text(encoding="utf-8"))["cubes"][0]["meta"]["materialize"]["sql"]
 SD_WORK, MU_WORK = map(float, re.search(r"VALUES \([\d., ]+, ([\d.]+), (-?[\d.]+)\)\s*-- 校正常數結束", SQL).groups())
-WEIGHTS = {"d": 0.28, "t": 0.23, "h": 0.13, "c": 0.12, "kda": 0.06, "o": 0.08, "w": 0.06, "a": 0.04}
+WEIGHTS = {"d": 0.24, "t": 0.19, "ks": 0.16, "h": 0.11, "c": 0.10, "kda": 0.05, "o": 0.07, "w": 0.05, "a": 0.03}
 
 
 class Fixture:
@@ -117,11 +117,12 @@ class ContributionTests(unittest.TestCase):
         self.fx.game(1)
         for i in range(1, 11):
             r = self.at(self.fx.result(), 1, i)
-            pts = sum(r[k] for k in ("pts_d", "pts_w", "pts_o", "pts_t", "pts_c", "pts_h", "pts_a", "pts_kda"))
+            pts = sum(r[k] for k in ("pts_d", "pts_w", "pts_o", "pts_t", "pts_c", "pts_h", "pts_a", "pts_kda", "pts_ks"))
             self.assertAlmostEqual(pts, 20 * r["work_raw"] / SD_WORK, places=6)
             if 0 < r["work_score"] < 100:
                 # v3.5：總分扣掉整體校正（每個人一樣），加減分本身不含它
                 self.assertAlmostEqual(r["work_score"], 50 + pts - 20 * MU_WORK / SD_WORK, places=6)
+                self.assertAlmostEqual(r["work_score"], 50 + pts + r["pts_base"], places=6)
 
     def test_crowd_control_only_adds(self):
         """v3.5：技能組沒有控場（卡特、易大師）不再被扣分；控得多照樣加分。gene_c 照實顯示控場少"""
@@ -138,6 +139,21 @@ class ContributionTests(unittest.TestCase):
         self.assertEqual(dodge["pts_t"], 0)
         self.assertLess(dodge["gene_t"], 50)
         self.assertGreater(tank["pts_t"], 0)
+
+    def test_kills_need_damage(self):
+        """v3.8：擊殺占比要和輸出取小——殺得多又打得多才加分；只會尾刀、輸出低的拿不到"""
+        self.fx.game(1, over={3: {"kills": 15, "dmg_to_champions": 8000}, 4: {"kills": 15, "dmg_to_champions": 60000}})
+        steal, carry = self.at(self.fx.result(), 1, 3), self.at(self.fx.result(), 1, 4)
+        self.assertEqual(steal["pts_ks"], 0)
+        self.assertGreater(carry["pts_ks"], 0)
+
+    def test_wave_and_objectives_only_add(self):
+        """v3.8：清兵、推塔少不扣分"""
+        self.fx.game(1, over={3: {"dmg_to_objectives": 0, "total_damage": 21000 + 3000}})
+        r = self.at(self.fx.result(), 1, 3)
+        self.assertEqual(r["pts_o"], 0)
+        self.assertEqual(r["pts_w"], 0)
+        self.assertLess(r["gene_o"], 50)
 
     def test_heal_and_anti_items_only_add(self):
         """v3.6：不補血、不出重創的人這兩項加減分是 0（以前會被扣）"""
