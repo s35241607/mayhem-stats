@@ -16,7 +16,7 @@ export const WORK_GAMES = "contribution.scored_games"
 /** 本場貢獻的八個基因：key＝基因分數（0～100，50＝同出裝定位的平均），pts＝這一項讓總分加減幾分，weight＝占總分的權重（%） */
 export const WORK_PARTS = [
   { key: "contribution.gene_dmg", pts: "contribution.pts_dmg", label: "輸出", weight: 28, hint: "每分鐘對英雄傷害" },
-  { key: "contribution.gene_soak", pts: "contribution.pts_soak", label: "承傷", weight: 23, hint: "每分鐘承受＋自身減免的傷害（護甲、魔抗、護盾擋下的都算）；分不出有效開戰或無效吃傷" },
+  { key: "contribution.gene_soak", pts: "contribution.pts_soak", label: "承傷", weight: 23, hint: "每分鐘承受＋自身減免的傷害（護甲、魔抗、護盾擋下的都算）；只加不扣：扛得比同出裝定位多才加分，走位好、吃得少的後排不會被扣。分不出有效開戰或無效吃傷" },
   { key: "contribution.gene_heal", pts: "contribution.pts_heal", label: "治療護盾", weight: 13, hint: "每分鐘治療＋護盾隊友（不含自補，只有賽後統計有）；只加不扣：不補血的英雄不會被扣。沒有賽後統計的場次不計這一項，是暫估" },
   { key: "contribution.gene_cc", pts: "contribution.pts_cc", label: "控場", weight: 12, hint: "每分鐘控制敵人的時間；只加不扣：控得比同出裝定位多才加分，技能組沒有控場（卡特、易大師）不會被扣" },
   { key: "contribution.gene_kda", pts: "contribution.pts_kda", label: "K/DA", weight: 6, hint: "參團率（擊殺＋助攻 ÷ 我方擊殺）與存活（死得少）各半；死亡、擊殺有一半是結果（贏的隊殺得多），所以權重很低" },

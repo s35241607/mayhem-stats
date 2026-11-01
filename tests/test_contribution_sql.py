@@ -131,6 +131,14 @@ class ContributionTests(unittest.TestCase):
         self.assertLess(none["gene_c"], 50)
         self.assertGreater(lots["pts_c"], 0)
 
+    def test_soak_only_adds(self):
+        """v3.7：走位好、吃得少的後排不再被扣承傷；吃得多照樣加分。gene_t 照實顯示吃得少"""
+        self.fx.game(1, over={3: {"dmg_taken": 2000, "dmg_mitigated": 0}, 4: {"dmg_taken": 120000, "dmg_mitigated": 60000}})
+        dodge, tank = self.at(self.fx.result(), 1, 3), self.at(self.fx.result(), 1, 4)
+        self.assertEqual(dodge["pts_t"], 0)
+        self.assertLess(dodge["gene_t"], 50)
+        self.assertGreater(tank["pts_t"], 0)
+
     def test_heal_and_anti_items_only_add(self):
         """v3.6：不補血、不出重創的人這兩項加減分是 0（以前會被扣）"""
         self.fx.game(1)

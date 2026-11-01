@@ -19,7 +19,7 @@ import yaml
 ARGS = [a for a in sys.argv[1:] if not a.startswith("--")]
 DB = ARGS[0] if ARGS else "mayhem.db"
 YML = Path(__file__).parent.parent / "cube" / "model" / "cubes" / "contribution.yml"
-ADD_ONLY = {"c", "h", "a"}
+ADD_ONLY = {"t", "c", "h", "a"}
 ROLES = ["射手", "法師", "刺客", "鬥士", "坦克", "輔助"]
 GENES = ["d", "w", "o", "t", "c", "h", "a", "kda"]
 # 和 yml 第 5 步相同（改權重要兩邊一起改）

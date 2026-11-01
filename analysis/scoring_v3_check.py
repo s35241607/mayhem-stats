@@ -109,8 +109,8 @@ for (pl, gid), ps in games.items():
             else:
                 z[k] = (P[k] - mu[k]) / SD[k]
         shown = dict(z)
-        # 只加不扣：控場（v3.5）、治療護盾與功能裝（v3.6）計分用的 z 夾在 0 以上，基因分數照實顯示；總分扣掉整體校正 mu_work
-        for k in ("c", "h", "a"):
+        # 只加不扣：控場（v3.5）、治療護盾與功能裝（v3.6）、承傷（v3.7）計分用的 z 夾在 0 以上，基因分數照實顯示；總分扣掉整體校正 mu_work
+        for k in ("t", "c", "h", "a"):
             z[k] = max(0.0, z[k])
         raw = sum(WEIGHTS[k] * z[k] for k in WEIGHTS)
         out = {"work_score": min(100.0, max(0.0, 50 + 20 * (raw - SD["mu_work"]) / SD["work"])), "work_raw": raw, "unscored_reason": None,
