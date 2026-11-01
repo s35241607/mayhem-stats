@@ -4413,14 +4413,16 @@ export function Crew() {
   const duo = useCube(duoQuery)
   // 出裝的傷害類型（AD／AP）：玩家類型與數據總表的出裝比例用
   const dmgTypes = useCube(q({ measures: ["participants.games"], dimensions: ["participants.puuid", "builds.damage_type"], limit: NO_LIMIT }))
-  // 參照列：所有參賽者的出裝比例（不鎖玩家，也不受上方「拿掉誰」影響）
-  const everyone = useCube(centerFilters === null ? null : apply({ measures: ["participants.games", "participants.winrate", "participants.kda", ...ROSTER_EOG_MEASURES], filters: centerFilters }, "all"))
+  // 最上面那一列「這群人」：比較名單裡的人合起來（每個人的場次都算，同一場兩個人在就算兩人次），和下面每個人同一組條件
+  const team = useCube(q({ measures: PAGE_MEASURES, limit: 1 }))
+  const teamRoles = useCube(q({ measures: STAT_MEASURES, dimensions: ["builds.build_role"], limit: NO_LIMIT }))
+  // 一般玩家（所有參賽者）的出裝比例：「打法」拿來對照「他比一般人多玩什麼」
   const everyoneRoles = useCube(centerFilters === null ? null : apply({ measures: ["participants.games"], dimensions: ["builds.build_role"], filters: centerFilters, limit: NO_LIMIT }, "all"))
-  const error = summary.error ?? roles.error ?? champs.error ?? augments.error ?? everyone.error ?? everyoneRoles.error ?? dmgTypes.error ?? titleStats.error ?? lossStats.error ?? nightStats.error ?? duo.error ?? together.error
+  const error = summary.error ?? roles.error ?? champs.error ?? augments.error ?? team.error ?? teamRoles.error ?? everyoneRoles.error ?? dmgTypes.error ?? titleStats.error ?? lossStats.error ?? nightStats.error ?? duo.error ?? together.error
   // 全員一覽要等的：核心數字，加上稱號與玩法用的幾支（不等的話，稱號會在畫面出來之後才一個個冒出來、版面往下推）。
   // 增幅、數據總表不在這裡：那是別的分頁的資料
   const loading =
-    summary.loading || roles.loading || champs.loading || everyone.loading || everyoneRoles.loading ||
+    summary.loading || roles.loading || champs.loading || team.loading || teamRoles.loading || everyoneRoles.loading ||
     dmgTypes.loading || titleStats.loading || lossStats.loading || nightStats.loading || streakRows.loading
 
   const sumOf = (puuid: string) => summary.rows.find((r) => r["participants.puuid"] === puuid)
@@ -4457,7 +4459,14 @@ export function Crew() {
 
   // 依場次排：場次多的人判斷比較可信，放前面
   const ordered = [...chosen].sort((a, b) => gamesOf(b.puuid) - gamesOf(a.puuid))
-  const everyoneTotal = n0(everyone.rows[0], "participants.games")
+  // 這群人合起來的判定：和每個人同一套（整體和 50 比、各出裝和這群人的整體比）
+  const teamProfile = useMemo(() => {
+    const overallStat = statOf(team.rows[0], "overall", "整體")
+    const own: Own = { score: overallStat.score, winrate: overallStat.winrate }
+    const overall = judge(overallStat, { score: own.score, winrate: null }, 1.96)
+    const roleStats = BUILD_ROLES.map((label) => statOf(teamRoles.rows.find((x) => x["builds.build_role"] === label), label, label))
+    return { overall, roles: judgeAll(roleStats, own).items }
+  }, [team.rows, teamRoles.rows])
   // 搭檔：每一組只留一列（a 在前面的人），兩個視角的場次、勝場本來就一樣
   const duoPairs = useMemo<DuoPair[]>(() => {
     const out: DuoPair[] = []
@@ -4667,36 +4676,49 @@ export function Crew() {
                       <span data-tip="本場貢獻的八個基因（這段期間的平均）：橫條中線 50＝同出裝定位的平均，右邊是這一項平均讓總分加減幾分。多場平均都貼近 50，橫條放大 3 倍">貢獻分解</span>
                       <span>英雄（上：比平均強、下：培養中）</span>
                     </div>
-                    <div
-                      data-testid="crew-reference-row"
-                      className={cn("grid w-full items-center border-b border-dashed bg-muted/20 px-2 py-1", ROW_COLS)}
-                    >
-                      <span className="min-w-0">
-                        <span className="flex items-baseline gap-1.5 text-sm font-medium">
-                          全體參賽者
-                          <span className="rounded border border-dashed px-1 text-[10px] font-normal text-muted-foreground">參照</span>
-                        </span>
-                        <span className="mt-0.5 block font-mono text-[11px] tabular-nums text-muted-foreground">
-                          {everyoneTotal} 場・{opt(everyone.rows[0], "participants.winrate")?.toFixed(1) ?? "—"}%・KDA{" "}
-                          {opt(everyone.rows[0], "participants.kda")?.toFixed(2) ?? "—"}
-                        </span>
-                        <EogAverages r={everyone.rows[0]} testId="crew-reference-eog" />
-                      </span>
-                      <MiniHex
-                        data={BUILD_ROLES.map((label) => ({
-                          label,
-                          games: n0(everyoneRoles.rows.find((x) => x["builds.build_role"] === label), "participants.games"),
-                          strength: null,
-                        }))}
-                        total={everyoneTotal}
-                      />
-                      <span
-                        className="col-span-3 truncate text-[11px] text-muted-foreground"
-                        data-tip="把資料庫裡每場十位參賽者都算進來：雷達是一般玩家各出裝佔多少，拿來和下面每個人的形狀對照他偏好什麼；本場貢獻在 v2.1 定版時（2026-10-17）的平均是 50，之後的場次不一定剛好 50；勝率每場兩隊都算，必然是 50%。"
-                      >
-                        雷達是一般玩家的出裝比例，拿來對照每個人偏好什麼（滑過看說明）
-                      </span>
-                    </div>
+                    {(() => {
+                      const tv = teamProfile.overall
+                      const teamWr = tv.winrate
+                      return (
+                        <div
+                          data-testid="crew-team-row"
+                          className={cn("grid w-full items-center border-b border-dashed bg-muted/20 px-2 py-1", ROW_COLS)}
+                        >
+                          <span className="min-w-0">
+                            <span className="flex items-baseline gap-1.5 text-sm font-medium">
+                              這群人
+                              <span
+                                className="rounded border border-dashed px-1 text-[10px] font-normal text-muted-foreground"
+                                data-tip={"比較名單裡的人合起來（上方拿掉的人不算）：每個人的場次都算，同一場兩個人都在就算兩人次。\n雷達的形狀是各出裝佔這些人次的比例，頂點顏色和右邊的橫條是這群人在那個位置的本場貢獻（50＝同出裝定位的平均），判定和下面每個人同一套"}
+                              >
+                                {chosen.length} 人合計
+                              </span>
+                            </span>
+                            <span className="mt-0.5 block font-mono text-[11px] tabular-nums text-muted-foreground">
+                              {tv.games} 人次・{teamWr?.toFixed(1) ?? "—"}%・KDA {opt(team.rows[0], "participants.kda")?.toFixed(2) ?? "—"}
+                            </span>
+                            <EogAverages r={team.rows[0]} testId="crew-team-eog" />
+                            <span className="block text-[11px] text-muted-foreground" data-tip={tipOf(tv, null)} data-testid="crew-team-overall">
+                              本場貢獻{" "}
+                              <span className={cn("font-mono font-semibold", tv.g?.interval ? NUM_CLASS[tv.strength] : "text-muted-foreground")}>
+                                {tv.score === null ? "—" : Math.round(tv.score)}
+                              </span>
+                              {tv.g?.interval && <span className={cn(CHIP, "ml-1", levelClass(tv))}>{labelOf(tv)}</span>}
+                            </span>
+                          </span>
+                          <MiniHex data={teamProfile.roles.map((j) => ({ label: j.label, games: j.games, strength: j.strength }))} total={tv.games} />
+                          <span className={SECTION_SPAN}>
+                            <RoleStrip roles={teamProfile.roles} reach={roleReach} ownWr={teamWr} />
+                          </span>
+                          <span className={SECTION_SPAN} data-testid="crew-team-genes">
+                            <ContribBars row={team.rows[0]} compact />
+                          </span>
+                          <span className={cn("self-center text-[11px] text-muted-foreground", SECTION_SPAN)}>
+                            這群人合起來在各位置的表現；下面每個人的形狀可以和它對照
+                          </span>
+                        </div>
+                      )
+                    })()}
                     {matrixRows.map((p, i) => {
                       const prof = profiles.get(p.puuid)
                       if (!prof) return null

@@ -175,19 +175,20 @@ test.describe("好友比較頁：全員一覽", () => {
     await expect(matrixRows(page).first()).toBeVisible()
   })
 
-  test("最上面一列「全體參賽者」是參照：場次對 SQL，雷達八種出裝的場次對 SQL，不是按鈕", async ({ page }) => {
-    const ref = page.getByTestId("crew-reference-row")
-    await expect(ref).toContainText("參照")
-    const total = Number(sql(`SELECT COUNT(*) n FROM match_participants p JOIN matches m USING (platform_id, game_id) WHERE m.queue_id = 2400 AND m.is_remake = 0`)[0].n)
-    await expect(ref).toContainText(`${total} 場`)
+  test("最上面一列「這群人」：比較名單合起來的人次對 SQL，雷達各出裝的人次對 SQL，不是按鈕", async ({ page }) => {
+    const ref = page.getByTestId("crew-team-row")
+    const crew = crewMembers().map((m) => m.puuid)
+    const inCrew = `p.puuid IN (${crew.map(() => "?").join(",")})`
+    const total = Number(sql(`SELECT COUNT(*) n FROM match_participants p JOIN matches m USING (platform_id, game_id) WHERE m.queue_id = 2400 AND m.is_remake = 0 AND ${inCrew}`, crew)[0].n)
+    await expect(ref).toContainText(`${total} 人次`)
     const tip = (await ref.locator("svg title").textContent())!
     const lines = [...tip.matchAll(/^(\S+(?: \S+)?) \d+%（(\d+) 場/gm)].map((m) => ({ label: m[1], games: Number(m[2]) }))
-    expect(lines).toHaveLength(8)
+    expect(lines).toHaveLength(6)
     for (const l of lines) {
       const n = sql(
         `SELECT COUNT(*) n FROM match_participants p JOIN matches m USING (platform_id, game_id)
-           JOIN mat_builds b ON b.participant_rowid = p.rowid WHERE m.queue_id = 2400 AND m.is_remake = 0 AND b.build_role = ?`,
-        [l.label],
+           JOIN mat_builds b ON b.participant_rowid = p.rowid WHERE m.queue_id = 2400 AND m.is_remake = 0 AND b.build_role = ? AND ${inCrew}`,
+        [l.label, ...crew],
       )[0].n
       expect(l.games, l.label).toBe(Number(n))
     }
