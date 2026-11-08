@@ -1,8 +1,11 @@
 import { Fragment, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react"
-import { ChevronLeft, Coins, Swords } from "lucide-react"
+import { ArrowDown, ArrowUp, ChevronLeft, Coins, RotateCcw, SlidersHorizontal, Swords, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { EmptyState, Panel } from "@/components/primitives"
 import { Hint } from "@/components/TipLayer"
 import { WhoSwitch } from "@/components/WhoSwitch"
@@ -16,7 +19,7 @@ import { CubeMatchList, MatchList } from "@/components/MatchList"
 import { RoleChip, RoleLegend } from "@/components/RoleChip"
 import { ContribRadarChart, TimelineChart, type TimelineBuilding, type TimelineFrame, type TimelineKill } from "@/components/charts"
 import { ContribBars, ContribInline, ContribMeter, ContribTagBadge } from "@/components/Contribution"
-import { WORK, WORK_GAP, WORK_PARTS, contribTagOf, isEstimate, useCardContribution, useContribution, workScore, type ContribTag } from "@/hooks/useContribution"
+import { WORK, WORK_GAP, WORK_PARTS, WORK_WEIGHTS_TEXT, contribTagOf, isEstimate, useCardContribution, useContribution, workScore, type ContribTag } from "@/hooks/useContribution"
 import { participantKey, useBuildRoles } from "@/hooks/useBuildRoles"
 import { cn } from "@/lib/utils"
 import { useCrumb } from "@/lib/breadcrumb"
@@ -39,6 +42,21 @@ const SWING_TIP: Record<SwingLabel, string> = {
   落後逆轉勝: "我方經濟曾落後 5,000 以上，最後贏了",
 }
 const SWING_WON = new Set<SwingLabel>(["門破仍翻盤", "落後逆轉勝"])
+const MATCH_METRICS = [
+  { id: "contribution", label: "貢獻分數", unit: "分", max: 100 },
+  { id: "kda", label: "KDA", unit: "" },
+  { id: "damage", label: "對英雄傷害", unit: "" },
+  { id: "kills", label: "擊殺", unit: "次" },
+  { id: "assists", label: "助攻", unit: "次" },
+  { id: "deaths", label: "死亡", unit: "次" },
+  { id: "duration", label: "對局時長", unit: "分鐘" },
+] as const
+type MatchMetric = (typeof MATCH_METRICS)[number]["id"]
+type MetricRange = { metric: MatchMetric; min: number | null; max: number | null }
+type MatchSort = "newest" | MatchMetric
+type SortDirection = "asc" | "desc"
+type MatchResult = "all" | "win" | "loss"
+const metricLabel = (id: MatchMetric) => MATCH_METRICS.find((m) => m.id === id)!
 
 function SwingChip({ label, className }: { label: SwingLabel; className?: string }) {
   return (
@@ -732,13 +750,13 @@ export function MatchDetail({
           </div>
           <Scoreboard players={players} roleOf={roleOf} contrib={contrib} />
           <p className="mt-2 text-xs text-muted-foreground">
-            大數字是「本場貢獻」（0～100，50＝同出裝定位的平均），八個基因加權而成；點一列看每一項加減幾分。
+            大數字是「本場貢獻」（0～100，50＝校準時的整體基準），八個基因加權而成；點一列看每一項加減幾分。
             <Hint
               text={
                 "本場貢獻怎麼算\n" +
-                "1. 八個基因：輸出（每分鐘對英雄傷害）25%、承傷（承受＋自身減免）20%、擊殺（擊殺占比和輸出取小）17%、治療護盾隊友 12%、控場 11%、推塔 7%、清兵 5%、功能裝（重創、破盾擋掉的敵方治療護盾）3%；K/DA 不計分。\n" +
-                "2. 每一項先和同一場另外九個人的平均比，再和同出裝定位（射手、法師、刺客、鬥士、坦克、輔助）的人平常的比法比。\n" +
-                "3. 每個人每項都算，沒有「坦克只看承傷」——坦克打出高輸出，輸出那一項就加分。只有輸出會扣分，其他七項只加不扣；死亡、助攻不影響分數：走位好吃得少、沒有控場技能、不補血、不出重創、不推塔清兵的英雄不會被扣；擊殺要輸出也高才算，只會尾刀拿不到（為了讓 50 仍是平均，總分每個人一樣扣一個整體校正，分數拆解最下面那一行）。\n" +
+                `1. ${WORK_WEIGHTS_TEXT}\n` +
+                "2. 基因分數以同出裝定位為基準。治療護盾加分一半看實際保人量，一半看高於同定位基準的部分。\n" +
+                "3. 八項都計分。擊殺加分同時看擊殺占比與輸出。死亡和助攻不影響總分。分數拆解底部的整體校正把校準樣本的平均拉回 50。\n" +
                 "4. 數字後面有「*」是暫估：這場沒有賽後統計，治療護盾隊友不計分（這一項視為平均）。\n" +
                 "6 分鐘內的重開局不計分。MVP＝贏的一隊本場貢獻最高、ACE＝輸的一隊本場貢獻最高。"
               }
@@ -777,11 +795,13 @@ export function MatchCards({
   rows,
   onPick,
   showPlayer = false,
+  showDamage = false,
   headerExtra,
 }: {
   rows: MatchRow[]
   onPick: (match: MatchPick) => void
   showPlayer?: boolean
+  showDamage?: boolean
   /** 標頭多放的內容，見 MatchList */
   headerExtra?: (m: MatchRow) => ReactNode
 }) {
@@ -790,7 +810,7 @@ export function MatchCards({
   return (
     <div className="space-y-1.5">
       {chunks.map((chunk, ci) => (
-        <MatchCardChunk key={ci} rows={chunk} offset={ci * ROLE_CHUNK} onPick={onPick} showPlayer={showPlayer} headerExtra={headerExtra} />
+        <MatchCardChunk key={ci} rows={chunk} offset={ci * ROLE_CHUNK} onPick={onPick} showPlayer={showPlayer} showDamage={showDamage} headerExtra={headerExtra} />
       ))}
     </div>
   )
@@ -801,12 +821,14 @@ function MatchCardChunk({
   offset,
   onPick,
   showPlayer,
+  showDamage,
   headerExtra,
 }: {
   rows: MatchRow[]
   offset: number
   onPick: (match: MatchPick) => void
   showPlayer: boolean
+  showDamage: boolean
   headerExtra?: (m: MatchRow) => ReactNode
 }) {
   // 這場的出裝定位：向 Cube 查（見 useBuildRoles）
@@ -893,7 +915,11 @@ function MatchCardChunk({
 
               <div className="w-[54px] shrink-0 text-right text-[11px] text-muted-foreground tabular-nums">
                 <div>{m.cs} 補兵</div>
-                <div>{k(m.gold_earned)} 金錢</div>
+                {showDamage ? (
+                  <div className="whitespace-nowrap" data-tip={`對英雄傷害 ${m.dmg_to_champions.toLocaleString("zh-TW")}`}>{k(m.dmg_to_champions)} 傷害</div>
+                ) : (
+                  <div>{k(m.gold_earned)} 金錢</div>
+                )}
               </div>
 
               <div className="min-w-0 flex-1" />
@@ -918,10 +944,81 @@ function MatchCardChunk({
   )
 }
 
+function MatchRangeFilter({ value, onChange }: { value: MetricRange | null; onChange: (range: MetricRange) => void }) {
+  const [open, setOpen] = useState(false)
+  const [metric, setMetric] = useState<MatchMetric>("contribution")
+  const [minText, setMinText] = useState("")
+  const [maxText, setMaxText] = useState("")
+  const field = metricLabel(metric)
+  const ceiling = "max" in field ? field.max : undefined
+  const min = minText === "" ? null : Number(minText)
+  const max = maxText === "" ? null : Number(maxText)
+  const invalid = [min, max].some((n) => n !== null && (!Number.isFinite(n) || n < 0 || (ceiling !== undefined && n > ceiling))) ||
+    (min !== null && max !== null && min > max)
+  const applyRange = (range: MetricRange) => {
+    onChange(range)
+    setOpen(false)
+  }
+  return (
+    <Popover open={open} onOpenChange={(next) => {
+      if (next) {
+        setMetric(value?.metric ?? "contribution")
+        setMinText(String(value?.min ?? ""))
+        setMaxText(String(value?.max ?? ""))
+      }
+      setOpen(next)
+    }}>
+      <PopoverTrigger asChild>
+        <Button type="button" variant="outline" size="sm" className={cn("h-8 text-xs", value && "border-primary/40 bg-primary/10")}>
+          <SlidersHorizontal className="size-3.5" aria-hidden="true" />
+          指標區間
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-72 p-3.5" aria-label="指標區間">
+        <form className="grid gap-3" onSubmit={(event) => {
+          event.preventDefault()
+          if (!invalid && (min !== null || max !== null)) applyRange({ metric, min, max })
+        }}>
+          <div>
+            <h3 className="text-sm font-semibold">指標區間</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">可只填下限或上限，兩端都含指定值。</p>
+          </div>
+          <Select value={metric} onValueChange={(next) => {
+            setMetric(next as MatchMetric)
+            setMinText("")
+            setMaxText("")
+          }}>
+            <SelectTrigger className="w-full" aria-label="區間指標"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {MATCH_METRICS.map(({ id, label }) => <SelectItem key={id} value={id}>{label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="grid gap-1 text-xs text-muted-foreground">
+              最低值{field.unit && `（${field.unit}）`}
+              <Input type="number" min={0} max={ceiling} step="any" value={minText} onChange={(event) => setMinText(event.target.value)} aria-invalid={invalid || undefined} placeholder="不限" />
+            </label>
+            <label className="grid gap-1 text-xs text-muted-foreground">
+              最高值{field.unit && `（${field.unit}）`}
+              <Input type="number" min={0} max={ceiling} step="any" value={maxText} onChange={(event) => setMaxText(event.target.value)} aria-invalid={invalid || undefined} placeholder="不限" />
+            </label>
+          </div>
+          {invalid && <p role="alert" className="text-xs text-destructive">{ceiling ? "請輸入 0–100，且最低值不得大於最高值。" : "請輸入非負數，且最低值不得大於最高值。"}</p>}
+          <div className="flex flex-wrap gap-1.5 border-t pt-2.5">
+            <Button type="button" size="xs" variant="outline" onClick={() => applyRange({ metric: "contribution", min: 70, max: null })}>高貢獻 ≥70</Button>
+            <Button type="button" size="xs" variant="outline" onClick={() => applyRange({ metric: "contribution", min: null, max: 30 })}>低貢獻 ≤30</Button>
+          </div>
+          <Button type="submit" size="sm" disabled={invalid || (min === null && max === null)}>套用區間</Button>
+        </form>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 /** 追蹤對象：一場只列一張卡片。每場至少有一位自己或追蹤對象（採集的就是他們的場次），常常好幾位同隊，
  *  逐人列的話同一場出現好幾次（501 場變成 1397 列）。這裡每場挑一位當主角（優先目前帳號，其次參賽者編號最小的），
  *  其他同場的追蹤對象列在標頭。是哪幾場、誰在場都由 Cube 用和其他頁同一組條件查，後端不再抄一份。 */
-function TrackedMatches({ scope }: { scope: WhoScope }) {
+function TrackedMatches({ scope, listParams }: { scope: WhoScope; listParams: Record<string, string> }) {
   const { account, players, matchParams } = useFilters()
   const rows = useCube(
     scope.q({ measures: ["participants.games"], dimensions: ["participants.participant_key", "participants.puuid"], limit: NO_LIMIT }),
@@ -958,7 +1055,7 @@ function TrackedMatches({ scope }: { scope: WhoScope }) {
       )}
       <MatchList
         key={shown.length + ":" + shown[0]}
-        params={{ ...matchParams(), puuid: "*", participants: shown.join(",") }}
+        params={{ ...matchParams(), ...listParams, puuid: "*", participants: shown.join(",") }}
         showPlayer
         headerExtra={(m) => {
           const others = built.others.get(String(m.game_id)) ?? []
@@ -976,15 +1073,25 @@ function TrackedMatches({ scope }: { scope: WhoScope }) {
 export function Matches() {
   const { account, matchParams, drills, apply } = useFilters()
   const [who, setWho] = usePageWho(NO_ALL)
+  const [sort, setSort] = useState<MatchSort>("newest")
+  const [direction, setDirection] = useState<SortDirection>("desc")
+  const [result, setResult] = useState<MatchResult>("all")
+  const [range, setRange] = useState<MetricRange | null>(null)
   const scope = useWhoScope(who)
-  // 帳號、模式、期間：和其他頁同一組全域條件（原本漏了期間，選「最近 7 天」仍列出全部場次）
-  const params = matchParams()
+  const listParams: Record<string, string> = { sort, direction }
+  if (result !== "all") listParams.result = result
+  if (range) {
+    listParams.metric = range.metric
+    if (range.min !== null) listParams.min_value = String(range.min)
+    if (range.max !== null) listParams.max_value = String(range.max)
+  }
   const drillKey = drills.map((d) => `${d.member}=${d.values.join(",")}`).join("&")
   const [swingPick, setSwingPick] = useState<SwingLabel | null>(null)
   useCrumb(10, swingPick ? `翻盤：${swingPick}` : null, () => setSwingPick(null))
-  // 各標籤有幾場（同一組全域條件），寫在選單裡
+  // 括號只在沒有額外數值或勝敗條件時顯示，避免把全域範圍的數字當成當前結果。
+  const showSwingCounts = result === "all" && !range
   const swingCounts = useCube(
-    account && who !== "tracked"
+    account && who !== "tracked" && showSwingCounts
       ? apply({
           measures: ["participants.games"],
           dimensions: ["swing.label"],
@@ -995,6 +1102,15 @@ export function Matches() {
   )
   const countOf = (label: string) => num(swingCounts.rows.find((r) => r["swing.label"] === label)?.["participants.games"]) ?? 0
   const swingFilter = swingPick && who !== "tracked" ? [{ member: "swing.label", operator: "equals" as const, values: [swingPick] }] : []
+  const filters: { label: string; clear: () => void }[] = []
+  if (result !== "all") filters.push({ label: result === "win" ? "勝利" : "戰敗", clear: () => setResult("all") })
+  if (swingFilter.length && swingPick) filters.push({ label: swingPick, clear: () => setSwingPick(null) })
+  if (range) {
+    const field = metricLabel(range.metric)
+    const bounds = range.min === null ? `≤ ${range.max}` : range.max === null ? `≥ ${range.min}` : `${range.min}–${range.max}`
+    filters.push({ label: `${field.label} ${bounds}${field.unit ? ` ${field.unit}` : ""}`, clear: () => setRange(null) })
+  }
+  const resettable = filters.length > 0 || sort !== "newest" || direction !== "desc"
 
   return (
     <div className="space-y-4">
@@ -1003,37 +1119,82 @@ export function Matches() {
         title="近期對戰"
         caption={
           who === "tracked"
-            ? "由新到舊，每一場只列一張卡片；同場有好幾位追蹤對象時，卡片上的人是主角（優先是目前帳號），其他人列在標頭。點任一場看完整戰報"
-            : "由新到舊列出全部場次，捲到底會自動載入更多；點任一場看完整戰報。英雄名稱旁是這場的出裝定位"
+            ? "每場只列一張卡片，依卡片主角的數據排序。同場有多位追蹤對象時，優先顯示目前帳號。"
+            : "依選定順序列出符合篩選的對局。捲到底會載入更多，點任一場可看完整戰報。"
         }
-        action={
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {who !== "tracked" && (
-              <Select value={swingPick ?? "all"} onValueChange={(v) => setSwingPick(v === "all" ? null : (v as SwingLabel))}>
-                <SelectTrigger size="sm" className="h-8 w-44 text-xs" data-testid="swing-filter" aria-label="依翻盤篩選">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">全部場次</SelectItem>
-                  {SWING_LABELS.map((l) => (
-                    <SelectItem key={l} value={l}>
-                      {l}（{countOf(l)}）
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-            <RoleLegend />
-          </div>
-        }
+        action={<RoleLegend />}
       >
+        <div className="mb-3 rounded-lg border bg-muted/20">
+          <div className="flex flex-wrap items-end justify-between gap-x-5 gap-y-3 p-2.5">
+            <div className="grid gap-1.5">
+              <p className="text-[11px] font-semibold text-muted-foreground">篩選條件</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <ToggleGroup type="single" value={result} onValueChange={(v) => v && setResult(v as MatchResult)} variant="outline" size="sm" spacing={0} aria-label="勝敗篩選">
+                  <ToggleGroupItem value="all" className="h-8 text-xs">全部</ToggleGroupItem>
+                  <ToggleGroupItem value="win" className="h-8 text-xs">勝利</ToggleGroupItem>
+                  <ToggleGroupItem value="loss" className="h-8 text-xs">戰敗</ToggleGroupItem>
+                </ToggleGroup>
+                {who !== "tracked" && (
+                  <Select value={swingPick ?? "all"} onValueChange={(v) => setSwingPick(v === "all" ? null : (v as SwingLabel))}>
+                    <SelectTrigger size="sm" className="h-8 w-36 text-xs" data-testid="swing-filter" aria-label="依翻盤篩選">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">全部翻盤標籤</SelectItem>
+                      {SWING_LABELS.map((l) => <SelectItem key={l} value={l}>{showSwingCounts && !swingCounts.loading && !swingCounts.error ? `${l}（${countOf(l)}）` : l}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                )}
+                <MatchRangeFilter value={range} onChange={setRange} />
+              </div>
+            </div>
+            <div className="grid gap-1.5">
+              <p className="text-[11px] font-semibold text-muted-foreground">排序</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Select value={sort} onValueChange={(v) => setSort(v as MatchSort)}>
+                  <SelectTrigger size="sm" className="h-8 w-32 text-xs" aria-label="對局排序">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="newest">對局時間</SelectItem>
+                    {MATCH_METRICS.map(({ id, label }) => <SelectItem key={id} value={id}>{label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <ToggleGroup type="single" value={direction} onValueChange={(v) => v && setDirection(v as SortDirection)} variant="outline" size="sm" spacing={0} aria-label="排序方向">
+                  <ToggleGroupItem value="desc" className="h-8 text-xs"><ArrowDown className="size-3.5" aria-hidden="true" />{sort === "newest" ? "新到舊" : "高到低"}</ToggleGroupItem>
+                  <ToggleGroupItem value="asc" className="h-8 text-xs"><ArrowUp className="size-3.5" aria-hidden="true" />{sort === "newest" ? "舊到新" : "低到高"}</ToggleGroupItem>
+                </ToggleGroup>
+                <Button type="button" variant="ghost" size="sm" className="h-8 text-xs" disabled={!resettable} onClick={() => {
+                  setResult("all")
+                  setRange(null)
+                  setSwingPick(null)
+                  setSort("newest")
+                  setDirection("desc")
+                }}>
+                  <RotateCcw className="size-3.5" aria-hidden="true" />重設
+                </Button>
+              </div>
+            </div>
+          </div>
+          {filters.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 border-t px-2.5 py-2">
+              <span className="mr-1 text-[11px] text-muted-foreground">已套用</span>
+              {filters.map(({ label, clear }) => (
+                <Button key={label} type="button" variant="outline" size="xs" className="rounded-full border-primary/30 bg-primary/10" onClick={clear} aria-label={`移除 ${label} 篩選`}>
+                  {label}<X className="size-3" aria-hidden="true" />
+                </Button>
+              ))}
+            </div>
+          )}
+        </div>
         {!account ? null : who === "tracked" ? (
-          <TrackedMatches scope={scope} />
+          <TrackedMatches scope={scope} listParams={listParams} />
         ) : drills.length || swingFilter.length ? (
           // 有全域下鑽（英雄、增幅……）時，是哪幾場交給 Cube 用同一組條件查，後端不必認得每一種維度
           <CubeMatchList
             gameIdKey="matches.game_id"
             listKey={`${account.puuid}|${drillKey}|${swingPick ?? ""}`}
+            params={listParams}
             query={apply({
               measures: ["participants.games"],
               dimensions: ["matches.game_id"],
@@ -1043,7 +1204,7 @@ export function Matches() {
           />
         ) : (
           // key：換帳號時整個列表重來（清掉開著的戰報與捲動位置）
-          <MatchList key={account.puuid} params={params} puuid={account.puuid} />
+          <MatchList key={account.puuid} params={{ ...matchParams(), ...listParams }} puuid={account.puuid} />
         )}
         {!account && (
           <div className="space-y-2">

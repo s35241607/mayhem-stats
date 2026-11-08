@@ -309,7 +309,7 @@ views:
           - name: enemy_lineup
 
       # 本場貢獻：全站唯一的分數（計分板、MVP／ACE、英雄頁、好友比較頁都用它）。八個基因各自先和同一場的人比、再和同出裝定位的平均比，
-      # 加權成總分；50＝同出裝定位的人的平均。gene_*＝各基因（50＝同出裝平均），pts_*＝該基因讓總分加減幾分，rel_*＝只和同一場的人比
+      # 加權成總分，50 是校準時的整體基準。gene_* 是各基因分數，50 為同出裝定位基準。pts_* 是各項加減分，含治療護盾的實際保人量。
       - join_path: participants.contribution
         includes:
           - name: work
@@ -393,6 +393,10 @@ views:
           - relation
           - my_champion
           - other_champion
+          - kill_timeline_games
+          - kills_against
+          - deaths_to
+          - assists_against
           - games
           - wins
           - winrate

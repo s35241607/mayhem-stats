@@ -1360,6 +1360,17 @@ MAX_GAME_IDS = 1000
 # /api/matches 一次可以指定幾位玩家(英雄頁的「追蹤對象」)
 MAX_SUBJECTS = 50
 
+MATCH_METRICS = {
+    "contribution": "mc.work_score",
+    # 零死亡在卡片上顯示 Perfect，排序與區間都視為高於任何有限 KDA。
+    "kda": "(CASE WHEN mp.deaths = 0 THEN 1e999 ELSE 1.0 * (mp.kills + mp.assists) / mp.deaths END)",
+    "kills": "mp.kills",
+    "assists": "mp.assists",
+    "deaths": "mp.deaths",
+    "duration": "(m.game_duration / 60.0)",
+    "damage": "mp.dmg_to_champions",
+}
+
 
 @app.get("/api/matches")
 def recent_matches(
@@ -1380,6 +1391,12 @@ def recent_matches(
     augment: Optional[str] = None,
     game_ids: Optional[str] = None,
     participants: Optional[str] = None,
+    sort: str = "newest",
+    direction: Optional[str] = None,
+    result: Optional[str] = None,
+    metric: Optional[str] = None,
+    min_value: Optional[float] = None,
+    max_value: Optional[float] = None,
 ):
     """指定帳號的對局清單，預設是本機帳號。
 
@@ -1409,7 +1426,27 @@ def recent_matches(
     puuid 決定每一列是「誰的那一列」:不給是本機帳號;逗號分隔是其中任何一人
     (英雄頁「追蹤對象」);`*` 是所有參賽者(英雄頁「所有人」)。後兩種一場可能有好幾列,
     通常再配上 champion 鎖定成「玩這隻英雄的那個人」。
+    result（win／loss）和 metric 的上下限用於對局列表的直接篩選。時長區間以分鐘為單位。
+    sort 與 direction 在分頁前套用。未計分的貢獻值在兩個方向都排最後。
     """
+    sort_expr = "m.game_creation" if sort in ("newest", "oldest") else MATCH_METRICS.get(sort)
+    direction = direction if direction is not None else ("asc" if sort in ("oldest", "deaths") else "desc")
+    if sort_expr is None or direction not in ("asc", "desc"):
+        return JSONResponse(status_code=400, content={"error": "不支援的對局排序"})
+    if result not in (None, "win", "loss"):
+        return JSONResponse(status_code=400, content={"error": "不支援的勝敗篩選"})
+    bounds = [(op, v) for op, v in ((">=", min_value), ("<=", max_value)) if v is not None]
+    if (metric is not None or bounds) and metric not in MATCH_METRICS:
+        return JSONResponse(status_code=400, content={"error": "不支援的區間指標"})
+    if any(not math.isfinite(v) or v < 0 for _, v in bounds) or (
+        min_value is not None and max_value is not None and min_value > max_value
+    ):
+        return JSONResponse(status_code=400, content={"error": "無效的指標區間"})
+    order = f"{sort_expr} {direction.upper()} NULLS LAST"
+    if sort in MATCH_METRICS:
+        order += ", m.game_creation DESC"
+    score_join = " LEFT JOIN mat_contribution mc ON mc.participant_rowid = mp.rowid"
+    filter_score = metric == "contribution" and bool(bounds)
     conn = db.connect()
     try:
         if puuid == "*":
@@ -1434,11 +1471,20 @@ def recent_matches(
             FROM match_participants mp
             JOIN matches m ON m.platform_id = mp.platform_id AND m.game_id = mp.game_id
             LEFT JOIN dim_champions dc ON dc.id = mp.champion_id
-            WHERE """ + subject_sql
+        """
+        if sort == "contribution" or filter_score:
+            sql += score_join
+        sql += " WHERE " + subject_sql
         params: list = [*subject_params]
         # 重開局不列、也不算進總數與勝敗（遊戲裡不算輸贏）；單場戰報 /api/match/... 仍看得到
         slice_sql = " AND m.is_remake = 0"
         slice_params: list = []
+        if result is not None:
+            slice_sql += " AND mp.win = ?"
+            slice_params.append(int(result == "win"))
+        for op, value in bounds:
+            slice_sql += f" AND {MATCH_METRICS[metric]} {op} ?"
+            slice_params.append(value)
         if queue is not None:
             slice_sql += " AND m.queue_id = ?"
             slice_params.append(queue)
@@ -1509,7 +1555,7 @@ def recent_matches(
             slice_params.append(augment)
         sql += slice_sql
         params.extend(slice_params)
-        sql += " ORDER BY m.game_creation DESC LIMIT ? OFFSET ?"
+        sql += f" ORDER BY {order}, m.platform_id DESC, m.game_id DESC, mp.participant_id LIMIT ? OFFSET ?"
         params.extend([min(limit, 200), max(offset, 0)])
 
         matches = [{**dict(row), "riot_id": mask_name(row["riot_id"])} for row in conn.execute(sql, params).fetchall()]
@@ -1584,8 +1630,10 @@ def recent_matches(
         count_sql = """
             SELECT COUNT(*) AS n, COALESCE(SUM(mp.win), 0) AS wins FROM match_participants mp
             JOIN matches m ON m.platform_id = mp.platform_id AND m.game_id = mp.game_id
-            WHERE """ + subject_sql
-        count_sql += slice_sql
+        """
+        if filter_score:
+            count_sql += score_join
+        count_sql += " WHERE " + subject_sql + slice_sql
         counts = conn.execute(count_sql, [*subject_params, *slice_params]).fetchone()
 
         # wins 是整個條件的勝場，不只這一頁：列表是捲動分批載入的，勝敗摘要不能只算已載入的部分

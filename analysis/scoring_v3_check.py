@@ -16,7 +16,8 @@ YML = Path(__file__).parent.parent / "cube" / "model" / "cubes" / "contribution.
 ANTI_HEAL = {3033, 3075, 3076, 3123, 3165, 3916, 6609, 223033, 223075, 223165, 226609, 323075, 773075, 773123, 773165}
 ANTI_SHIELD = {6695, 226695}
 # kda 權重 0（v3.9 不計分），只拿來比對 gene_kda
-WEIGHTS = {"d": 0.25, "t": 0.20, "h": 0.12, "c": 0.11, "kda": 0.0, "o": 0.07, "w": 0.05, "a": 0.03, "ks": 0.17}
+WEIGHTS = {"d": 0.23, "t": 0.19, "h": 0.18, "c": 0.11, "kda": 0.0, "o": 0.07, "w": 0.05, "a": 0.03, "ks": 0.14}
+FRONTLINE_WEIGHTS = {**WEIGHTS, "d": 0.13, "t": 0.25, "c": 0.15}
 GENE_COL = {"d": "gene_d", "w": "gene_w", "o": "gene_o", "t": "gene_t", "c": "gene_c", "h": "gene_h", "a": "gene_a", "kda": "gene_kda", "ks": "gene_ks"}
 
 text = YML.read_text(encoding="utf-8")
@@ -103,9 +104,12 @@ for (pl, gid), ps in games.items():
         src = "eog" if has_eog else "flag"
         P["h"] = 100.0 * p["_h"] / (p["_h"] + (1250.0 if has_eog else 1100.0))
         P["a"] = 100.0 * a / (a + 630.0)
-        mu = MU[role.get(p["rid"]) or "未成形"]
+        build_role = role.get(p["rid"]) or "未成形"
+        mu = MU[build_role]
+        frontline = build_role in ("坦克", "輔助")
+        weights = FRONTLINE_WEIGHTS if frontline else WEIGHTS
         z = {}
-        for k in WEIGHTS:
+        for k in weights:
             if k == "h":
                 # v3.4：flag（沒有賽後統計）不計治療護盾，z＝0
                 z[k] = (P["h"] - mu["h_eog"]) / SD["h_eog"] if has_eog else 0.0
@@ -118,13 +122,21 @@ for (pl, gid), ps in games.items():
         # 只加不扣：控場（v3.5）、治療護盾與功能裝（v3.6）、承傷（v3.7）計分用的 z 夾在 0 以上，基因分數照實顯示；總分扣掉整體校正 mu_work
         for k in ("t", "c", "h", "a", "w", "o", "ks"):  # 清兵、推塔、擊殺：v3.8
             z[k] = max(0.0, z[k])
-        raw = sum(WEIGHTS[k] * z[k] for k in WEIGHTS)
+        if frontline:
+            z["d"] = max(0.0, z["d"])
+        if build_role == "輔助" and z["t"] > 0.5:
+            z["t"] = 0.5 + 0.4 * (z["t"] - 0.5)
+        if has_eog:
+            z["h"] = (P["h"] / SD["h_eog"] + z["h"]) / 2
+            if build_role == "輔助":
+                z["h"] *= 5 / 6
+        raw = sum(weights[k] * z[k] for k in weights)
         out = {"work_score": min(100.0, max(0.0, 50 + 20 * (raw - SD["mu_work"]) / SD["work"])), "work_raw": raw, "unscored_reason": None,
                "score_status": "complete" if has_eog else "estimate", "x_a": a}
-        for k in WEIGHTS:
+        for k in weights:
             out[GENE_COL[k]] = min(100.0, max(0.0, 50 + 20 * shown[k]))
-            if WEIGHTS[k]:
-                out["pts_" + k] = 20 * WEIGHTS[k] * z[k] / SD["work"]
+            if weights[k]:
+                out["pts_" + k] = 20 * weights[k] * z[k] / SD["work"]
         out["pts_base"] = -20 * SD["mu_work"] / SD["work"]
         out["p_ks"] = P["ks"]
         for k, col in (("d", "p_d"), ("w", "p_w"), ("o", "p_o"), ("t", "p_t"), ("c", "p_c"), ("h", "p_h"), ("a", "p_a"), ("kda", "p_kda")):

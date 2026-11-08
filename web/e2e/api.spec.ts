@@ -50,6 +50,47 @@ test.describe("狀態與玩家", () => {
 test.describe("/api/matches", () => {
   const get = async (request: import("@playwright/test").APIRequestContext, qs: string): Promise<Json> => (await request.get(`/api/matches?${qs}`)).json()
 
+  test("對局排序在分頁前套用，和 SQL 一致", async ({ request }) => {
+    const orders = {
+      oldest: "m.game_creation ASC",
+      contribution: "c.work_score DESC NULLS LAST, m.game_creation DESC",
+      kda: "CASE WHEN p.deaths = 0 THEN 1 ELSE 0 END DESC, CAST(p.kills + p.assists AS REAL) / NULLIF(p.deaths, 0) DESC, m.game_creation DESC",
+      kills: "p.kills DESC, m.game_creation DESC",
+      assists: "p.assists DESC, m.game_creation DESC",
+      deaths: "p.deaths ASC, m.game_creation DESC",
+      duration: "m.game_duration DESC, m.game_creation DESC",
+    }
+    for (const [sort, order] of Object.entries(orders)) {
+      const offset = sort === "contribution" ? 8 : 0
+      const expected = sql(
+        `SELECT p.game_id FROM match_participants p JOIN matches m USING (platform_id, game_id)
+           LEFT JOIN mat_contribution c ON c.participant_rowid = p.rowid
+           WHERE p.puuid = ? AND m.queue_id = 2400 AND m.is_remake = 0
+           ORDER BY ${order}, p.platform_id DESC, p.game_id DESC, p.participant_id LIMIT 8 OFFSET ?`,
+        [mePuuid(), offset],
+      )
+      const body = await get(request, `queue=2400&sort=${sort}&limit=8&offset=${offset}`)
+      expect(body.matches.map((m: Json) => m.game_id), sort).toEqual(expected.map((m) => m.game_id))
+    }
+    expect((await request.get("/api/matches?sort=unsupported")).status()).toBe(400)
+  })
+
+  test("勝敗和指標區間可疊加，排序與場數使用同一個結果", async ({ request }) => {
+    const ref = sql(
+      `SELECT p.game_id
+         FROM match_participants p JOIN matches m USING (platform_id, game_id)
+         JOIN mat_contribution c ON c.participant_rowid = p.rowid
+         WHERE p.puuid = ? AND m.queue_id = 2400 AND m.is_remake = 0 AND p.win = 0
+           AND c.work_score BETWEEN 20 AND 80
+         ORDER BY c.work_score ASC, m.game_creation DESC, p.platform_id DESC, p.game_id DESC, p.participant_id`,
+      [mePuuid()],
+    )
+    const body = await get(request, "queue=2400&sort=contribution&direction=asc&result=loss&metric=contribution&min_value=20&max_value=80&limit=8&offset=3")
+    expect([body.total, body.wins]).toEqual([ref.length, 0])
+    expect(body.matches.map((m: Json) => m.game_id)).toEqual(ref.slice(3, 11).map((m) => m.game_id))
+    expect((await request.get("/api/matches?metric=kills&min_value=12&max_value=3")).status()).toBe(400)
+  })
+
   test("預設：本機帳號、新到舊、一次 30 場；total 與 wins 是篩選後的全部", async ({ request }) => {
     const body = await get(request, "queue=2400")
     expect(body.matches).toHaveLength(30)

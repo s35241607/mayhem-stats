@@ -1,5 +1,5 @@
 cubes:
-  # 出裝定位：依這場終場的裝備判斷「實際怎麼玩」，不看英雄的官方定位。全站只用這一套六類（2026-10-11 收斂）：
+  # 出裝定位：以終場裝備為主，部分裝備與增幅搭配參考英雄的官方定位。全站只用這一套六類（2026-10-11 收斂）：
   #   坦克、鬥士、刺客、射手、法師、輔助（太早結束沒成裝的，依不看裝備的數字推斷，見 SQL 裡的 nb_* 常數）。
   # 傷害類型（AD／AP）另外一個欄位 damage_type，不放進定位名稱——以前的「AD 鬥士／AP 鬥士、AD 輸出／AP 輸出」
   # 讓定位變成九種，雷達、陣容、好友比較每頁各自再合併一次，越來越難懂。
@@ -15,6 +15,7 @@ cubes:
   # 再看各堆佔的金額比例，依序：
   #   1. 輔助裝 ≥ 35%                                        → 輔助
   #   2. 坦度 ≥ 50%，且 AD、AP 都 < 25%（幾乎純坦裝）          → 坦克
+  #      ARAM 大混戰中，帶官方輔助標籤並選到蛋白飲            → 輔助
   #   3. 坦度 ≥ 30%（一半肉一半輸出）                         → 鬥士
   #   4. AD ≥ AP：AD 金額裡「穿甲裝」最多                      → 刺客
   #              否則英雄有官方「射手」定位                     → 射手
@@ -211,7 +212,14 @@ cubes:
                 WHEN g.sup / (g.ad + g.ap + g.tank + g.sup) >= 0.35 THEN '輔助'
                 WHEN g.tank / (g.ad + g.ap + g.tank + g.sup) >= 0.5
                      AND g.ad / (g.ad + g.ap + g.tank + g.sup) < 0.25
-                     AND g.ap / (g.ad + g.ap + g.tank + g.sup) < 0.25 THEN '坦克'
+                     AND g.ap / (g.ad + g.ap + g.tank + g.sup) < 0.25 THEN
+                  CASE WHEN m.queue_id = 2400
+                    AND EXISTS (SELECT 1 FROM dim_champion_roles r WHERE r.champion_id = mp.champion_id AND r.role = 'support')
+                    AND EXISTS (
+                      SELECT 1 FROM participant_augments a
+                      WHERE a.platform_id = mp.platform_id AND a.game_id = mp.game_id
+                        AND a.participant_id = mp.participant_id AND a.augment_id = 1324
+                    ) THEN '輔助' ELSE '坦克' END
                 WHEN g.tank / (g.ad + g.ap + g.tank + g.sup) >= 0.3 THEN '鬥士'
                 WHEN g.ad >= g.ap THEN
                   CASE WHEN g.ad_pen > g.ad_crit AND g.ad_pen > g.ad_as AND g.ad_pen > g.ad_other THEN '刺客'
@@ -258,7 +266,7 @@ cubes:
       # 字串而不是數字比較：理由同 participants.is_me（CASE 運算式沒有型別親和性）
       - name: build_role
         title: 出裝定位
-        description: "依終場裝備判斷的實際定位，六類：坦克、鬥士（坦度裝約一半，或鬥士英雄出 AD 輸出裝）、刺客（穿甲型 AD；或官方主定位是刺客的英雄出輸出裝）、射手（AD 輸出裝且英雄有官方射手定位）、法師（AP 輸出裝）、輔助，沒成裝的（太早結束等）不看裝備，用數字推斷，所以不會再出現未成形。AD／AP 看 damage_type。規則見 cube/model/cubes/builds.yml；和英雄的官方定位（champion_roles）不同，同一隻英雄不同場可能不一樣。"
+        description: "依終場裝備判斷的實際定位，分為坦克、鬥士、刺客、射手、法師、輔助。ARAM 大混戰中，有官方輔助標籤的英雄選到蛋白飲並穿坦克裝時歸為輔助。沒成裝時用對局數據推斷。AD／AP 看 damage_type。規則見 cube/model/cubes/builds.yml，同一隻英雄不同場可能不一樣。"
         sql: build_role
         type: string
         meta:

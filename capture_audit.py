@@ -6,6 +6,7 @@ uv run python capture_audit.py --backfill-timelines --limit 0
 
 import argparse
 import ast
+import contextlib
 import inspect
 import json
 import sqlite3
@@ -25,6 +26,8 @@ def audit(conn):
              SUM(EXISTS(SELECT 1 FROM match_timelines t WHERE t.platform_id=m.platform_id AND t.game_id=m.game_id))
            FROM matches m WHERE queue_id=?""", (lcu.MAYHEM_QUEUE_ID,)).fetchone()
     result = {"counts": counts, "mayhem": {"matches": mayhem[0], "withEog": mayhem[1] or 0, "withTimeline": mayhem[2] or 0}}
+    if "match_kill_events" in tables:
+        counts["match_kill_events"] = conn.execute("SELECT COUNT(*) FROM match_kill_events").fetchone()[0]
 
     mapped = set(db.LATE_COLUMNS.values())
     for node in ast.walk(ast.parse(inspect.getsource(db.store_match))):
@@ -68,21 +71,27 @@ def audit(conn):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--backfill-timelines", action="store_true")
+    parser.add_argument("--recover-raw", action="store_true", help="重新核對及匯入舊表已保存的完整 JSON")
     parser.add_argument("--limit", type=int, default=50, help="回補上限，0 代表所有目前可重試場次")
     parser.add_argument("--json", action="store_true", help="完整欄位清冊（不含玩家身分）")
     args = parser.parse_args()
     if args.limit < 0:
         parser.error("--limit 必須大於或等於 0")
+    if args.recover_raw or args.backfill_timelines:
+        db.init()
+    if args.recover_raw:
+        with contextlib.closing(db.connect()) as conn:
+            raw_data.recover_existing(conn, force=True)
     if args.backfill_timelines:
         import collector
-        db.init()
         conn = db.connect()
         try:
-            client = lcu.LCUClient.connect()
-            gatherer = collector.Collector()
-            gatherer._attach_archive(client, conn)
             games = db.games_missing_timeline(conn, args.limit or -1)
             succeeded = failed = 0
+            if games:
+                client = lcu.LCUClient.connect()
+                gatherer = collector.Collector()
+                gatherer._attach_archive(client, conn)
             for platform_id, game_id in games:
                 if gatherer._fetch_timeline(conn, client, platform_id, game_id):
                     succeeded += 1

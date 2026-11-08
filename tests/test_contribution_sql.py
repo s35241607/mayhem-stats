@@ -14,7 +14,8 @@ import db
 YML = Path(__file__).parent.parent / "cube" / "model" / "cubes" / "contribution.yml"
 SQL = yaml.safe_load(YML.read_text(encoding="utf-8"))["cubes"][0]["meta"]["materialize"]["sql"]
 SD_WORK, MU_WORK = map(float, re.search(r"VALUES \([\d., ]+, ([\d.]+), (-?[\d.]+)\)\s*-- 校正常數結束", SQL).groups())
-WEIGHTS = {"d": 0.25, "t": 0.20, "ks": 0.17, "h": 0.12, "c": 0.11, "o": 0.07, "w": 0.05, "a": 0.03}
+WEIGHTS = {"d": 0.23, "t": 0.19, "ks": 0.14, "h": 0.18, "c": 0.11, "o": 0.07, "w": 0.05, "a": 0.03}
+FRONTLINE_WEIGHTS = {**WEIGHTS, "d": 0.13, "t": 0.25, "c": 0.15}
 
 
 class Fixture:
@@ -114,6 +115,33 @@ class ContributionTests(unittest.TestCase):
         self.assertGreater(tank["gene_d"], adc["gene_d"])
         self.assertLess(tank["gene_t"], adc["gene_t"])
 
+    def test_tank_and_support_output_only_adds_to_total(self):
+        low_output = {3: {"dmg_to_champions": 1000, "kills": 15}}
+        for game, role in enumerate(("坦克", "輔助", "鬥士"), 1):
+            self.fx.game(game, roles={3: role}, over=low_output)
+        res = self.fx.result()
+        for game in (1, 2):
+            row = self.at(res, game, 3)
+            self.assertEqual(row["pts_d"], 0)
+            self.assertEqual(row["pts_ks"], 0)
+            self.assertLess(row["gene_d"], 50)
+        self.assertLess(self.at(res, 3, 3)["pts_d"], 0)
+
+    def test_protein_shake_reclassifies_support_champions_with_tank_builds(self):
+        tank_item, ap_item = 9001, 9002
+        self.fx.game(1, items={i: [tank_item] for i in (1, 2, 3)} | {4: [ap_item]})
+        conn = self.fx.conn
+        conn.execute("UPDATE match_participants SET champion_id = 2 WHERE game_id = 1 AND participant_id = 3")
+        conn.executemany("INSERT INTO dim_champion_roles VALUES (?, ?)", [(1, "tank"), (1, "support"), (2, "tank")])
+        conn.executemany("INSERT INTO dim_items (id, price_total) VALUES (?, 2500)", [(tank_item,), (ap_item,)])
+        conn.executemany("INSERT INTO dim_item_categories VALUES (?, ?)", [(tank_item, "Health"), (ap_item, "SpellDamage")])
+        conn.executemany("INSERT INTO participant_augments VALUES ('TW2', 1, ?, 0, 1324)", [(1,), (3,), (4,)])
+        builds_sql = yaml.safe_load(YML.with_name("builds.yml").read_text(encoding="utf-8"))["cubes"][0]["meta"]["materialize"]["sql"]
+        conn.execute("DROP TABLE mat_builds")
+        conn.execute(f"CREATE TABLE mat_builds AS {builds_sql}")
+        rows = self.fx.result()
+        self.assertEqual([self.at(rows, 1, i)["build_role"] for i in range(1, 5)], ["輔助", "坦克", "坦克", "法師"])
+
     def test_points_add_up_to_the_score(self):
         self.fx.game(1)
         for i in range(1, 11):
@@ -165,10 +193,55 @@ class ContributionTests(unittest.TestCase):
             self.assertGreaterEqual(r["pts_a"], 0)
 
     def test_weights_sum_to_one(self):
-        m = re.search(r"SELECT \*,\s*(0\.\d+ \* z_\w+(?: \+ 0\.\d+ \* z_\w+)*) AS work_raw", SQL)
-        weights = {w.split(" * z_")[1]: float(w.split(" * ")[0]) for w in m.group(1).split(" + ")}
-        self.assertEqual(weights, WEIGHTS)
-        self.assertAlmostEqual(sum(weights.values()), 1.0)
+        for game, (role, damage_taken) in enumerate((("坦克", 100000), ("輔助", 35000), ("鬥士", 52000)), 1):
+            self.fx.game(game, roles={3: role}, over={3: {"dmg_taken": damage_taken, "time_ccing_others": 65}})
+        res = self.fx.result()
+        for game, weights in ((1, FRONTLINE_WEIGHTS), (2, FRONTLINE_WEIGHTS), (3, WEIGHTS)):
+            row = self.at(res, game, 3)
+            for gene in ("d", "t", "c"):
+                z = (row[f"gene_{gene}"] - 50) / 20
+                if game == 2 and gene == "t":
+                    self.assertGreater(z, 0.5)
+                    z = 0.5 + 0.4 * (z - 0.5)
+                self.assertAlmostEqual(row[f"pts_{gene}"], 20 * weights[gene] * z / SD_WORK, places=6)
+            self.assertAlmostEqual(sum(weights.values()), 1.0)
+
+    def test_support_soak_keeps_increasing_after_the_threshold(self):
+        for game, damage_taken in enumerate((14500, 35000, 55000), 1):
+            self.fx.game(game, roles={3: "輔助"}, over={3: {"dmg_taken": damage_taken}})
+        res = self.fx.result()
+        low, middle, high = (self.at(res, game, 3) for game in (1, 2, 3))
+        z = (low["gene_t"] - 50) / 20
+        self.assertGreater(z, 0)
+        self.assertLess(z, 0.5)
+        self.assertAlmostEqual(low["pts_t"], 20 * FRONTLINE_WEIGHTS["t"] * z / SD_WORK, places=6)
+        self.assertGreater(middle["pts_t"], low["pts_t"])
+        self.assertGreater(high["pts_t"], middle["pts_t"])
+
+    def test_support_earns_heal_points_below_the_role_baseline(self):
+        roles = {3: "輔助"}
+        no_healing = {i: (0, 0) for i in range(1, 11)}
+        self.fx.game(1, roles=roles, eog=no_healing)
+        self.fx.game(2, roles=roles, eog={**no_healing, 3: (4500, 4500)})
+        self.fx.game(3, roles=roles, eog={**no_healing, 3: (9000, 9000)})
+        rows = self.fx.result()
+        none, some, more = (self.at(rows, game, 3) for game in (1, 2, 3))
+        self.assertEqual(none["pts_h"], 0)
+        self.assertLess(some["gene_h"], 50)
+        self.assertGreater(some["pts_h"], 0)
+        self.assertGreater(more["pts_h"], some["pts_h"])
+
+    def test_support_heal_credit_is_scaled_below_the_role_baseline(self):
+        eog = {i: (150, 150) if i == 3 else (0, 0) for i in range(1, 11)}
+        self.fx.game(1, roles={3: "坦克"}, eog=eog)
+        self.fx.game(2, roles={3: "輔助"}, eog=eog)
+        rows = self.fx.result()
+        tank, support = (self.at(rows, game, 3) for game in (1, 2))
+        self.assertEqual(support["p_h"], tank["p_h"])
+        self.assertLess(tank["gene_h"], 50)
+        self.assertLess(support["gene_h"], 50)
+        self.assertGreater(tank["pts_h"], 0)
+        self.assertAlmostEqual(support["pts_h"], tank["pts_h"] * 5 / 6, places=6)
 
     def test_heal_source_needs_all_ten_end_of_game_stats(self):
         full = {i: (0, 0) for i in range(1, 11)}

@@ -273,7 +273,7 @@ export function MatchList({
         <div className="text-xs text-muted-foreground">
           共 {total} 場・{wins} 勝 {total - wins} 敗・勝率 {((wins / total) * 100).toFixed(1)}%・點任一場看完整戰報
         </div>
-        <MatchCards rows={matches} onPick={pick} showPlayer={showPlayer} headerExtra={headerExtra} />
+        <MatchCards rows={matches} onPick={pick} showPlayer={showPlayer} showDamage={params.sort === "damage" || params.metric === "damage"} headerExtra={headerExtra} />
         <div ref={sentinelRef} />
         {error ? (
           <Button size="sm" variant="outline" className="w-full" onClick={() => { setError(null); loadMore() }}>

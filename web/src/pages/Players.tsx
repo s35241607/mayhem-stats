@@ -249,6 +249,15 @@ function PersonDetail({
   ]
   const time = timeFilter("matches.played_at")
   const breakdown = view === "breakdown"
+  const duels = useCube(
+    settled && person.foe_games > 0 && rel !== "teammate"
+      ? {
+          measures: ["teammates.kill_timeline_games", "teammates.kills_against", "teammates.assists_against", "teammates.deaths_to"],
+          filters: rel === "opponent" ? filters : [...filters, { member: "teammates.relation", operator: "equals", values: ["opponent"] }],
+          ...time,
+        }
+      : null,
+  )
 
   const roles = useCube(
     breakdown
@@ -315,6 +324,37 @@ function PersonDetail({
           hint={sideHint(person.foe_wins, person.foe_games, person.foe_winrate, myWinrate, "opponent")}
         />
       </div>
+
+      {person.foe_games > 0 && rel !== "teammate" && (
+        <section className="space-y-1.5 rounded-md border bg-muted/20 px-3 py-2" data-testid="opponent-kill-record">
+          <h3 className="text-sm font-medium">敵對擊殺紀錄</h3>
+          {!settled || duels.loading ? (
+            <p className="text-xs text-muted-foreground" role="status">載入擊殺紀錄…</p>
+          ) : duels.error ? (
+            <p className="text-xs text-destructive">擊殺紀錄查詢失敗。</p>
+          ) : num0(duels.rows[0] ?? {}, "teammates.kill_timeline_games") === 0 ? (
+            <p className="text-xs text-muted-foreground">這些敵對場次尚無時間軸資料。</p>
+          ) : (
+            <>
+              <dl className="grid grid-cols-3 gap-2">
+                {[
+                  { label: "我擊殺對方", key: "teammates.kills_against" },
+                  { label: "我助攻擊殺對方", key: "teammates.assists_against" },
+                  { label: "對方擊殺我", key: "teammates.deaths_to" },
+                ].map(({ label, key }) => (
+                  <div key={key} className="rounded bg-background/60 px-2 py-1">
+                    <dt className="text-[11px] text-muted-foreground">{label}</dt>
+                    <dd className="font-mono font-semibold tabular-nums">{num0(duels.rows[0] ?? {}, key)}</dd>
+                  </div>
+                ))}
+              </dl>
+              <p className="text-[11px] text-muted-foreground">
+                {num0(duels.rows[0] ?? {}, "teammates.kill_timeline_games")}／{person.foe_games} 場敵對對局有時間軸
+              </p>
+            </>
+          )}
+        </section>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <ToggleGroup

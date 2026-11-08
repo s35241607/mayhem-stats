@@ -9,7 +9,7 @@ cubes:
     sql: >
       SELECT me.rowid * 16 + other.participant_id AS row_key,
              me.rowid AS subject_rowid,
-             me.platform_id, me.game_id, me.participant_id, me.win,
+             me.platform_id, me.game_id, me.participant_id, me.win, other.participant_id AS other_participant_id,
              me.champion_id AS subject_champion_id,
              me.puuid      AS subject_puuid,
              other.puuid   AS other_puuid,
@@ -29,10 +29,10 @@ cubes:
       LEFT JOIN dim_champions mine_champ  ON mine_champ.id  = me.champion_id
       LEFT JOIN dim_champions other_champ ON other_champ.id = other.champion_id
 
-    # 與 participants.yml 相同的 refresh key,理由寫在那裡。SQL 必須一字不差才會被合併。
+    # 擊殺事件會在時間軸補到或修訂時更新。
     refresh_key:
       sql: >
-        SELECT (SELECT COALESCE(MAX(ingested_at), 0) FROM matches) || ':' || (SELECT COUNT(*) FROM dim_augments) || ':' || (SELECT group_concat(puuid || is_me || tracked) FROM accounts) || ':' || (SELECT COALESCE(MAX(version), 0) FROM mat_state)
+        SELECT (SELECT COALESCE(MAX(ingested_at), 0) FROM matches) || ':' || (SELECT COUNT(*) FROM dim_augments) || ':' || (SELECT group_concat(puuid || is_me || tracked) FROM accounts) || ':' || (SELECT COALESCE(MAX(version), 0) FROM mat_state) || ':' || COALESCE((SELECT value FROM kv WHERE key='kill_events_revision'), '0')
 
     joins:
       - name: champion_roles
@@ -145,6 +145,44 @@ cubes:
         description: teammate = 與我同隊,opponent = 我的對手
 
     measures:
+      - name: kill_timeline_games
+        title: 有擊殺時間軸的敵對場次
+        sql: >
+          CASE WHEN {CUBE}.relation = 'opponent' AND EXISTS (
+            SELECT 1 FROM match_timelines tl
+            WHERE tl.platform_id = {CUBE}.platform_id AND tl.game_id = {CUBE}.game_id
+          ) THEN {CUBE}.platform_id || ':' || {CUBE}.game_id END
+        type: count_distinct
+        description: 與對方敵對且已取得時間軸的對局數。搭配擊殺次數判讀資料覆蓋。
+
+      - name: kills_against
+        title: 我擊殺對方
+        sql: >
+          (SELECT COUNT(*) FROM match_kill_events k
+           WHERE k.platform_id = {CUBE}.platform_id AND k.game_id = {CUBE}.game_id
+             AND k.killer_id = {CUBE}.participant_id AND k.victim_id = {CUBE}.other_participant_id)
+        type: sum
+        description: 在有時間軸的對局中，我親自擊殺這位對手的次數。
+
+      - name: deaths_to
+        title: 對方擊殺我
+        sql: >
+          (SELECT COUNT(*) FROM match_kill_events k
+           WHERE k.platform_id = {CUBE}.platform_id AND k.game_id = {CUBE}.game_id
+             AND k.killer_id = {CUBE}.other_participant_id AND k.victim_id = {CUBE}.participant_id)
+        type: sum
+        description: 在有時間軸的對局中，我被這位對手親自擊殺的次數。
+
+      - name: assists_against
+        title: 我助攻擊殺對方
+        sql: >
+          (SELECT COUNT(*) FROM match_kill_events k
+           WHERE k.platform_id = {CUBE}.platform_id AND k.game_id = {CUBE}.game_id
+             AND k.victim_id = {CUBE}.other_participant_id
+             AND EXISTS (SELECT 1 FROM json_each(k.assist_ids) a WHERE a.value = {CUBE}.participant_id))
+        type: sum
+        description: 在有時間軸的對局中，這位對手被擊殺且我取得助攻的次數。
+
       - name: games
         title: 同場次數
         sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id"

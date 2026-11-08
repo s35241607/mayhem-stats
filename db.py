@@ -200,6 +200,18 @@ CREATE TABLE IF NOT EXISTS match_timelines (
   PRIMARY KEY (platform_id, game_id)
 );
 
+CREATE TABLE IF NOT EXISTS match_kill_events (
+  platform_id TEXT    NOT NULL,
+  game_id     INTEGER NOT NULL,
+  event_index INTEGER NOT NULL,
+  time_ms     INTEGER NOT NULL,
+  killer_id   INTEGER,
+  victim_id   INTEGER NOT NULL,
+  assist_ids  TEXT    NOT NULL,
+  PRIMARY KEY (platform_id, game_id, event_index)
+);
+CREATE INDEX IF NOT EXISTS idx_kill_victim ON match_kill_events(platform_id, game_id, victim_id, killer_id);
+
 -- 選角過程（/lol-champ-select/v1/session）：選角時每次內容有變就記一筆精簡快照
 -- （我方每人的英雄、板凳、重抽次數、交換），snapshots 是依時間排的 JSON 陣列；raw_last 是最後一份完整 session。
 -- 每次觀測到的完整 session（含沒有 gameId 的早期回應）另存 raw_payloads。
@@ -340,6 +352,7 @@ def _migrate(conn):
                 conn.execute(f"ALTER TABLE eog_player_stats ADD COLUMN {col} INTEGER")
         _backfill_eog_extra(conn)
     raw_data.recover_existing(conn)
+    _backfill_kill_events(conn)
 
     # 保留舊版的開始時間，僅供追溯；時間軸現在會回補所有已知場次。
     with conn:
@@ -873,6 +886,31 @@ def finish_run(conn, run_id, seen, new, error=None):
 
 # ── 逐幀時間軸 ──────────────────────────────────────────────────────────────
 
+def _replace_kill_events(conn, platform_id, game_id, timeline):
+    rows = []
+    for frame in timeline.get("frames") or []:
+        for event in frame.get("events") or []:
+            if event.get("type") == "CHAMPION_KILL" and event.get("victimId") is not None:
+                rows.append((
+                    platform_id, game_id, len(rows), event.get("timestamp") or 0,
+                    event.get("killerId"), event["victimId"],
+                    json.dumps(event.get("assistingParticipantIds") or []),
+                ))
+    conn.execute("DELETE FROM match_kill_events WHERE platform_id=? AND game_id=?", (platform_id, game_id))
+    conn.executemany("INSERT INTO match_kill_events VALUES (?,?,?,?,?,?,?)", rows)
+
+
+def _backfill_kill_events(conn):
+    """從已保存的時間軸補回逐筆擊殺，和匯入標記一起提交。"""
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if conn.execute("SELECT 1 FROM kv WHERE key='kill_events_backfilled_v1'").fetchone():
+            return
+        for platform_id, game_id, raw in conn.execute("SELECT platform_id, game_id, raw_gz FROM match_timelines"):
+            _replace_kill_events(conn, platform_id, game_id, json.loads(zlib.decompress(raw)))
+        conn.execute("INSERT INTO kv (key,value) VALUES ('kill_events_backfilled_v1','1')")
+
+
 def store_timeline(conn, platform_id, game_id, timeline):
     """存原始時間軸的所有版本；查詢表使用幀數最多、同幀數最新的一份。"""
     raw_data.save(conn, "lcu", f"/lol-match-history/v1/game-timelines/{game_id}", timeline,
@@ -888,6 +926,10 @@ def store_timeline(conn, platform_id, game_id, timeline):
                WHERE excluded.frames >= match_timelines.frames AND excluded.raw_gz != match_timelines.raw_gz""",
             (platform_id or "", game_id, int(time.time()), len(timeline["frames"]), raw),
         )
+        if cur.rowcount > 0:
+            _replace_kill_events(conn, platform_id or "", game_id, timeline)
+            conn.execute("""INSERT INTO kv (key,value) VALUES ('kill_events_revision','1')
+                            ON CONFLICT(key) DO UPDATE SET value=CAST(value AS INTEGER)+1""")
     return cur.rowcount > 0
 
 

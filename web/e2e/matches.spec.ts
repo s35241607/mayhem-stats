@@ -27,6 +27,42 @@ test.describe("對局紀錄：列表", () => {
     await expect(page.getByText(`共 ${games} 場・${wins} 勝 ${games - wins} 敗・勝率 ${((wins / games) * 100).toFixed(1)}%`)).toBeVisible()
   })
 
+  test("對局分析工具列可切換高低、疊加篩選和重設", async ({ page }) => {
+    const sort = page.getByRole("combobox", { name: "對局排序" })
+    const listResponse = (matches: (params: URLSearchParams) => boolean) => page.waitForResponse((r) => {
+      const url = new URL(r.url())
+      return url.pathname === "/api/matches" && url.searchParams.get("offset") === "0" && matches(url.searchParams)
+    })
+    await expect(sort).toHaveText("對局時間")
+    await sort.click()
+    const response = listResponse((params) => params.get("sort") === "kills" && params.get("direction") === "desc")
+    await page.getByRole("option", { name: "擊殺", exact: true }).click()
+    const { matches } = await (await response).json()
+    const top = matches[0]
+    await expect(sort).toHaveText("擊殺")
+    await expect(cards(page).first()).toContainText(`${top.kills} / ${top.deaths} / ${top.assists}`)
+
+    const reversed = listResponse((params) => params.get("sort") === "kills" && params.get("direction") === "asc")
+    await page.getByText("低到高", { exact: true }).click()
+    const bottom = (await (await reversed).json()).matches[0]
+    expect(bottom.kills).toBeLessThan(top.kills)
+    await expect(cards(page).first()).toContainText(`${bottom.kills} / ${bottom.deaths} / ${bottom.assists}`)
+
+    await page.getByLabel("勝敗篩選").getByText("戰敗", { exact: true }).click()
+    await page.getByRole("button", { name: "指標區間", exact: true }).click()
+    await page.getByLabel(/最低值/).fill("20")
+    await page.getByLabel(/最高值/).fill("50")
+    const filtered = listResponse((params) => params.get("result") === "loss" && params.get("metric") === "contribution" &&
+      params.get("min_value") === "20" && params.get("max_value") === "50" && params.get("direction") === "asc")
+    await page.getByRole("button", { name: "套用區間" }).click()
+    expect((await (await filtered).json()).wins).toBe(0)
+    await expect(page.getByRole("button", { name: "移除 貢獻分數 20–50 分 篩選" })).toBeVisible()
+    await expect(page.getByRole("button", { name: "移除 戰敗 篩選" })).toBeVisible()
+    await page.getByRole("button", { name: "重設", exact: true }).click()
+    await expect(sort).toHaveText("對局時間")
+    await expect(page.getByRole("button", { name: "移除 戰敗 篩選" })).toHaveCount(0)
+  })
+
   test("第一批載入 20 場，由新到舊，英雄、勝敗、KDA、補兵、時長都和 SQL 一致", async ({ page }) => {
     // 第一批是 20 場；視窗夠高時，底部哨兵已經在預載範圍內，會馬上接著載下一批，所以不是剛好 20
     await expect.poll(() => cards(page).count()).toBeGreaterThanOrEqual(20)

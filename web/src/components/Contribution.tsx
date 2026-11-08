@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 // 貢獻分數的呈現。分數只有一個（本場貢獻），定義在語意層（contribution.yml，規格見 docs/contribution-scoring.md）；
 // 這裡只負責畫（常數與查詢在 hooks/useContribution.ts）：好友比較頁、單場計分板、對局卡片共用同一套數字與橫條。
 
-/** 貢獻的數字：0～100，50＝同出裝定位的平均；差距不到門檻（WORK_GAP）的用淡色 */
+/** 貢獻的數字：0～100，50＝校準時的整體基準；差距不到門檻（WORK_GAP）的用淡色 */
 export function ContribScore({ dev: d, className, gap = WORK_GAP }: { dev: number | null; className?: string; gap?: number }) {
   return (
     <span
@@ -53,7 +53,7 @@ export function ContribBars({ row, className, compact }: { row: CubeRow | undefi
         const tip =
           (pts === null ? "" : `{{lab|總分}}{{${pts >= 0 ? "win" : "loss"}|${signed(pts)}}} 分（這一項占 ${c.weight}%；橫條畫的就是它）\n`) +
           `{{lab|${c.label}}}{{big|${v === null ? "—" : Math.round(v)}}} 基因分數，50＝同出裝定位的平均\n> ${c.hint}` +
-          (c.key === "contribution.gene_dmg" ? "" : "\n> 只加不扣：基因低於 50 的場次這一項是 0，所以多場平均時基因可能低於 50、加減分仍是正的")
+          (c.key === "contribution.gene_dmg" || c.key === "contribution.gene_heal" ? "" : "\n> 只加不扣：基因低於 50 的場次這一項是 0，所以多場平均時基因可能低於 50、加減分仍是正的")
         return (
           <div
             key={c.key}
@@ -92,7 +92,7 @@ export function ContribBars({ row, className, compact }: { row: CubeRow | undefi
 }
 
 const WORK_TITLE =
-  "本場貢獻（0～100）：輸出、承傷、擊殺、治療護盾、控場、推塔、清兵、功能裝八項，先和同一場的人比、再和同出裝定位的平均比，加權成總分。50＝同出裝定位的平均"
+  "本場貢獻（0～100）：輸出、承傷、擊殺、治療護盾、控場、推塔、清兵、功能裝八項加權。治療護盾採計實際保人量與超出同定位基準的部分。50＝校準時的整體基準"
 const ESTIMATE_NOTE = "*暫估：這場沒有賽後統計，治療護盾隊友不計分（這一項視為平均）"
 
 /** 對局卡片裡的一個小數字：「貢獻 62」；暫估的場次數字後面加「*」 */

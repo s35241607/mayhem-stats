@@ -169,30 +169,102 @@ async function memberOf(row: Locator) {
   return m!
 }
 
+test("近期平均貢獻符合 SQL，切換場次後可查看同一批戰報", async ({ page }) => {
+  await page.route("**/api/config", (route) =>
+    route.fulfill({ json: { defaults: { queue: "2400", dateRange: "all", versionFrom: null }, canEdit: false } }),
+  )
+  await page.goto("/crew")
+  const row = matrixRows(page).first()
+  const player = await memberOf(row)
+  const games = sql(
+    `SELECT p.game_id, c.work_score AS score, p.win, c.score_status AS status
+       FROM match_participants p JOIN matches m USING (platform_id, game_id)
+       JOIN mat_contribution c ON c.participant_rowid = p.rowid
+       WHERE p.puuid = ? AND m.queue_id = 2400 AND m.is_remake = 0 AND c.work_score IS NOT NULL
+       ORDER BY m.game_creation DESC, p.platform_id DESC, p.game_id DESC LIMIT 20`,
+    [player.puuid],
+  )
+  const recent = row.getByTestId("crew-recent-score")
+  const average = (n: number) => {
+    const batch = games.slice(0, n)
+    return batch.reduce((sum, game) => sum + Number(game.score), 0) / batch.length
+  }
+  await expect(recent).toContainText("近期")
+  await expect(recent.getByTestId("crew-recent-average")).toHaveText(String(Math.round(average(10))))
+  const overallBox = await row.getByTestId("crew-overall").boundingBox()
+  const recentBox = await recent.boundingBox()
+  expect(overallBox && recentBox && Math.abs(overallBox.y - recentBox.y)).toBeLessThan(6)
+  const tip = page.getByRole("tooltip")
+  await recent.hover()
+  await expect(tip.getByText("計入場次", { exact: true })).toBeVisible()
+  await expect(tip.getByText(`${Math.min(10, games.length)} 場`, { exact: true })).toBeVisible()
+
+  const select = page.getByRole("combobox", { name: "近期貢獻場次" })
+  await select.click()
+  await page.getByRole("option", { name: "近 20 場", exact: true }).click()
+  await expect(recent.getByTestId("crew-recent-average")).toHaveText(String(Math.round(average(20))))
+  await select.click()
+  await page.getByRole("option", { name: "近 5 場", exact: true }).click()
+  await expect(recent.getByTestId("crew-recent-average")).toHaveText(String(Math.round(average(5))))
+  const selected = games.slice(0, 5)
+  const wins = selected.filter((g) => Number(g.win) === 1).length
+  await recent.hover()
+  await expect(tip.getByText(`${selected.length} 場`, { exact: true })).toBeVisible()
+  await expect(tip).toContainText(`${wins} 勝 ${selected.length - wins} 敗`)
+  const matches = page.waitForRequest((request) => {
+    const url = new URL(request.url())
+    return url.pathname === "/api/matches" && url.searchParams.has("game_ids")
+  })
+  await recent.click()
+  const params = new URL((await matches).url()).searchParams
+  expect(params.get("puuid")).toBe(player.puuid)
+  expect(params.get("game_ids")).toBe(selected.map((g) => g.game_id).join(","))
+  await expect(page.getByText(`共 ${selected.length} 場・${wins} 勝 ${selected.length - wins} 敗`, { exact: false })).toBeVisible()
+})
+
+test("各定位平均貢獻、計分人次與治療護盾分解符合 SQL", async ({ page }) => {
+  await page.route("**/api/config", (route) =>
+    route.fulfill({ json: { defaults: { queue: "2400", dateRange: "all", versionFrom: null }, canEdit: false } }),
+  )
+  await page.goto("/crew")
+  const ref = page.getByTestId("crew-team-row")
+  const crew = crewMembers().map((m) => m.puuid)
+  const rows = sql(
+    `SELECT b.build_role role, AVG(c.work_score) score, COUNT(c.work_score) scored, AVG(c.pts_h) heal
+       FROM match_participants p JOIN matches m USING (platform_id, game_id)
+       JOIN mat_builds b ON b.participant_rowid = p.rowid
+       LEFT JOIN mat_contribution c ON c.participant_rowid = p.rowid
+       WHERE m.queue_id = 2400 AND m.is_remake = 0 AND p.puuid IN (${crew.map(() => "?").join(",")})
+       GROUP BY b.build_role ORDER BY scored DESC`, crew,
+  )
+  await expect(ref.locator("dt")).toHaveCount(6, { timeout: 40_000 })
+  const healText = (heal: unknown) => heal === null ? "—" : Number(heal) < 0.05 ? "0.0" : `+${Number(heal).toFixed(1)}`
+  for (const r of rows) {
+    const entry = ref.getByTestId("crew-team-role").filter({ has: page.getByText(String(r.role), { exact: true }) })
+    await expect(entry.locator("dd")).toHaveText([r.score === null ? "—" : Number(r.score).toFixed(1), `${r.scored} 人次`])
+    if (r.heal !== null) {
+      const heal = entry.locator("div[data-tip]").filter({ has: page.getByText("治療護盾", { exact: true }) })
+      await expect(heal.getByText(healText(r.heal), { exact: true })).toBeVisible()
+    }
+  }
+  const player = matrixRows(page).first()
+  const person = await memberOf(player)
+  const detail = sql(
+    `SELECT AVG(c.pts_h) heal
+       FROM match_participants p JOIN matches m USING (platform_id, game_id)
+       LEFT JOIN mat_contribution c ON c.participant_rowid = p.rowid
+       WHERE m.queue_id = 2400 AND m.is_remake = 0 AND p.puuid = ?`, [person.puuid],
+  )[0]
+  const overall = player.getByTestId("crew-genes")
+  await expect(overall.getByText("整體貢獻分解", { exact: true })).toBeVisible()
+  const heal = overall.locator("div[data-tip]").filter({ has: page.getByText("治療護盾", { exact: true }) })
+  await expect(heal.getByText(healText(detail.heal), { exact: true })).toBeVisible()
+})
+
 test.describe("好友比較頁：全員一覽", () => {
   test.beforeEach(async ({ page }) => {
     await openPage(page, "crew")
     await expect(matrixRows(page).first()).toBeVisible()
-  })
-
-  test("最上面一列「這群人」：比較名單合起來的人次對 SQL，雷達各出裝的人次對 SQL，不是按鈕", async ({ page }) => {
-    const ref = page.getByTestId("crew-team-row")
-    const crew = crewMembers().map((m) => m.puuid)
-    const inCrew = `p.puuid IN (${crew.map(() => "?").join(",")})`
-    const total = Number(sql(`SELECT COUNT(*) n FROM match_participants p JOIN matches m USING (platform_id, game_id) WHERE m.queue_id = 2400 AND m.is_remake = 0 AND ${inCrew}`, crew)[0].n)
-    await expect(ref).toContainText(`${total} 人次`)
-    const tip = (await ref.locator("svg title").textContent())!
-    const lines = [...tip.matchAll(/^(\S+(?: \S+)?) \d+%（(\d+) 場/gm)].map((m) => ({ label: m[1], games: Number(m[2]) }))
-    expect(lines).toHaveLength(6)
-    for (const l of lines) {
-      const n = sql(
-        `SELECT COUNT(*) n FROM match_participants p JOIN matches m USING (platform_id, game_id)
-           JOIN mat_builds b ON b.participant_rowid = p.rowid WHERE m.queue_id = 2400 AND m.is_remake = 0 AND b.build_role = ? AND ${inCrew}`,
-        [l.label, ...crew],
-      )[0].n
-      expect(l.games, l.label).toBe(Number(n))
-    }
-    await expect(ref.locator("button")).toHaveCount(0)
   })
 
   test("每人一列，依場次多到少排；場次、勝率、KDA 和 SQL 一致", async ({ page }) => {
@@ -205,7 +277,7 @@ test.describe("好友比較頁：全員一覽", () => {
       const g = Number(r.games)
       games.push(g)
       const text = await nameButton(row).innerText()
-      expect(text).toContain(`${g} 場・${((Number(r.wins) / g) * 100).toFixed(1)}%`)
+      expect(text).toMatch(new RegExp(`${g} 場\\s+${((Number(r.wins) / g) * 100).toFixed(1)}%`))
       expect(text).toContain(`KDA ${((Number(r.k) + Number(r.a)) / Number(r.d)).toFixed(2)}`)
     }
     expect(games).toEqual([...games].sort((a, b) => b - a))
@@ -327,6 +399,13 @@ test.describe("好友比較頁：抽屜（兩個分頁）", () => {
   })
 
   test("出裝與英雄分頁的英雄清單：從 1 連續編號；場次加總 = 這個人的總場次；點一列展開那隻英雄的每一場，再點收起", async ({ page }) => {
+    // 這裡和 SQL 的全版本樣本比，先清掉站上的預設起始版本。
+    const versionFrom = page.locator("header").getByRole("button", { name: /^\d+\.\d+ 之後$/ })
+    if (await versionFrom.count()) {
+      await versionFrom.click()
+      await page.getByRole("menuitem", { name: "全部版本" }).click()
+      await ready(page)
+    }
     const row = matrixRows(page).first()
     const m = await memberOf(row)
     await nameButton(row).click()
@@ -338,8 +417,23 @@ test.describe("好友比較頁：抽屜（兩個分頁）", () => {
     const games = (await rows.allInnerTexts()).map((t) => Number(t.match(/(\d+) 場/)![1]))
     expect(games.reduce((a, b) => a + b, 0)).toBe(Number(record(m.puuid).games))
     const first = rows.first()
+    const champion = (await first.getAttribute("data-row-key"))!
+    const hero = sql(
+      `SELECT COUNT(c.work_score) scored, COALESCE(SUM(p.penta_kills), 0) pentas
+       FROM match_participants p JOIN matches m USING (platform_id, game_id)
+       JOIN dim_champions d ON d.id = p.champion_id
+       LEFT JOIN mat_contribution c ON c.participant_rowid = p.rowid
+       WHERE p.puuid = ? AND d.name = ? AND m.queue_id = 2400 AND m.is_remake = 0`,
+      [m.puuid, champion],
+    )[0]
     await first.click()
     await expect(first).toHaveAttribute("aria-expanded", "true")
+    const highlights = drawer.getByTestId("crew-champion-highlights")
+    await expect(highlights.getByRole("heading", { name: `${champion}的亮點與成就` })).toBeVisible()
+    await expect(highlights).toContainText(`${games[0]} 場・${hero.scored} 場有貢獻分數`)
+    const pentas = highlights.getByRole("listitem").filter({ hasText: "五殺" })
+    if (Number(hero.pentas)) await expect(pentas).toContainText(`${hero.pentas} 次`)
+    else await expect(pentas).toHaveCount(0)
     await expect(drawer.getByText(`共 ${games[0]} 場`)).toBeVisible()
     await expect(crumbs(page)).toContainText("的每一場")
     await first.click()
@@ -472,7 +566,10 @@ test.describe("好友比較頁：查英雄／查增幅裝置", () => {
     const n = Number((await first.innerText()).match(/(\d+) 場/)![1])
     await first.click()
     const drawer = page.getByRole("dialog")
-    await expect(drawer.getByRole("heading")).toContainText("的每一場")
+    await expect(drawer.getByRole("heading", { name: /的每一場/ })).toBeVisible()
+    const highlights = drawer.getByTestId("crew-champion-highlights")
+    await expect(highlights.getByRole("heading", { name: /的亮點與成就/ })).toBeVisible()
+    await expect(highlights).toContainText(`${n} 場・`)
     await expect(drawer.getByText(`共 ${n} 場`)).toBeVisible()
     await page.keyboard.press("Escape")
     await expect(drawer).toBeHidden()

@@ -83,7 +83,7 @@ export const WORK_SD = 18.5
 
 export type ScoreGap = { mean: number; diff: number; interval: [number, number] | null; clear: boolean }
 
-/** 本場貢獻的平均和 50（同出裝定位的平均）比：差幾分、95% 區間（z 可放寬，見 zFor），以及區間是否整段在 50 的同一邊。
+/** 本場貢獻的平均和 50（校準時的整體基準）比：差幾分、95% 區間（z 可放寬，見 zFor），以及區間是否整段在 50 的同一邊。
  *  n 用「有分數的場次」（contribution.scored_games；重開局沒有分數）。不到 MIN_N 場不給區間。 */
 export function scoreGapOf(mean: number, n: number, z = 1.96, sd = WORK_SD): ScoreGap {
   const diff = mean - 50

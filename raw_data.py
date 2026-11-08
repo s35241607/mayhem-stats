@@ -142,9 +142,9 @@ def failure(conn, source, endpoint, exc, *, now=None):
         )
 
 
-def recover_existing(conn):
+def recover_existing(conn, *, force=False):
     """舊表已保存的完整原文匯入存檔；不能重建早已被覆蓋／沒抓到的內容。"""
-    if conn.execute("SELECT 1 FROM kv WHERE key='raw_archive_recovered_v1'").fetchone():
+    if not force and conn.execute("SELECT 1 FROM kv WHERE key='raw_archive_recovered_v1'").fetchone():
         return
     for row in conn.execute("SELECT platform_id,game_id,ingested_at,raw_json FROM matches").fetchall():
         save(conn, "lcu", f"/lol-match-history/v1/games/{row[1]}", json.loads(row[3]),

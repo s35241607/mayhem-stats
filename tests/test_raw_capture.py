@@ -100,14 +100,25 @@ class RawArchiveTests(unittest.TestCase):
         self.assertEqual(self.payloads(), [first, full, changed])
 
     def test_incomplete_timeline_and_all_versions_are_kept(self):
-        short = {"frames": [{"timestamp": 0}]}
-        full = {"frames": [{"timestamp": 0}, {"timestamp": 60000}], "future": 5}
+        kill = {"type": "CHAMPION_KILL", "timestamp": 12000, "killerId": 1, "victimId": 6, "assistingParticipantIds": [2, 3]}
+        short = {"frames": [{"timestamp": 0, "events": [{**kill, "killerId": 0}]}]}
+        full = {"frames": [{"timestamp": 0, "events": [kill]}, {"timestamp": 60000}], "future": 5}
         self.assertFalse(db.store_timeline(self.conn, "TW2", 1, {}))
         self.assertTrue(db.store_timeline(self.conn, "TW2", 1, short))
         self.assertTrue(db.store_timeline(self.conn, "TW2", 1, full))
         self.assertFalse(db.store_timeline(self.conn, "TW2", 1, short))
         self.assertEqual(db.load_timeline(self.conn, "TW2", 1), full)
         self.assertEqual(self.payloads(), [{}, short, full])
+        def kills():
+            return [tuple(row) for row in self.conn.execute("SELECT time_ms, killer_id, victim_id, assist_ids FROM match_kill_events")]
+
+        self.assertEqual(kills(), [(12000, 1, 6, "[2, 3]")])
+        with self.conn:
+            self.conn.execute("DELETE FROM match_kill_events")
+            self.conn.execute("DELETE FROM kv WHERE key='kill_events_backfilled_v1'")
+        db._backfill_kill_events(self.conn)
+        db._backfill_kill_events(self.conn)
+        self.assertEqual(kills(), [(12000, 1, 6, "[2, 3]")])
 
     def test_failed_timeline_does_not_starve_old_games_or_stop_after_three_attempts(self):
         for game in (1, 2):
