@@ -77,9 +77,9 @@ export const STRENGTH_CLASS: Record<Strength, string> = {
   不強勢: "border-loss/50 bg-loss/15 text-loss font-semibold",
 }
 
-/** 本場貢獻（contribution.work）同一個人單場的標準差：v3 定版時 2026-10-24 實測（8 位 30 場以上的玩家合併）18.3，v2 時 18.5。
+/** 本場貢獻（contribution.work）同一個人單場的標準差：v5.4（v5-B 修訂版）實測 13 位 ≥30 場好友合併為 20.72（全部 17 位 ≥30 場玩家 20.74）。
  *  「本場貢獻平均」的標準誤 = WORK_SD ÷ √有分數的場數。好友比較頁的判斷用它 */
-export const WORK_SD = 18.5
+export const WORK_SD = 20.8
 
 export type ScoreGap = { mean: number; diff: number; interval: [number, number] | null; clear: boolean }
 

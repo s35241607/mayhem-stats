@@ -158,6 +158,25 @@ test.describe("對局紀錄：單場戰報", () => {
     await expect(crumbs(page)).toContainText(String(g.champion))
   })
 
+  test("時間軸顯示擊殺目標、交手對象與玩家篩選", async ({ page }) => {
+    await cards(page).first().click()
+    await page.getByRole("tab", { name: "時間軸" }).click()
+    const events = page.getByRole("region", { name: "事件分析" })
+    await expect(events).toBeVisible({ timeout: 30_000 })
+    await events.getByText("全部事件", { exact: true }).click()
+    await expect(events.locator("li").first()).toBeVisible()
+    await expect(events.locator("li").filter({ hasText: "擊殺" }).first()).toBeVisible()
+    await events.getByText("交手對象", { exact: true }).click()
+    await expect(events.getByRole("columnheader", { name: "被擊殺" })).toBeVisible()
+    const filter = events.getByRole("combobox", { name: "篩選時間軸玩家" })
+    await filter.click()
+    const firstPlayer = page.getByRole("option").filter({ hasText: /我方/ }).first()
+    const label = (await firstPlayer.textContent())!.trim()
+    await firstPlayer.click()
+    await expect(filter).toHaveText(label)
+    await expect(events.getByRole("columnheader", { name: "被擊殺" })).toBeVisible()
+  })
+
   test("計分板：兩隊各 5 人，隊伍擊殺／死亡／助攻合計和 SQL 一致，自己那一列有強調", async ({ page }) => {
     const g = myMatches(1)[0]
     await cards(page).first().click()
@@ -204,7 +223,7 @@ test.describe("對局紀錄：單場戰報", () => {
     await expect(board.getByText("ACE", { exact: true })).toHaveCount(1)
   })
 
-  test("點某人的本場貢獻展開八個基因：雷達圖 + 橫條，再點收合", async ({ page }) => {
+  test("點某人的本場貢獻展開九個基因：雷達圖 + 橫條，再點收合", async ({ page }) => {
     await cards(page).first().click()
     const board = page.locator('[role="tabpanel"]').first()
     const meter = board.locator("button[aria-expanded]").first()
@@ -212,9 +231,9 @@ test.describe("對局紀錄：單場戰報", () => {
     await expect(meter).toHaveAttribute("aria-expanded", "true")
     const reveal = board.locator(".reveal")
     await expect(reveal).toHaveCount(1)
-    await expect(reveal.getByText(/八個基因：先和同一場的人比/)).toBeVisible()
+    await expect(reveal.getByText(/九個基因：經時長校正並與同出裝定位基準比較/)).toBeVisible()
     await expect(charts(reveal)).toHaveCount(1)
-    expect(await reveal.locator("[data-tip*='同出裝定位的平均']").count()).toBe(8) // 八個基因
+    expect(await reveal.locator("[data-tip*='同出裝定位的平均']").count()).toBe(9) // 九個基因
     await meter.click()
     await expect(reveal).toHaveCount(0)
   })

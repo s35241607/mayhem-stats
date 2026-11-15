@@ -982,8 +982,8 @@ export function RadarChart({
 
 export type ContribRadarDatum = { label: string; hint: string; value: number | null }
 
-/** 貢獻六項的雷達：六個頂點各是一項百分位（0～100，外框 100），50 那一圈畫成虛線——
- *  形狀在虛線圈外的那一項就是比同出裝定位、同勝負的一般人多，圈內是少。
+/** 貢獻基因雷達：九個頂點各是一項標準化基因分（0～100，外框 100），50 那一圈畫成虛線——
+ *  形狀在虛線圈外的那一項就是高於同出裝定位基準，圈內是低於基準。
  *  頂點標籤是名稱與數字，數字偏離 50 達 gap（預設 WORK_GAP）才上勝／敗色（和 ContribScore 同一套）。
  *  形狀用資料色，不用勝敗色：雷達整體不是「好壞」，好壞由虛線圈和數字顏色表達。 */
 export function ContribRadarChart({ data: all, height = 280, gap = WORK_GAP }: { data: ContribRadarDatum[]; height?: number; gap?: number }) {
@@ -1028,7 +1028,7 @@ export function ContribRadarChart({ data: all, height = 280, gap = WORK_GAP }: {
         formatter: () =>
           data
             .map((d) => `${d.label}　${d.value === null ? "—" : Math.round(d.value)}<span style="opacity:.6">　${d.hint}</span>`)
-            .join("<br/>") + `<br/><span style="opacity:.7">百分位，50＝同出裝定位、同勝負的一般人</span>`,
+            .join("<br/>") + `<br/><span style="opacity:.7">標準化基因分（50＝同出裝定位基準）</span>`,
       },
       radar: {
         indicator: data.map((d) => ({ name: d.label, max: 100, min: 0 })),

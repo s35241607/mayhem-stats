@@ -1,69 +1,78 @@
 cubes:
   # 本場貢獻（work_score）：全站唯一的分數。計分板大數字、對局卡片、MVP／ACE、英雄頁、好友比較頁（含「打法」）都用它。
-  # 規格與實測依據見 docs/contribution-scoring.md；基因的實測與組合比較在 analysis/scoring_v3_genes.py。
+  # 規格與實測依據見 docs/contribution-scoring.md。
   #
-  # 規則版本 v3.13（2026-11-08）。改下面任何一個常數、權重或公式，都要把 score_version 往上升，並重跑
-  # analysis/scoring_v3_fit.py（重新產生校正常數）與 analysis/scoring_v3_check.py（獨立 Python 逐筆比對）。
-  #   v3.0 取代 v2.3（contribution_v2.yml）與更早的 perf／score。使用者 2026-10-24 的要求：計分方式統一，
-  #   拆成「基因」逐項算；不要再依定位挑項目（v2 依裝備決定哪幾項算分，全防禦裝卻打出全場最高輸出的坦克只拿 27 分），
-  #   坦克輸出高就該高分；承傷要含自身減免；K/DA、功能裝也要算。
-  #   v3.0 → v3.1：K/DA 的「擊殺參與」從每分鐘擊殺＋助攻改成參團率（擊殺＋助攻 ÷ 我方擊殺）。回放：和勝負的相關 0.265 → 0.227（比較不像在算誰贏）、
-  #   個人 η² 0.118 → 0.124（更分得出人）；依據見 analysis/scoring-v3-review-2026-10-24.md。校正常數一併重新產生。
-  #   v3.1 → v3.2：公式沒變，出裝定位（builds.yml）改成依能力值拆混合裝（法師出黎安卓、中婭不再被算成一半坦裝），
-  #   433 人次換了定位（鬥士 → 法師 266），各出裝定位的平均跟著變，校正常數重新產生。
-  #   v3.2 → v3.3：公式沒變，沒有任何成裝的人（太早結束、裝備資料缺，40 人次）不再是「未成形」，改用不看裝備的數字推斷定位
-  #   （builds.yml 的 nb_*，高斯單純貝氏，留出驗證 78.6%）。未成形的人改歸到推斷的定位，各出裝定位的平均跟著變，校正常數重新產生。
-  #   v3.3 → v3.4：沒有賽後統計的場次（約 78%）不再計治療護盾。原本退回「含自補的總治療」，等於把自己補血算成幫隊友，那是輔助的分數，不能給。
-  #   現在這一項視為同出裝定位的平均（z＝0，gene_h＝50、pts_h＝0），其餘七項照算、權重不變；校正常數重新產生。
-  #   v3.4 → v3.5：控場只加不扣（使用者 2026-11-01 要求）。技能組沒有控場的英雄每場都被扣：卡特 82 場控場項平均 −6 分，
-  #   易大師 −12、凱莎 −12，和這場打得好不好無關。現在控場的 z 小於 0 一律當 0（pts_c ≥ 0）；gene_c 照實顯示（看得出控場少）。
-  #   只加不扣會讓平均往上跑約 2.2 分，50 就不再是「同出裝定位的平均」，所以總分扣掉一個寫死的整體校正 mu_work（定版時 raw 的平均），
-  #   這個校正每個人一樣、和控場多少無關。sd_work 也依新的 raw 重新產生。
-  #   v3.5 → v3.6（使用者 2026-11-01 要求）：K/DA 權重 12% → 6%（死亡、擊殺有一半是結果，贏的隊殺得多），
-  #   空出來的 6% 給輸出（25 → 28）與承傷（20 → 23）；治療護盾隊友、功能裝也改成只加不扣（和控場一樣）：
-  #   不補血、不出重創的英雄（多數射手、刺客）不該每場被扣，有做才加分。gene_h、gene_a 照實顯示。校正常數重新產生。
-  #   v3.6 → v3.7（使用者 2026-11-01 要求）：承傷也只加不扣。走位好、吃得少的後排被當成「沒做事」：
-  #   射手、法師裡承傷比同定位少且死得比同定位少的 770 人次，平均只有 43.5（承傷一項平均 −11.9），
-  #   承傷多又死得多的 730 人次反而 57.8。模擬（analysis/scoring_v37_soak_eval.py）只加不扣後兩群是 51.4 對 54.1，
-  #   各出裝平均仍在 50 附近、分得出人的程度（η²）不變；代價是和勝負的相關 0.183 → 0.239（輸的一隊吃得多，以前扣分剛好抵銷一部分）。
-  #   只依定位決定扣不扣（只有射手、法師不扣）違反「每個人八項都算」，而且會讓射手法師整體高 2 分，不採用。gene_t 照實顯示。
-  #   v3.7 → v3.8（使用者 2026-11-01 要求）：加第九個基因「擊殺」，清兵、推塔也只加不扣。
-  #   起因：24 殺的烏迪爾只拿 46（推塔、清兵少），使用者同意同場全面型的伊瑞莉雅較高，但收割該有分。參團率把擊殺和助攻算成一樣，擊殺數本身不加分。
-  #   擊殺＝擊殺占比（自己擊殺 ÷ 我方擊殺）同場比、再和同出裝定位比，然後和輸出的 z 取小、只加不扣：殺得多而且打得多才加分，
-  #   只會尾刀、輸出低的「搶頭」拿不到（使用者的疑慮；單純加擊殺占比 12% 會讓搶頭的人平均 41.7 → 49.7，取小之後不變）。
-  #   權重 16%，其他八項等比例讓出（×0.84 再取整數）。依據見 analysis/scoring_v38_kills_eval.py 與 docs/contribution-scoring.md。
-  #   v3.8 → v3.9（使用者 2026-11-01 要求）：K/DA 不計分。gene_kda 照樣算出來（好友比較的「打法」看得出常陣亡、很少死），
-  #   但權重 0、沒有 pts_kda。它的 5% 等比例分給其他八項再取整數（最大餘數）。現在死亡完全不影響分數，只有輸出會扣分。
+  # 規則版本 v5.4（v5-B 修訂版，2026-11-15）。改下面任何一個常數、權重或公式，都要把 score_version 往上升，並重跑
+  # analysis/scoring_v5_fit.py（重新產生校正常數）與 analysis/scoring_v5_check.py（獨立 Python 逐筆比對）。
+  #
+  #   v5.3 → v5.4（2026-11-15 非輸出定位高傷害轉型加成、有效擊殺解鎖與以攻代守負分豁免）：
+  #     1. 修正坦克／輔助／鬥士打出高傷害時因核心輸出權重過低（10%/12%/28%）與跨界上限過小導致的低分問題：
+  #        (a) 坦克於 zr_d > 0.45 或 zg_d > 0.20 時追加超額輸出斜率（+0.18×(zr_d-0.45) + 0.10×(zg_d-0.20)），
+  #            輔助於 zr_d > 0.55 或 zg_d > -0.35 時追加超額輸出斜率（+0.16×(zr_d-0.55) + 0.12×(zg_d+0.35)），
+  #            鬥士於 d_mix > 0.30 時邊際輸出權重由 0.28 升至 0.40（法師／射手／刺客亦同步微增高輸出斜率）；
+  #        (b) 提高跨界高輸出獎勵 b_util_dmg 上限（坦克 2.5→4.0、輔助 2.0→3.5、鬥士新增上限 2.5）。
+  #     2. 解鎖坦克與輔助的「有效擊殺加分（core_ks）」：
+  #        k_eff = min(zr_k, zr_d + 0.40) 已受輸出上限約束（純尾刀不觸發），坦克於 k_eff > 0.30 給 +0.10×(k_eff-0.30)、
+  #        輔助於 k_eff > 0.35 給 +0.09×(k_eff-0.35)、鬥士於 k_eff > 0.30 邊際擊殺權重升至 0.15。
+  #     3. 「以攻代守」互補免責（高輸出時豁免本業副軸負向扣分）：
+  #        (a) 無控場重裝坦克（歐拉夫、伊羅旖、魔鬥凱薩等）打出高輸出（zr_d > 0.30）或高承傷（zr_t > 0.35）時，豁免 zr_cc < 0 的控場扣分並同步豁免低承傷負分；
+  #        (b) 半肉／拉扯型鬥士（剛普朗克、半肉法師／射手等）打出高輸出（d_mix > 0.20）時，豁免 t_mix < 0 的承傷扣分與 zr_cc < 0 的控場扣分；
+  #        (c) 無控場法師於 d_mix > 0.20 時豁免 zr_cc < 0 扣分；Poke／AP 輔助於 zr_d > 0.65 時進一步墊高 zh_eff 與控場底線。
+  #   v5.2 → v5.3（2026-11-15 敵方前排／血腥度校正與輔助暫估／高光修訂）：
+  #     1. 修正敵方前排數（enemy_front）與對局血腥度（pace_k = clip(((e_k_pm / fac^-0.20) / 0.625), 0.75, 1.30)，其中 e_k_pm 為同場其餘九人每分鐘擊殺）
+  #        對參團（adj_ka、adj_late_ka）與輸出（adj_d）的系統性偏差：
+  #        adj_d = (x_d / fac^0.60) / ((1 + 0.115 × clip(enemy_front - 2, -2, 2)) × pace_k^0.28)，
+  #        adj_ka 與 adj_late_ka 同步除以 (1 + 0.052 × clip(enemy_front - 2, -2, 2)) × pace_k^0.60，
+  #        消除無前排拉扯局與少頭局的集體低分偏差，且因 pace_k 不含自身擊殺，自身多拿頭／助攻絕不倒扣。
+  #     2. 改善輔助暫估局（score_status = estimate）與多流派（坦輔／控場功能輔／軟輔）計算：
+  #        (a) 擴充輔助裝清單納入大亂鬥保人裝（破曉綻放之劍 124011、殞落之祭 123430、日輪的加冕 3190）；
+  #        (b) calib_champ_shield 改存 EOG 實測高於 h_scale×h_flag 的隊友保人殘差，並以 (240×min(3, n_sup_items) - 0.25×h_scale×x_h) 作為先驗（權重 1.5），
+  #            避免索拉卡／娜米等純補師被重複加計護盾，同時精準還原露璐／埃爾文／卡瑪／悠咪等護盾角保人量；
+  #        (c) 放寬坦輔權重上限 tank_w 至 0.65，當輔助具備高承傷、高控場或高輸出時緩衝 zh_sup 負向底線並給予高保人額外加成，軟輔低輸出底線夾於 -0.35；
+  #            暫估局不確定性權重微調為保人 0.34、參團 +0.04×(1-tank_w)、控場 +0.02×(1-tank_w)。
+  #     3. 改善輔助高光加分（pts_bonus）與綜合經濟效率（b_eff）：
+  #        (a) adj_imp_per_g 改採對齊後隊友保人量 h_aligned（暫估局非輔助不再計入自補灌水）並納入控場時間貢獻；
+  #        (b) 輔助於高參團串連＋高主職表現時可獲 b_multi 團戰串連高光，後期關鍵參團＋保排控場協同可獲 b_fight 會戰高光，並開放輔助領取 b_util_cc。
+  #   v5.1 → v5.2（2026-11-14 公平性、無資料補救與對局品質修訂）：
+  #     1. 拿掉首殺（first_blood）、終結連殺與首塔／多人分攤拆塔次數：推塔高光改依每分鐘拆塔傷害（turret_dmg）計分，
+  #        僅在獨自一人拆毀建築（match_building_events killer_id > 0 且 assist_ids='[]'）時加給單人拆塔獎勵。
+  #     2. 對手前排硬度校正（enemy_front ∈ 0..5，來自 mat_comp_context）：
+  #        adj_d = (x_d / fac^0.60) / (1 + 0.09 × clip(enemy_front - 2, -2, 2))，平衡無前排脆皮局總傷害天生較低問題。
+  #     3. 暫估局（score_status = estimate，缺少 EOG 隊友護盾）輔助補救：
+  #        (a) 依英雄＋終場輔助裝數量的貝氏護盾先驗（calib_champ_shield + 220×min(3, n_sup_items)）搭配個人參團活躍度估算隊友護盾，
+  #            h_scale 改為 EOG 實測輔助「治療隊友／總治療」比例以對齊自補灌水；
+  #        (b) 暫估局不確定性權重重分配（總和維持 1.00）：從核心保人降 0.12×(1-tank_w)，轉入參團（+0.07×(1-tank_w)）與控場（+0.05×(1-tank_w)）。
+  #     4. 下修輸出位清兵權重（射手 0.10→0.06、刺客 0.10→0.03、法師 0.08→0.05）並補入主職核心；
+  #        射手／刺客新增正向控場加分 core_c（zr_cc > 0.35 時 +0.05×(zr_cc-0.35)，0 控場不倒扣）；
+  #        輸出／鬥士（射／刺／法／鬥）zr_cc > 0.65 時給 b_util_cc 功能控場獎勵（併入 pts_cc）。
+  #   v5.0 → v5.1（2026-11-14 修訂四項誤判與比例）：
+  #     1. 孤立死亡（ke_iso_death / ke_late_iso_death）補上「同隊 ±10 秒內死亡數 = 1」條件，不再把 5v5 團戰 0 換多敗戰誤標成單抓送頭，
+  #        門檻底線同步調為 MAX(0.09, med_isod + 0.03)。
+  #     2. 輔助參團改採同定位與全局 70/30 混合（0.70×zr_ka＋0.30×zg_ka），核心權重從參團 40%／坦保 34%／控場 8% 調為 坦保 40%／參團 32%／控場 10%，
+  #        避免輔助靠高助攻自動灌出近 10 分卻稀釋保人與控場差異。
+  #     3. 非坦輔順手保人獎（b_util_heal）限定 EOG 實測局才計算，排除暫估局自補治療對 units_healed >= 2 的灌水。
+  #     4. 移除經濟轉換懲罰 p_econ（保留正向高效率 b_eff 獎勵），避免賺錢類海克斯增幅因總金幣變高遭誤扣；核心縮放從 21.5 調為 20.0 以減少 100 分夾頂。
+  #   v3.x → v5.0（v5-B，使用者 2026-11-14 要求）：
+  #     1. 改採 100% 跨場絕對尺度＋時長冪次校正 fac = (game_duration / 60) / 16.5，讓全場好就一起高分、全場爛就一起低分，
+  #        不再把強弱場都壓在同一場比例裡互相抵銷。
+  #     2. 拿掉強制各定位歸 50：僅做單一全局 EOG 有無偏移校正（pts_base），保留定位與玩家之間的真實強弱差異。
+  #     3. 有效承傷改以自身減免為主（0.62×減免 ＋ 0.38×承傷），控場採次數與累計控場時長混合（0.65×zr_c ＋ 0.35×max(zr_c, zr_ccdur)）。
+  #     4. 修正輔助計算：改用平滑坦克權重 tank_w = clip((eff_t - 1400) / 2200, 0, 0.55) 混合保人量與承傷；
+  #        無賽後護盾時改以對局治療乘 h_scale 估算隊友治療；取消 max() 單向灌水。
+  #     5. 新增擊殺時間軸（match_kill_events）與經濟效率因子：單殺、65% 時長後後期參團、±10 秒內孤立死亡／後期孤死／換命死亡、
+  #        拆塔＋兵營、首殺／首塔／助攻、多殺、每千金輸出／綜合影響力。
+  #     6. 核心分數超過 15 分時按 1.18 倍拉大強弱區分（upper stretch）；外加明確「高光加分（0..+15）」與「失誤扣分（-18..0）」。
   #
   # 1. 計分範圍：queue 2400、非重開、≥ 360 秒、雙方各 5 人。其他場次留一列但分數是空值，unscored_reason 寫原因。
-  # 2. 八個基因，每分鐘的量（本場十人時長相同）：
-  #      D 對英雄輸出、W 對小兵傷害（總輸出 − 對英雄 − 對建築；大亂鬥沒有野怪）、O 對建築傷害、
-  #      T 承傷（承受＋自身減免）、C 控場（time_ccing_others）、H 治療＋護盾隊友、
-  #      A 功能裝：終場帶重創裝擋掉的敵方治療（敵方全隊每分鐘治療 × 40% ÷ 我方帶重創的人數）＋帶破盾裝擋掉的敵方護盾（同算法，只有賽後統計有護盾量），
-  #      KDA：參團率（擊殺＋助攻 ÷ 我方擊殺，我方 0 殺時是 0）與存活（死亡少）各半。
-  # 3. 每個基因先和同一場的人比，換成 0～100（rel_*）：
-  #      D、W、O、T、C、參團率：P = 100 × x ÷ (x + E)，E＝其他九人的平均；等於平均是 50、兩倍約 67。x = 0 → 0；其他九人都是 0 → 100。
-  #      存活：P = 100 × E ÷ (死亡 + E)（死得比別人少就高），沒死 → 100。KDA＝(P_K + P_存活) ÷ 2。
-  #      H、A：同場常只有一兩個人有量，相對分會變成「量多量少同分」，改成固定換算 100 × x ÷ (x + K)：
-  #        H 有賽後統計（十人都有）K＝1250，沒有的場次這一項不計（v3.4 起，見 z_h），標暫估；A 的 K＝630（帶功能裝的人的中位數）。
-  # 4. 和同出裝定位比（builds.yml 的 build_role：射手、法師、刺客、鬥士、坦克、輔助；沒有成裝的人由 builds.yml 用數字推斷，不會是未成形）：
-  #      z = (P − 同出裝定位的平均) ÷ 該基因的標準差。每個人八個基因都算，沒有「這個定位只看哪幾項」——
-  #      坦克打出高輸出，輸出那一項就比坦克平常高很多，直接加分。H 依資料來源（eog／flag）各有一組平均與標準差。
-  #      基因分數 gene_* = 50 + 20 × z（夾在 0～100）：50＝同出裝定位的人在一場裡的平均。
-  # 5. 總分：raw = 0.23 D + 0.19 max(T, 0) + 0.14 max(min(KS, D), 0) + 0.18 H_credit + 0.11 max(C, 0) + 0.07 max(O, 0) + 0.05 max(W, 0) + 0.03 max(A, 0)
-  #   坦克、輔助將輸出／承傷／控場改為 13%／25%／15%，輸出只加不扣。基因分數仍顯示原始 z。
-  #   輔助的承傷超過定位基準 0.5 個標準差後，超過的部分按 40% 計分。
-  #   輔助的治療護盾加分按原值的 5/6 計入，基因分數沿用原基準。
-  #      H_credit = (P_H + max(0, P_H − 同出裝定位的平均)) ÷ (2 × SD_H)，缺完整賽後統計時為 0。
-  #      （各基因的 z；坦克與輔助以外的輸出可以扣分，其餘計分項只加分。K/DA v3.9 起不計分），
-  #      work_score = 50 + 20 × (raw − mu_work) ÷ SD（夾在 0～100）。mu_work 是整體校正（定版時 raw 的平均），讓平均仍是 50。
-  #      pts_* 是每個基因讓總分加減幾分（20 × 權重 × 計分值 ÷ SD），加起來＝總分 − 50 + 20 × mu_work ÷ SD（夾之前）。
-  #      權重怎麼定的見 docs/contribution-scoring.md：隊伍層級「兩隊差距 → 勝負」的迴歸會把 78% 給推塔（拆塔就是贏，是結果），不能直接用；
-  #      所以輸出、承傷、治療、控場這些「工作」占大部分，K/DA 與推塔這種和勝負綁很緊的只給一點，功能裝看不出讓勝率變高、給最少。
-  # 6. 校正常數在 v3.13 定版時算出並固定，新增對局不會改舊分。總分 50 是校準資料的整體基準。
+  # 2. 九個基因＋高光／失誤＋整體校正：
+  #      經時長冪次校正與 spow(x, med, scale, p=0.84) 對各定位中位數／IQR 與全局中位數／IQR 標準化（gene_* = 50 + 20×zr，夾 0～100）：
+  #      輸出、承傷（0.62×減免＋0.38×承傷）、擊殺（取 min(zr_k, zr_d + 0.4)）、參團（K+A／分＋65% 後參團）、
+  #      治療護盾（輔助用保人混合坦克承傷）、控場（次數／時長混合）、推塔、清兵、功能裝（帶重創／破盾估計擋掉的量），另有 K/DA（僅供打法展示）。
+  # 3. 高光加分（pts_bonus，併入功能裝 pts_a 及單項工具獎勵 pts_d／pts_h／pts_c 共計 ≤ 15）：多殺、拆塔傷害與單人拆塔、換命優勢＋單殺、經濟效率、坦輔高輸出／輸出角順手補血與高控場及功能裝（不含首殺、首塔與終結）。
+  # 4. 失誤扣分（pts_penalty，0～-18）：高頻孤立死亡（±10 秒內無隊友擊殺）、65% 後後期孤死、極低存在感隱身。
+  # 5. 總分：work_score = 50 + sum(pts_*) + pts_base（夾 0～100），其中 pts_base 為 EOG／暫估全局平均補償。
   #
-  # 限制（畫面與說明要講清楚）：這是本場相對工作量，不是操作實力；同樣的數值在不同陣容下會不同分；承傷分不出有效開戰與無效吃傷；
-  # K/DA、推塔有一半是結果（贏的隊殺得多、拆得到塔）；功能裝只看終場有沒有帶，不知道實際命中多少；跨場平均只能當描述。
+  # 限制：本場貢獻反映單場攻防、參團、推進與避險綜合表現；極端碾壓局或大後期翻盤局的多殺／孤死加成權重仍受 15/-18 上限約束。
   - name: contribution
     title: 本場貢獻
     # 規則本體在 meta.materialize.sql，每次入庫後由 features.py 重建 mat_contribution。改完重啟服務或 `uv run features.py`。
@@ -74,24 +83,35 @@ cubes:
         table: mat_contribution
         sql: |
           WITH items AS (
-            -- 功能裝（只看終場 slot 0–5）：重創＝致死宣告、荊棘之甲、刺藤胸甲、死刑宣告、黑魔禁書、遺忘寶珠、生化龐克鏈鋸之劍（含其他模式的同名版本）；
-            -- 破盾＝巨蛇鋒牙。觸發條件不同（受到普攻／造成魔法傷害／造成物理傷害），這一版不判斷
+            -- 功能裝（只看終場 slot 0–5）：重創／破盾／輔助保人裝備（含各模式同名變體）
             SELECT pi.platform_id, pi.game_id, pi.participant_id,
               MAX(pi.item_id IN (3033, 3075, 3076, 3123, 3165, 3916, 6609, 223033, 223075, 223165, 226609, 323075, 773075, 773123, 773165)) AS anti_heal_item,
-              MAX(pi.item_id IN (6695, 226695)) AS anti_shield_item
+              MAX(pi.item_id IN (6695, 226695)) AS anti_shield_item,
+              SUM(CASE WHEN pi.item_id IN (6617, 4005, 2530, 3504, 6621, 3107, 6616, 3222, 6620, 2065, 2526, 124011, 123430, 3190) THEN 1 ELSE 0 END) AS n_sup_items
             FROM participant_items pi
             WHERE pi.slot < 6 AND pi.item_id > 0
             GROUP BY 1, 2, 3
           ),
           base AS (
-            SELECT mp.rowid AS participant_rowid, mp.platform_id, mp.game_id, mp.team_id, m.queue_id, m.is_remake, m.game_duration,
+            SELECT mp.rowid AS participant_rowid, mp.platform_id, mp.game_id, mp.participant_id, mp.team_id,
+              mp.champion_id, m.queue_id, m.is_remake, m.game_duration,
               COALESCE(b.build_role, '未成形') AS build_role,
+              COALESCE(cc.enemy_front, 2) AS enemy_front,
+              COALESCE(i.n_sup_items, 0) AS n_sup_items,
+              mp.dmg_to_champions, mp.dmg_taken, mp.dmg_mitigated, NULLIF(mp.gold_earned, 0) AS gold_earned,
+              COALESCE(mp.double_kills, 0) AS double_kills, COALESCE(mp.triple_kills, 0) AS triple_kills,
+              COALESCE(mp.quadra_kills, 0) AS quadra_kills, COALESCE(mp.penta_kills, 0) AS penta_kills,
               mp.dmg_to_champions * 60.0 / m.game_duration AS x_d,
-              MAX(0, mp.total_damage - mp.dmg_to_champions - mp.dmg_to_objectives) * 60.0 / m.game_duration AS x_w,
-              mp.dmg_to_objectives * 60.0 / m.game_duration AS x_o,
+              MAX(0.0, mp.total_damage - mp.dmg_to_champions - mp.dmg_to_objectives) * 60.0 / m.game_duration AS x_w,
+              COALESCE(mp.turret_dmg, mp.dmg_to_objectives) * 60.0 / m.game_duration AS x_o,
+              mp.dmg_mitigated * 60.0 / m.game_duration AS x_mit,
+              mp.dmg_taken * 60.0 / m.game_duration AS x_tak,
               (mp.dmg_taken + mp.dmg_mitigated) * 60.0 / m.game_duration AS x_t,
               mp.time_ccing_others * 60.0 / m.game_duration AS x_c,
-              mp.kills, mp.assists,
+              COALESCE(mp.cc_duration, mp.time_ccing_others, 0) * 60.0 / m.game_duration AS x_cc_dur,
+              mp.kills, mp.deaths, mp.assists,
+              mp.kills * 60.0 / m.game_duration AS x_k,
+              (mp.kills + mp.assists) * 60.0 / m.game_duration AS x_ka,
               mp.deaths * 60.0 / m.game_duration AS x_death,
               mp.total_heal * 60.0 / m.game_duration AS heal_all,
               (e.heal_on_teammates + e.shield_on_teammates) * 60.0 / m.game_duration AS h_eog,
@@ -102,6 +122,7 @@ cubes:
             FROM match_participants mp
             JOIN matches m ON m.platform_id = mp.platform_id AND m.game_id = mp.game_id
             LEFT JOIN mat_builds b ON b.participant_rowid = mp.rowid
+            LEFT JOIN mat_comp_context cc ON cc.participant_rowid = mp.rowid
             LEFT JOIN items i ON i.platform_id = mp.platform_id AND i.game_id = mp.game_id AND i.participant_id = mp.participant_id
             LEFT JOIN eog_player_stats e ON e.game_id = mp.game_id AND e.puuid = mp.puuid
           ),
@@ -118,24 +139,97 @@ cubes:
             FROM base
             WINDOW g AS (PARTITION BY platform_id, game_id)
           ),
+          scored_p AS (
+            SELECT * FROM gate WHERE unscored_reason IS NULL AND heal_src IS NOT NULL
+          ),
+          ke AS (
+            SELECT ke.platform_id, ke.game_id, ke.event_index, ke.time_ms, ke.killer_id, ke.victim_id,
+              COALESCE(NULLIF(ke.assist_ids, ''), '[]') AS assist_ids,
+              mk.team_id AS killer_team, mv.team_id AS victim_team,
+              mv.game_duration * 1000.0 AS dur_ms, mv.participant_rowid AS victim_rid
+            FROM match_kill_events ke
+            JOIN scored_p mv ON mv.platform_id = ke.platform_id AND mv.game_id = ke.game_id AND mv.participant_id = ke.victim_id
+            LEFT JOIN scored_p mk ON mk.platform_id = ke.platform_id AND mk.game_id = ke.game_id AND mk.participant_id = ke.killer_id
+          ),
+          ke_a AS (
+            SELECT ke.platform_id, ke.game_id, ke.event_index, CAST(ja.value AS INTEGER) AS pid
+            FROM match_kill_events ke, json_each(COALESCE(NULLIF(ke.assist_ids, ''), '[]')) ja
+            WHERE EXISTS (
+              SELECT 1 FROM scored_p mp
+              WHERE mp.platform_id = ke.platform_id AND mp.game_id = ke.game_id AND mp.participant_id = ke.victim_id
+            )
+          ),
+          ke_solo AS (
+            SELECT platform_id, game_id, killer_id AS pid, COUNT(*) AS ke_solo
+            FROM ke
+            WHERE killer_id IS NOT NULL AND assist_ids = '[]'
+            GROUP BY 1, 2, 3
+          ),
+          ke_late_ka AS (
+            SELECT platform_id, game_id, pid, COUNT(*) AS ke_late_ka
+            FROM (
+              SELECT platform_id, game_id, event_index, killer_id AS pid FROM ke WHERE time_ms >= 0.65 * dur_ms AND killer_id IS NOT NULL
+              UNION
+              SELECT ka.platform_id, ka.game_id, ka.event_index, ka.pid
+              FROM ke_a ka JOIN ke USING (platform_id, game_id, event_index)
+              WHERE ke.time_ms >= 0.65 * ke.dur_ms
+            )
+            GROUP BY 1, 2, 3
+          ),
+          ke_death_win AS (
+            SELECT victim_rid, time_ms, dur_ms, victim_team,
+              SUM(CASE WHEN killer_team = 100 THEN 1 ELSE 0 END) OVER w AS k100_near,
+              SUM(CASE WHEN killer_team = 200 THEN 1 ELSE 0 END) OVER w AS k200_near,
+              SUM(CASE WHEN victim_team = 100 THEN 1 ELSE 0 END) OVER w AS d100_near,
+              SUM(CASE WHEN victim_team = 200 THEN 1 ELSE 0 END) OVER w AS d200_near
+            FROM ke
+            WINDOW w AS (PARTITION BY platform_id, game_id ORDER BY time_ms RANGE BETWEEN 10000 PRECEDING AND 10000 FOLLOWING)
+          ),
+          ke_deaths AS (
+            SELECT victim_rid AS participant_rowid,
+              SUM(CASE WHEN (CASE WHEN victim_team = 100 THEN k100_near ELSE k200_near END) = 0
+                        AND (CASE WHEN victim_team = 100 THEN d100_near ELSE d200_near END) = 1 THEN 1 ELSE 0 END) AS ke_iso_death,
+              SUM(CASE WHEN (CASE WHEN victim_team = 100 THEN k100_near ELSE k200_near END) = 0
+                        AND (CASE WHEN victim_team = 100 THEN d100_near ELSE d200_near END) = 1
+                        AND time_ms >= 0.65 * dur_ms THEN 1 ELSE 0 END) AS ke_late_iso_death,
+              SUM(CASE WHEN (CASE WHEN victim_team = 100 THEN k100_near ELSE k200_near END) >= 2 THEN 1 ELSE 0 END) AS ke_trade_death
+            FROM ke_death_win
+            GROUP BY victim_rid
+          ),
+          ke_solo_tur AS (
+            SELECT be.platform_id, be.game_id, be.killer_id AS pid, COUNT(*) AS ke_solo_tur
+            FROM match_building_events be
+            JOIN scored_p mk ON mk.platform_id = be.platform_id AND mk.game_id = be.game_id AND mk.participant_id = be.killer_id
+            WHERE be.killer_id IS NOT NULL AND be.killer_id > 0
+              AND COALESCE(NULLIF(be.assist_ids, ''), '[]') = '[]'
+            GROUP BY 1, 2, 3
+          ),
           team AS (
-            SELECT *,
-              CASE heal_src WHEN 'eog' THEN h_eog ELSE h_flag END AS x_h,
-              -- 敵方＝整場減掉我方
-              SUM(heal_all) OVER g - SUM(heal_all) OVER t AS foe_heal,
-              CASE WHEN heal_src = 'eog' THEN SUM(shield_eog) OVER g - SUM(shield_eog) OVER t ELSE 0.0 END AS foe_shield,
-              SUM(anti_heal_item) OVER t AS team_anti_heal, SUM(anti_shield_item) OVER t AS team_anti_shield,
-              -- 參團率：擊殺＋助攻 ÷ 我方擊殺
-              CASE WHEN SUM(kills) OVER t = 0 THEN 0.0 ELSE (kills + assists) * 1.0 / SUM(kills) OVER t END AS x_kp,
-              -- v3.8 擊殺占比：自己擊殺 ÷ 我方擊殺（我方 0 殺時是 0）
-              CASE WHEN SUM(kills) OVER t = 0 THEN 0.0 ELSE kills * 1.0 / SUM(kills) OVER t END AS x_ks
-            FROM gate
-            WHERE unscored_reason IS NULL AND heal_src IS NOT NULL
-            WINDOW g AS (PARTITION BY platform_id, game_id), t AS (PARTITION BY platform_id, game_id, team_id)
+            SELECT sp.*,
+              CASE sp.heal_src WHEN 'eog' THEN sp.h_eog ELSE sp.h_flag END AS x_h,
+              SUM(sp.heal_all) OVER g - SUM(sp.heal_all) OVER t AS foe_heal,
+              CASE WHEN sp.heal_src = 'eog' THEN SUM(sp.shield_eog) OVER g - SUM(sp.shield_eog) OVER t ELSE 0.0 END AS foe_shield,
+              SUM(sp.anti_heal_item) OVER t AS team_anti_heal, SUM(sp.anti_shield_item) OVER t AS team_anti_shield,
+              CASE WHEN SUM(sp.kills) OVER t = 0 THEN 0.0 ELSE (sp.kills + sp.assists) * 1.0 / SUM(sp.kills) OVER t END AS x_kp,
+              CASE WHEN SUM(sp.kills) OVER t = 0 THEN 0.0 ELSE sp.kills * 1.0 / SUM(sp.kills) OVER t END AS x_ks,
+              COALESCE(ks.ke_solo, 0) AS ke_solo,
+              COALESCE(kl.ke_late_ka, 0) AS ke_late_ka,
+              COALESCE(kd.ke_iso_death, 0) AS ke_iso_death,
+              COALESCE(kd.ke_late_iso_death, 0) AS ke_late_iso_death,
+              COALESCE(kd.ke_trade_death, 0) AS ke_trade_death,
+              COALESCE(kt.ke_solo_tur, 0) AS ke_solo_tur
+            FROM scored_p sp
+            LEFT JOIN ke_solo ks ON ks.platform_id = sp.platform_id AND ks.game_id = sp.game_id AND ks.pid = sp.participant_id
+            LEFT JOIN ke_late_ka kl ON kl.platform_id = sp.platform_id AND kl.game_id = sp.game_id AND kl.pid = sp.participant_id
+            LEFT JOIN ke_deaths kd ON kd.participant_rowid = sp.participant_rowid
+            LEFT JOIN ke_solo_tur kt ON kt.platform_id = sp.platform_id AND kt.game_id = sp.game_id AND kt.pid = sp.participant_id
+            WINDOW g AS (PARTITION BY sp.platform_id, sp.game_id), t AS (PARTITION BY sp.platform_id, sp.game_id, sp.team_id)
           ),
           genes AS (
             SELECT *,
-              -- 重創 40%、破盾也取 40%（巨蛇鋒牙近戰 50%、遠程 35%）；同隊多人帶不疊加，平分
+              game_duration / 60.0 AS mins,
+              (game_duration / 60.0) / 16.5 AS fac,
+              MIN(1.30, MAX(0.75, (((SUM(x_k) OVER g - x_k) / 9.0) / POWER((game_duration / 60.0) / 16.5, -0.20)) / 0.625)) AS pace_k,
               CASE WHEN anti_heal_item = 1 THEN 0.4 * foe_heal / team_anti_heal ELSE 0.0 END
                 + CASE WHEN anti_shield_item = 1 THEN 0.4 * foe_shield / team_anti_shield ELSE 0.0 END AS x_a,
               (SUM(x_d) OVER g - x_d) / 9.0 AS e_d, (SUM(x_w) OVER g - x_w) / 9.0 AS e_w, (SUM(x_o) OVER g - x_o) / 9.0 AS e_o,
@@ -144,101 +238,266 @@ cubes:
             FROM team
             WINDOW g AS (PARTITION BY platform_id, game_id)
           ),
-          parts AS (
-            SELECT *,
-              CASE WHEN x_d = 0 THEN 0.0 WHEN e_d = 0 THEN 100.0 ELSE 100.0 * x_d / (x_d + e_d) END AS p_d,
-              CASE WHEN x_w = 0 THEN 0.0 WHEN e_w = 0 THEN 100.0 ELSE 100.0 * x_w / (x_w + e_w) END AS p_w,
-              CASE WHEN x_o = 0 THEN 0.0 WHEN e_o = 0 THEN 100.0 ELSE 100.0 * x_o / (x_o + e_o) END AS p_o,
-              CASE WHEN x_t = 0 THEN 0.0 WHEN e_t = 0 THEN 100.0 ELSE 100.0 * x_t / (x_t + e_t) END AS p_t,
-              CASE WHEN x_c = 0 THEN 0.0 WHEN e_c = 0 THEN 100.0 ELSE 100.0 * x_c / (x_c + e_c) END AS p_c,
-              CASE WHEN x_kp = 0 THEN 0.0 WHEN e_k = 0 THEN 100.0 ELSE 100.0 * x_kp / (x_kp + e_k) END AS p_k,
-              CASE WHEN x_ks = 0 THEN 0.0 WHEN e_ks = 0 THEN 100.0 ELSE 100.0 * x_ks / (x_ks + e_ks) END AS p_ks,
-              CASE WHEN x_death = 0 THEN 100.0 WHEN e_death = 0 THEN 0.0 ELSE 100.0 * e_death / (x_death + e_death) END AS p_s,
-              100.0 * x_h / (x_h + CASE heal_src WHEN 'eog' THEN 1250.0 ELSE 1100.0 END) AS p_h,
-              100.0 * x_a / (x_a + 630.0) AS p_a
-            FROM genes
-          ),
-          calib(build_role, mu_d, mu_w, mu_o, mu_t, mu_c, mu_h_eog, mu_h_flag, mu_a, mu_kda, mu_ks) AS (
-            -- 校正常數開始（analysis/scoring_v3_fit.py 產生，v3.13 定版時 2026-11-08 的資料；寫死，新增對局不會改舊分）
+          -- 校正常數開始（analysis/scoring_v5_fit.py 產生，v5.4 / v5-B 修訂版 2026-11-15；寫死，新增對局不會改舊分）
+          calib_role(
+            build_role, med_d, iqr_d, med_t, iqr_t, med_c, iqr_c, med_ccdur, iqr_ccdur,
+            med_w, iqr_w, med_o, iqr_o, med_k, iqr_k, med_ka, iqr_ka, med_multi, med_isod, med_p_kda
+          ) AS (
             VALUES
-              ('射手', 51.806, 57.518, 50.269, 36.919, 26.808, 1.392, 0.000, 8.467, 50.046, 53.097),
-              ('法師', 49.619, 48.215, 37.129, 38.475, 51.263, 2.984, 0.000, 9.579, 51.325, 44.620),
-              ('刺客', 51.282, 42.567, 38.735, 45.291, 32.332, 0.680, 0.000, 5.439, 48.914, 54.494),
-              ('鬥士', 49.348, 48.880, 39.972, 54.511, 42.865, 1.339, 0.000, 8.864, 48.597, 48.959),
-              ('坦克', 41.940, 34.290, 26.965, 66.730, 57.109, 4.473, 0.000, 19.411, 50.333, 38.917),
-              ('輔助', 26.873, 21.167, 27.542, 36.621, 52.520, 45.082, 0.000, 4.147, 57.210, 22.605),
-              ('未成形', 48.217, 46.329, 38.427, 46.650, 43.750, 3.767, 0.000, 10.010, 50.272, 46.637)
+              ('射手', 2192.913031, 1145.443657, 1125.813473, 1105.189180, 0.627907, 1.226138, 3.929204, 6.745770, 3002.047488, 1734.090679, 140.185240, 180.361757, 0.725806, 0.487360, 2.160684, 0.709839, 3.000000, 0.000000, 50.052197),
+              ('法師', 1992.085059, 992.846209, 1152.848180, 1105.189180, 1.966173, 1.711866, 11.280323, 12.101977, 2100.794117, 1245.969813, 74.758830, 109.102486, 0.524017, 0.374401, 2.170867, 0.685956, 1.000000, 0.000000, 51.331754),
+              ('刺客', 2161.836965, 951.600062, 1682.046477, 1105.189180, 0.832611, 1.233056, 5.000000, 7.661201, 1698.702683, 1220.078880, 99.533559, 147.964721, 0.763209, 0.472173, 2.082201, 0.652988, 3.000000, 0.000000, 48.904178),
+              ('鬥士', 2034.977210, 1060.979935, 2630.241111, 1376.752533, 1.438561, 1.272660, 6.012526, 7.634990, 2128.383590, 1527.846286, 94.010086, 135.961521, 0.617849, 0.449332, 2.061600, 0.683436, 2.000000, 0.000000, 48.566910),
+              ('坦克', 1585.151724, 888.876919, 4420.611384, 1811.277946, 2.705570, 1.906064, 10.248869, 10.618123, 1143.277733, 1037.951682, 43.049615, 84.819318, 0.401786, 0.356571, 2.107988, 0.670572, 1.000000, 0.000000, 50.325265),
+              ('輔助', 747.004016, 694.577344, 1140.705693, 1105.189180, 2.167969, 1.854082, 11.311475, 7.709696, 559.408283, 1034.152798, 43.888406, 84.819318, 0.163154, 0.299406, 2.526154, 0.702837, 0.000000, 0.000000, 57.254825),
+              ('未成形', 1960.674295, 1068.580529, 1598.289661, 1700.291045, 1.562219, 1.803565, 7.714291, 10.188549, 1998.093451, 1591.004305, 83.553271, 130.491258, 0.574038, 0.460624, 2.137892, 0.699133, 1.000000, 0.000000, 50.272145)
           ),
-          sd(sd_d, sd_w, sd_o, sd_t, sd_c, sd_h_eog, sd_h_flag, sd_a, sd_kda, sd_ks, sd_work, mu_work) AS (
-            VALUES (9.473, 12.921, 25.586, 8.808, 17.927, 17.011, 1.000, 20.253, 4.434, 13.461, 0.3186, 0.2350)
+          calib_champ_shield(champion_id, n_sup, sum_sh_pm) AS (
+            VALUES
+              (0, 0, 0.000000),
+              (3, 1, 192.844037),
+              (12, 1, 0.000000),
+              (16, 13, 2617.559198),
+              (22, 1, 0.000000),
+              (35, 1, 0.000000),
+              (37, 22, 10029.955804),
+              (40, 16, 12348.891322),
+              (43, 7, 6762.649091),
+              (44, 1, 0.000000),
+              (48, 2, 0.000000),
+              (76, 2, 129.498264),
+              (99, 1, 654.058931),
+              (117, 8, 6712.083577),
+              (147, 3, 742.192323),
+              (235, 1, 276.478768),
+              (267, 9, 738.895151),
+              (350, 18, 14563.834701),
+              (412, 1, 0.000000),
+              (427, 10, 11639.603060),
+              (432, 1, 582.831105),
+              (888, 5, 1754.467317),
+              (902, 4, 2409.161516)
+          ),
+          calib_global(
+            h_scale, h_sup_med, h_sup_iqr,
+            med_d, iqr_d, med_t, iqr_t, med_w, iqr_w, med_o, iqr_o, med_c, iqr_c, med_ccdur, iqr_ccdur,
+            med_k, iqr_k, med_ka, iqr_ka, med_lka, iqr_lka, med_dpg, iqr_dpg, med_ipg, iqr_ipg,
+            core_sd, g_mean_eog, g_mean_est, sd_p_kda
+          ) AS (
+            VALUES (0.620922, 1207.801875, 639.841950, 1960.674295, 1068.580529, 1598.289661, 1700.291045, 1998.093451, 1591.004305, 83.553271, 130.491258, 1.562219, 1.803565, 7.714291, 10.188549, 0.574038, 0.460624, 2.137892, 0.699133, 0.677118, 0.358284, 2.016598, 0.971939, 3393.864307, 1480.646972, 0.581608, 11.295682, 9.569918, 4.431708)
             -- 校正常數結束
           ),
-          z AS (
-            SELECT p.*, (p.p_k + p.p_s) / 2 AS p_kda,
-              (p.p_d - k.mu_d) / s.sd_d AS z_d_shown,
-              CASE WHEN p.build_role IN ('坦克', '輔助') THEN MAX(0.0, (p.p_d - k.mu_d) / s.sd_d)
-                   ELSE (p.p_d - k.mu_d) / s.sd_d END AS z_d,
-              CASE WHEN p.build_role IN ('坦克', '輔助') THEN 0.13 ELSE 0.23 END AS weight_d,
-              CASE WHEN p.build_role IN ('坦克', '輔助') THEN 0.25 ELSE 0.19 END AS weight_t,
-              CASE WHEN p.build_role IN ('坦克', '輔助') THEN 0.15 ELSE 0.11 END AS weight_c,
-              -- v3.8：清兵、推塔只加不扣（_shown 照實給基因分數看）
-              (p.p_w - k.mu_w) / s.sd_w AS z_w_shown,
-              MAX(0.0, (p.p_w - k.mu_w) / s.sd_w) AS z_w,
-              (p.p_o - k.mu_o) / s.sd_o AS z_o_shown,
-              MAX(0.0, (p.p_o - k.mu_o) / s.sd_o) AS z_o,
-              -- v3.8 擊殺：擊殺占比的 z 和輸出的 z 取小，只加不扣（殺得多而且打得多才加分，只尾刀的人拿不到）
-              MIN((p.p_ks - k.mu_ks) / s.sd_ks, (p.p_d - k.mu_d) / s.sd_d) AS z_ks_shown,
-              MAX(0.0, MIN((p.p_ks - k.mu_ks) / s.sd_ks, (p.p_d - k.mu_d) / s.sd_d)) AS z_ks,
-              -- v3.7：承傷只加不扣（z_t_shown 照實給 gene_t 看吃了多少）
-              (p.p_t - k.mu_t) / s.sd_t AS z_t_shown,
-              MAX(0.0, (p.p_t - k.mu_t) / s.sd_t) AS z_t,
-              -- v3.5：控場只加不扣。z_c_shown 照實（給 gene_c 看控場多少），計分用的 z_c 夾在 0 以上
-              (p.p_c - k.mu_c) / s.sd_c AS z_c_shown,
-              MAX(0.0, (p.p_c - k.mu_c) / s.sd_c) AS z_c,
-              -- v3.4：沒有賽後統計的場次不計治療護盾（退回含自補的總治療會把自己補的算成幫隊友，那是輔助的分數，不能給）。
-              -- 這一項視為同出裝定位的平均（z＝0，gene_h＝50、pts_h＝0），其餘七項照算、權重不變。
-              CASE p.heal_src WHEN 'eog' THEN (p.p_h - k.mu_h_eog) / s.sd_h_eog ELSE 0.0 END AS z_h_shown,
-              (p.p_a - k.mu_a) / s.sd_a AS z_a_shown,
-              -- v3.10：保人加分一半看實際保人量，一半看超出同定位平均的量。基因分數仍照原本基準顯示。
-              CASE p.heal_src WHEN 'eog' THEN (p.p_h + MAX(0.0, p.p_h - k.mu_h_eog)) / (2.0 * s.sd_h_eog) ELSE 0.0 END AS z_h,
-              MAX(0.0, (p.p_a - k.mu_a) / s.sd_a) AS z_a,
-              ((p.p_k + p.p_s) / 2 - k.mu_kda) / s.sd_kda AS z_kda,
-              s.sd_work, s.mu_work
-            FROM parts p JOIN calib k ON k.build_role = p.build_role CROSS JOIN sd s
+          parts AS (
+            SELECT ge.*,
+              (ge.x_d / POWER(ge.fac, 0.60)) / ((1.0 + 0.115 * MIN(2, MAX(-2, ge.enemy_front - 2))) * POWER(ge.pace_k, 0.28)) AS adj_d,
+              0.62 * (ge.x_mit / POWER(ge.fac, 0.75)) + 0.38 * (ge.x_tak / POWER(ge.fac, 0.60)) AS eff_t,
+              ge.x_w / POWER(ge.fac, 1.00) AS adj_w,
+              ge.x_o / POWER(ge.fac, 0.25) AS adj_o,
+              ge.x_c AS adj_c,
+              ge.x_cc_dur AS adj_cc_dur,
+              ge.x_k AS adj_k,
+              (ge.x_ka / POWER(ge.fac, -0.20)) / ((1.0 + 0.052 * MIN(2, MAX(-2, ge.enemy_front - 2))) * POWER(ge.pace_k, 0.60)) AS adj_ka,
+              ((ge.ke_late_ka * 1.0 / ge.mins) / POWER(ge.fac, -0.25)) / ((1.0 + 0.052 * MIN(2, MAX(-2, ge.enemy_front - 2))) * POWER(ge.pace_k, 0.60)) AS adj_late_ka,
+              ge.ke_iso_death * 1.0 / ge.mins AS adj_iso_d,
+              ge.ke_iso_death * 1.0 / MAX(ge.deaths, 1) AS iso_ratio,
+              CASE WHEN ge.gold_earned IS NOT NULL THEN (ge.dmg_to_champions * 1.0 / ge.gold_earned) / POWER(ge.fac, 0.50) END AS adj_d_per_g,
+              ge.double_kills + 2.5 * ge.triple_kills + 4.5 * ge.quadra_kills + 7.5 * ge.penta_kills AS mk_score,
+              CASE WHEN ge.x_d = 0 THEN 0.0 WHEN ge.e_d = 0 THEN 100.0 ELSE 100.0 * ge.x_d / (ge.x_d + ge.e_d) END AS p_d,
+              CASE WHEN ge.x_w = 0 THEN 0.0 WHEN ge.e_w = 0 THEN 100.0 ELSE 100.0 * ge.x_w / (ge.x_w + ge.e_w) END AS p_w,
+              CASE WHEN ge.x_o = 0 THEN 0.0 WHEN ge.e_o = 0 THEN 100.0 ELSE 100.0 * ge.x_o / (ge.x_o + ge.e_o) END AS p_o,
+              CASE WHEN ge.x_t = 0 THEN 0.0 WHEN ge.e_t = 0 THEN 100.0 ELSE 100.0 * ge.x_t / (ge.x_t + ge.e_t) END AS p_t,
+              CASE WHEN ge.x_c = 0 THEN 0.0 WHEN ge.e_c = 0 THEN 100.0 ELSE 100.0 * ge.x_c / (ge.x_c + ge.e_c) END AS p_c,
+              CASE WHEN ge.x_kp = 0 THEN 0.0 WHEN ge.e_k = 0 THEN 100.0 ELSE 100.0 * ge.x_kp / (ge.x_kp + ge.e_k) END AS p_k,
+              CASE WHEN ge.x_ks = 0 THEN 0.0 WHEN ge.e_ks = 0 THEN 100.0 ELSE 100.0 * ge.x_ks / (ge.x_ks + ge.e_ks) END AS p_ks,
+              CASE WHEN ge.x_death = 0 THEN 100.0 WHEN ge.e_death = 0 THEN 0.0 ELSE 100.0 * ge.e_death / (ge.x_death + ge.e_death) END AS p_s,
+              100.0 * ge.x_h / (ge.x_h + CASE ge.heal_src WHEN 'eog' THEN 1250.0 ELSE 1100.0 END) AS p_h,
+              100.0 * ge.x_a / (ge.x_a + 630.0) AS p_a,
+              (
+                CASE WHEN ge.x_kp = 0 THEN 0.0 WHEN ge.e_k = 0 THEN 100.0 ELSE 100.0 * ge.x_kp / (ge.x_kp + ge.e_k) END
+                + CASE WHEN ge.x_death = 0 THEN 100.0 WHEN ge.e_death = 0 THEN 0.0 ELSE 100.0 * ge.e_death / (ge.x_death + ge.e_death) END
+              ) / 2.0 AS p_kda
+            FROM genes ge
+          ),
+          h_calc AS (
+            SELECT p.*,
+              CASE p.heal_src
+                WHEN 'eog' THEN p.x_h
+                WHEN 'flag' THEN
+                  CASE WHEN p.build_role = '輔助' THEN
+                    cg.h_scale * p.x_h
+                    + ((COALESCE(csh.sum_sh_pm, 0.0) + 1.5 * MAX(0.0, 240.0 * MIN(3, p.n_sup_items) - 0.25 * cg.h_scale * p.x_h)) / (COALESCE(csh.n_sup, 0) + 1.5))
+                      * MIN(1.25, MAX(0.45, 0.20 + 0.80 * (p.adj_ka / cr.med_ka)))
+                  ELSE cg.h_scale * p.x_h END
+              END AS h_aligned
+            FROM parts p
+            JOIN calib_role cr ON cr.build_role = p.build_role
+            LEFT JOIN calib_champ_shield csh ON csh.champion_id = p.champion_id
+            CROSS JOIN calib_global cg
+          ),
+          spow_calc AS (
+            SELECT p.*, cr.med_multi, cr.med_isod, cr.med_p_kda,
+              cg.core_sd, cg.g_mean_eog, cg.g_mean_est, cg.sd_p_kda,
+              MIN(4.0, MAX(-3.2, SIGN((p.adj_d - cr.med_d) / cr.iqr_d) * POWER(ABS((p.adj_d - cr.med_d) / cr.iqr_d), 0.84))) AS zr_d,
+              MIN(4.0, MAX(-3.2, SIGN((p.eff_t - cr.med_t) / cr.iqr_t) * POWER(ABS((p.eff_t - cr.med_t) / cr.iqr_t), 0.84))) AS zr_t,
+              MIN(4.0, MAX(-3.2, SIGN((p.adj_c - cr.med_c) / cr.iqr_c) * POWER(ABS((p.adj_c - cr.med_c) / cr.iqr_c), 0.84))) AS zr_c,
+              MIN(4.0, MAX(-3.2, SIGN((p.adj_cc_dur - cr.med_ccdur) / cr.iqr_ccdur) * POWER(ABS((p.adj_cc_dur - cr.med_ccdur) / cr.iqr_ccdur), 0.84))) AS zr_ccdur,
+              MIN(2.5, MAX(-2.0, SIGN((p.adj_w - cr.med_w) / cr.iqr_w) * POWER(ABS((p.adj_w - cr.med_w) / cr.iqr_w), 0.84))) AS zr_w,
+              MIN(2.8, MAX(-1.4, SIGN((p.adj_o - cr.med_o) / cr.iqr_o) * POWER(ABS((p.adj_o - cr.med_o) / cr.iqr_o), 0.84))) AS zr_o,
+              MIN(4.0, MAX(-3.2, SIGN((p.adj_k - cr.med_k) / cr.iqr_k) * POWER(ABS((p.adj_k - cr.med_k) / cr.iqr_k), 0.84))) AS zr_k,
+              MIN(4.0, MAX(-3.2, SIGN((p.adj_ka - cr.med_ka) / cr.iqr_ka) * POWER(ABS((p.adj_ka - cr.med_ka) / cr.iqr_ka), 0.84))) AS zr_ka,
+              MIN(4.0, MAX(-3.2, SIGN((p.adj_d - cg.med_d) / cg.iqr_d) * POWER(ABS((p.adj_d - cg.med_d) / cg.iqr_d), 0.84))) AS zg_d,
+              MIN(4.0, MAX(-3.2, SIGN((p.eff_t - cg.med_t) / cg.iqr_t) * POWER(ABS((p.eff_t - cg.med_t) / cg.iqr_t), 0.84))) AS zg_t,
+              MIN(4.0, MAX(-3.2, SIGN((p.adj_ka - cg.med_ka) / cg.iqr_ka) * POWER(ABS((p.adj_ka - cg.med_ka) / cg.iqr_ka), 0.84))) AS zg_ka,
+              MIN(4.0, MAX(-3.2, SIGN((p.adj_late_ka - cg.med_lka) / cg.iqr_lka) * POWER(ABS((p.adj_late_ka - cg.med_lka) / cg.iqr_lka), 0.84))) AS zg_lka,
+              MIN(2.8, MAX(-1.4, SIGN((p.adj_o - cg.med_o) / cg.iqr_o) * POWER(ABS((p.adj_o - cg.med_o) / cg.iqr_o), 0.84))) AS zg_o,
+              MIN(3.6, MAX(-1.8, SIGN((p.h_aligned - cg.h_sup_med) / cg.h_sup_iqr) * POWER(ABS((p.h_aligned - cg.h_sup_med) / cg.h_sup_iqr), 0.84))) AS zh_sup,
+              MIN(0.65, MAX(0.0, (p.eff_t - 1350.0) / 2100.0)) AS tank_w,
+              CASE WHEN p.gold_earned IS NULL THEN 0.0
+                   WHEN p.build_role IN ('射手', '法師', '刺客') THEN (p.adj_d_per_g - cg.med_dpg) / cg.iqr_dpg
+                   ELSE (
+                     ((1000.0 * (p.dmg_to_champions + 0.25 * (p.dmg_taken + p.dmg_mitigated) + 1.80 * (CASE WHEN p.build_role = '輔助' OR p.heal_src = 'eog' THEN p.h_aligned ELSE 0.0 END) * p.mins + 110.0 * p.adj_c * p.mins) / p.gold_earned) / POWER(p.fac, 0.55) - cg.med_ipg) / cg.iqr_ipg
+                   ) END AS eff_z
+            FROM h_calc p
+            JOIN calib_role cr ON cr.build_role = p.build_role
+            CROSS JOIN calib_global cg
+          ),
+          mixed AS (
+            SELECT *,
+              0.65 * zr_c + 0.35 * MAX(zr_c, zr_ccdur) AS zr_cc,
+              MIN(zr_k, zr_d + 0.40) AS k_eff,
+              0.70 * zr_d + 0.30 * zg_d AS d_mix,
+              0.40 * zr_o + 0.60 * zg_o AS o_mix,
+              0.85 * zr_t + 0.15 * zg_t AS t_mix,
+              CASE WHEN build_role = '輔助' THEN 0.70 * zr_ka + 0.30 * zg_ka ELSE zg_ka END AS ka_mix
+            FROM spow_calc
+          ),
+          scored_parts AS (
+            SELECT *,
+              CASE build_role
+                WHEN '射手' THEN 0.40 * d_mix + 0.04 * MAX(0.0, d_mix - 0.45)
+                WHEN '刺客' THEN 0.41 * d_mix + 0.04 * MAX(0.0, d_mix - 0.45)
+                WHEN '法師' THEN 0.38 * d_mix + 0.05 * MAX(0.0, d_mix - 0.40)
+                WHEN '鬥士' THEN 0.28 * d_mix + 0.12 * MAX(0.0, d_mix - 0.30)
+                WHEN '坦克' THEN 0.10 * zr_d + 0.18 * MAX(0.0, zr_d - 0.45) + 0.10 * MAX(0.0, zg_d - 0.20)
+                WHEN '輔助' THEN 0.12 * MAX(-0.35, zr_d) + 0.16 * MAX(0.0, zr_d - 0.55) + 0.12 * MAX(0.0, zg_d + 0.35)
+                ELSE 0.28 * d_mix + 0.10 * MAX(0.0, d_mix - 0.35) END AS core_d,
+              CASE build_role
+                WHEN '鬥士' THEN 0.20 * (CASE WHEN d_mix > 0.20 THEN MAX(t_mix, MIN(0.0, -0.85 + 0.90 * (d_mix - 0.20))) ELSE t_mix END)
+                WHEN '坦克' THEN 0.30 * (CASE WHEN zr_d > 0.35 THEN MAX(t_mix, MIN(0.0, -0.85 + 0.85 * (zr_d - 0.35))) ELSE t_mix END)
+                WHEN '輔助' THEN 0.42 * tank_w * zr_t
+                WHEN '未成形' THEN 0.18 * t_mix
+                ELSE 0.0 END AS core_t,
+              CASE build_role
+                WHEN '射手' THEN 0.15 * k_eff
+                WHEN '刺客' THEN 0.17 * k_eff
+                WHEN '法師' THEN 0.13 * k_eff
+                WHEN '鬥士' THEN 0.11 * k_eff + 0.04 * MAX(0.0, k_eff - 0.30)
+                WHEN '坦克' THEN 0.10 * MAX(0.0, k_eff - 0.30)
+                WHEN '輔助' THEN 0.09 * MAX(0.0, k_eff - 0.35)
+                WHEN '未成形' THEN 0.11 * k_eff
+                ELSE 0.0 END AS core_ks,
+              CASE build_role
+                WHEN '射手' THEN 0.17 * ka_mix + 0.12 * zg_lka
+                WHEN '刺客' THEN 0.17 * ka_mix + 0.12 * zg_lka
+                WHEN '法師' THEN 0.16 * ka_mix + 0.12 * zg_lka
+                WHEN '鬥士' THEN 0.16 * ka_mix + 0.11 * zg_lka
+                WHEN '坦克' THEN 0.19 * ka_mix + 0.13 * zg_lka
+                WHEN '輔助' THEN (CASE WHEN heal_src = 'flag' THEN 0.22 + 0.04 * (1.0 - tank_w) ELSE 0.22 END) * ka_mix + 0.10 * zg_lka
+                ELSE 0.16 * ka_mix + 0.11 * zg_lka END AS core_ka,
+              CASE WHEN build_role = '輔助' THEN
+                (CASE WHEN heal_src = 'flag' THEN 0.34 ELSE 0.40 END) * (1.0 - tank_w) * (
+                  (CASE WHEN tank_w > 0.0 OR zr_cc > 0.20 OR zr_d > 0.20
+                        THEN MAX(zh_sup, -1.15 + 0.65 * tank_w + 0.45 * MIN(2.0, MAX(0.0, zr_cc - 0.20) + 0.80 * MAX(0.0, zr_d - 0.20) + 0.55 * MAX(0.0, zr_d - 0.65)))
+                        ELSE zh_sup END)
+                  + 0.10 * MAX(0.0, zh_sup - 0.35)
+                )
+              ELSE 0.0 END AS core_h,
+              CASE
+                WHEN build_role IN ('射手', '刺客') THEN CASE WHEN zr_cc > 0.35 THEN 0.05 * (zr_cc - 0.35) ELSE 0.0 END
+                WHEN build_role = '法師' THEN 0.08 * (CASE WHEN d_mix > 0.20 THEN MAX(zr_cc, MIN(0.0, -0.90 + 0.90 * (d_mix - 0.20))) ELSE zr_cc END)
+                WHEN build_role = '鬥士' THEN 0.07 * (CASE WHEN d_mix > 0.20 OR t_mix > 0.25 THEN MAX(zr_cc, MIN(0.0, -0.90 + 0.85 * MAX(0.0, d_mix - 0.20) + 0.35 * MAX(0.0, t_mix - 0.25))) ELSE zr_cc END)
+                WHEN build_role = '坦克' THEN 0.20 * (CASE WHEN zr_d > 0.30 OR zr_t > 0.35 THEN MAX(zr_cc, MIN(0.0, -1.05 + 0.90 * MAX(0.0, zr_d - 0.30) + 0.30 * MAX(0.0, zr_t - 0.35))) ELSE zr_cc END)
+                WHEN build_role = '輔助' THEN (CASE WHEN heal_src = 'flag' THEN 0.10 + 0.02 * (1.0 - tank_w) ELSE 0.10 END) * MAX(-0.45, zr_cc, MIN(0.0, -0.45 + 0.45 * MAX(0.0, zr_d - 0.45)))
+                ELSE 0.08 * zr_cc END AS core_c,
+              CASE build_role
+                WHEN '射手' THEN 0.10 * o_mix
+                WHEN '刺客' THEN 0.10 * o_mix
+                WHEN '法師' THEN 0.08 * o_mix
+                WHEN '鬥士' THEN 0.07 * o_mix
+                WHEN '坦克' THEN 0.08 * o_mix
+                WHEN '輔助' THEN 0.06 * o_mix
+                ELSE 0.08 * o_mix END AS core_o,
+              CASE build_role
+                WHEN '射手' THEN 0.06 * zr_w
+                WHEN '刺客' THEN 0.03 * zr_w
+                WHEN '法師' THEN 0.05 * zr_w
+                ELSE 0.0 END AS core_w,
+              MIN(4.5, 1.5 * SQRT(MAX(0.0, mk_score - (med_multi + 1.5)))
+                + CASE WHEN build_role = '輔助' THEN 1.8 * MAX(0.0, ka_mix - 0.50) + 1.5 * MAX(0.0, MAX(zh_sup, zr_cc, zr_t) - 0.55) ELSE 0.0 END) AS b_multi,
+              MIN(3.5, 1.8 * MAX(0.0, zr_o - 0.50) + CASE WHEN ke_solo_tur >= 2 THEN 3.0 WHEN ke_solo_tur = 1 THEN 2.0 ELSE 0.0 END) AS b_tur,
+              MIN(3.5, 1.2 * SQRT(MAX(0, ke_trade_death - ke_iso_death - 1)) + 0.9 * MIN(2, ke_solo)
+                + CASE WHEN build_role = '輔助' THEN 1.2 * MAX(0.0, zg_lka - 0.35) + 0.9 * MAX(0.0, MIN(ka_mix, MAX(zh_sup, zr_cc, zr_t)) - 0.25) ELSE 0.0 END) AS b_fight,
+              MIN(3.5, 3.0 * MAX(0.0, eff_z - 0.50)) AS b_eff,
+              CASE WHEN x_a > 200.0 THEN MIN(2.5, 2.2 * MIN(1.2, x_a / 630.0)) ELSE 0.0 END AS b_anti,
+              CASE WHEN build_role = '坦克' AND zr_d > 0.45 THEN MIN(4.0, 2.6 * (zr_d - 0.45))
+                   WHEN build_role = '輔助' AND zr_d > 0.45 THEN MIN(3.5, 2.4 * (zr_d - 0.45))
+                   WHEN build_role = '鬥士' AND zr_d > 0.60 THEN MIN(2.5, 2.0 * (zr_d - 0.60))
+                   ELSE 0.0 END AS b_util_dmg,
+              CASE WHEN build_role NOT IN ('坦克', '輔助') AND heal_src = 'eog' AND h_aligned > 500.0 THEN MIN(2.0, (h_aligned - 500.0) / 500.0)
+                   ELSE 0.0 END AS b_util_heal,
+              CASE WHEN build_role IN ('射手', '刺客', '法師', '鬥士', '輔助') AND zr_cc > 0.65 THEN MIN(2.5, 2.0 * (zr_cc - 0.65))
+                   ELSE 0.0 END AS b_util_cc,
+              CASE WHEN adj_iso_d > MAX(0.09, med_isod + 0.03) AND iso_ratio > 0.25
+                   THEN MIN(7.0, 28.0 * (adj_iso_d - MAX(0.09, med_isod + 0.03)) * MIN(1.5, iso_ratio / 0.35))
+                   ELSE 0.0 END AS p_iso,
+              MIN(5.0, 2.2 * MAX(0, ke_late_iso_death - 1)) AS p_late,
+              MIN(8.0, 6.5 * MAX(0.0, -0.75 - MAX(zr_d, zr_t, CASE WHEN build_role = '輔助' THEN zh_sup ELSE -1.0 END)) + 4.5 * MAX(0.0, -0.80 - ka_mix)) AS p_ghost
+            FROM mixed
+          ),
+          calc_core AS (
+            SELECT *,
+              (core_d + core_t + core_ks + core_ka + core_h + core_c + core_o + core_w) AS core,
+              (b_multi + b_tur + b_fight + b_eff + b_anti + b_util_dmg + b_util_heal + b_util_cc) AS bonus_raw,
+              MIN(15.0, b_multi + b_tur + b_fight + b_eff + b_anti + b_util_dmg + b_util_heal + b_util_cc) AS bonus_pts,
+              MIN(18.0, p_iso + p_late + p_ghost) AS pen_pts,
+              CASE heal_src WHEN 'eog' THEN g_mean_eog ELSE g_mean_est END AS g_mean_off
+            FROM scored_parts
           ),
           total AS (
-            -- 第 5 步的權重（加起來 1）；v3.9 起 K/DA 不計分（z_kda 只給 gene_kda 顯示）
             SELECT *,
-              weight_d * z_d + weight_t * z_t_credit + 0.14 * z_ks + 0.18 * z_h_credit + weight_c * z_c + 0.07 * z_o + 0.05 * z_w + 0.03 * z_a AS work_raw
-            FROM (
-              SELECT *,
-                CASE WHEN build_role = '輔助' AND z_t > 0.5 THEN 0.5 + 0.4 * (z_t - 0.5)
-                     ELSE z_t END AS z_t_credit,
-                CASE WHEN build_role = '輔助' THEN z_h * (5.0 / 6.0) ELSE z_h END AS z_h_credit
-              FROM z
-            )
+              (20.0 / core_sd) * (CASE WHEN (20.0 * core / core_sd) > 15.0 THEN (15.0 + 1.18 * ((20.0 * core / core_sd) - 15.0)) / (20.0 * core / core_sd) ELSE 1.0 END) AS k_core,
+              CASE WHEN bonus_raw > 0.0 THEN bonus_pts / bonus_raw ELSE 1.0 END AS b_scale
+            FROM calc_core
           )
-          SELECT g.participant_rowid, 'v3.13' AS score_version,
+          SELECT g.participant_rowid, 'v5.4' AS score_version,
             CASE WHEN g.unscored_reason IS NOT NULL OR g.heal_src IS NULL THEN 'unscored'
                  WHEN t.heal_src = 'eog' THEN 'complete' ELSE 'estimate' END AS score_status,
             COALESCE(g.unscored_reason, CASE WHEN g.heal_src IS NULL THEN 'missing_heal_data' END) AS unscored_reason,
-            ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * (t.work_raw - t.mu_work) / t.sd_work)), 9) AS work_score,
-            ROUND(t.work_raw, 9) AS work_raw, g.build_role, t.heal_src,
-            -- 基因分數（50＝同出裝定位的平均）
-            ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.z_d_shown)), 9) AS gene_d, ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.z_w_shown)), 9) AS gene_w,
-            ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.z_o_shown)), 9) AS gene_o, ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.z_t_shown)), 9) AS gene_t,
-            ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.z_c_shown)), 9) AS gene_c, ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.z_h_shown)), 9) AS gene_h,
-            ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.z_a_shown)), 9) AS gene_a, ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.z_kda)), 9) AS gene_kda,
-            ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.z_ks_shown)), 9) AS gene_ks,
-            -- 每個基因讓總分加減幾分（夾在 0～100 之前，加起來＝總分 − 50 ＋ 整體校正 20 × mu_work ÷ sd_work）
-            ROUND(20.0 * t.weight_d * t.z_d / t.sd_work, 9) AS pts_d, ROUND(20.0 * 0.05 * t.z_w / t.sd_work, 9) AS pts_w,
-            ROUND(20.0 * 0.07 * t.z_o / t.sd_work, 9) AS pts_o, ROUND(20.0 * t.weight_t * t.z_t_credit / t.sd_work, 9) AS pts_t,
-            ROUND(20.0 * t.weight_c * t.z_c / t.sd_work, 9) AS pts_c, ROUND(20.0 * 0.18 * t.z_h_credit / t.sd_work, 9) AS pts_h,
-            ROUND(20.0 * 0.03 * t.z_a / t.sd_work, 9) AS pts_a,
-            ROUND(20.0 * 0.14 * t.z_ks / t.sd_work, 9) AS pts_ks,
-            -- 整體校正（每個人一樣）：加減分加起來再加上它就是總分 − 50
-            ROUND(-20.0 * t.mu_work / t.sd_work, 9) AS pts_base,
-            -- 和同一場的人比（第 3 步）
+            ROUND(MIN(100.0, MAX(0.0, 50.0 + (t.core * t.k_core + t.bonus_pts - t.pen_pts) - t.g_mean_off)), 9) AS work_score,
+            ROUND(t.core * t.k_core + t.bonus_pts - t.pen_pts, 9) AS work_raw,
+            g.build_role, t.heal_src,
+            ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.zr_d)), 9) AS gene_d,
+            ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.zr_w)), 9) AS gene_w,
+            ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.zr_o)), 9) AS gene_o,
+            ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.zr_t)), 9) AS gene_t,
+            ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.zr_cc)), 9) AS gene_c,
+            ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.zh_sup)), 9) AS gene_h,
+            ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * ((t.x_a - 200.0) / 430.0))), 9) AS gene_a,
+            ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * ((t.p_kda - t.med_p_kda) / t.sd_p_kda))), 9) AS gene_kda,
+            ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.zr_k)), 9) AS gene_ks,
+            ROUND(MIN(100.0, MAX(0.0, 50.0 + 20.0 * t.zr_ka)), 9) AS gene_ka,
+            ROUND(t.core_d * t.k_core + t.b_util_dmg * t.b_scale, 9) AS pts_d,
+            ROUND(t.core_w * t.k_core, 9) AS pts_w,
+            ROUND(t.core_o * t.k_core, 9) AS pts_o,
+            ROUND(t.core_t * t.k_core, 9) AS pts_t,
+            ROUND(t.core_c * t.k_core + t.b_util_cc * t.b_scale, 9) AS pts_c,
+            ROUND(t.core_h * t.k_core + t.b_util_heal * t.b_scale, 9) AS pts_h,
+            ROUND(t.b_anti * t.b_scale, 9) AS pts_a,
+            ROUND(t.core_ks * t.k_core, 9) AS pts_ks,
+            ROUND(t.core_ka * t.k_core, 9) AS pts_ka,
+            ROUND((t.b_multi + t.b_tur + t.b_fight + t.b_eff) * t.b_scale, 9) AS pts_bonus,
+            ROUND(-t.pen_pts, 9) AS pts_penalty,
+            ROUND(-t.g_mean_off, 9) AS pts_base,
             t.p_d, t.p_w, t.p_o, t.p_t, t.p_c, t.p_h, t.p_a, t.p_k, t.p_s, t.p_kda, t.p_ks,
             t.x_d, t.x_w, t.x_o, t.x_t, t.x_c, t.x_h, t.x_a, t.x_kp, t.x_ks, t.x_death, t.foe_heal, t.foe_shield,
             g.anti_heal_item, g.anti_shield_item
@@ -264,7 +523,7 @@ cubes:
 
       - name: score_status
         title: 貢獻完整度
-        description: "本場貢獻的資料完整度：complete（十人都有賽後統計的治療護盾隊友量）、estimate（暫估：沒有賽後統計，治療護盾不計分，破盾裝沒有敵方護盾量）、unscored（不計分：重開、不足 6 分鐘、非大亂鬥或不是完整 5v5）。"
+        description: "本場貢獻的資料完整度：complete（十人都有賽後統計的治療護盾隊友量）、estimate（暫估：沒有賽後統計的護盾量，改以對局治療估算隊友治療；破盾裝不含敵方護盾量）、unscored（不計分：重開、不足 6 分鐘、非大亂鬥或不是完整 5v5）。"
         sql: score_status
         type: string
         meta:
@@ -272,7 +531,7 @@ cubes:
 
       - name: score_version
         title: 貢獻規則版本
-        description: "本場貢獻的規則版本（例如 v3.13）。跨場比較或聚合時要同版本。"
+        description: "本場貢獻的規則版本（例如 v5.4）。跨場比較或聚合時要同版本。"
         sql: score_version
         type: string
         meta:
@@ -281,7 +540,7 @@ cubes:
     measures:
       - name: work
         title: 本場貢獻
-        description: "本場貢獻（0～100）。一般權重為輸出 23%、承傷 19%、擊殺 14%、治療護盾 18%、控場 11%、推塔 7%、清兵 5%、功能裝 3%。坦克與輔助改用輸出 13%、承傷 25%、控場 15%，輸出只加分。治療護盾加分一半看實際保人量，一半看高於同定位基準的部分。輔助的治療護盾加分按原值的 5/6 計入。K/DA 不計分。50＝校準時的整體基準。缺少完整賽後統計的場次標為暫估，治療護盾項記 0。"
+        description: "本場貢獻（0～100，v5.4 / v5-B 修訂版）。採 100% 跨場絕對尺度（依時長冪次、敵方前排數與對局血腥度 pace_k 校正），不再強制各定位歸 50。核心分依定位權重加總輸出（非輸出定位打出高傷害時享轉型輸出斜率與跨界加成）、承傷（0.62×減免＋0.38×承傷；高輸出時豁免低承傷負分）、擊殺（min(zr_k, zr_d+0.4)，坦／輔高輸出高擊殺解鎖正向加分）、參團（含 65% 時長後參團；輔助 70% 同定位＋30% 全局，並校正敵方前排與血腥度）、治療護盾（暫估局採英雄保人殘差先驗＋輔助裝數量補救並調整不確定性權重；坦輔／控場輔／高傷輔緩衝負向底線）、控場（高輸出時豁免無控場負分）、推塔與清兵（core > 15 後按 1.18 倍拉開）；外加「高光加分（0～+15：多殺與輔助團戰串連、拆塔傷害與單人拆塔、換命＋單殺＋輔助後期保排協同、經濟效率、功能控場等，不含首殺／首塔／終結）」與「失誤扣分（0～-18：純單抓孤立死亡、後期孤死、低存在感隱身）」，最後做全局 EOG／暫估偏移校正（pts_base）。"
         sql: work_score
         type: avg
         meta:
@@ -323,7 +582,7 @@ cubes:
 
       - name: gene_dmg
         title: 基因・輸出
-        description: "每分鐘對英雄傷害，先和同一場另外九人的平均比，再和同出裝定位的基準比。50＝同出裝定位的平均，每 20 分是一個標準差。一般權重 23%，坦克與輔助為 13% 且只加分。"
+        description: "經時長冪次校正的每分鐘對英雄傷害，以同出裝定位中位數／IQR 經 spow 標準化（50＝同出裝定位基準）。"
         sql: gene_d
         type: avg
         meta:
@@ -333,7 +592,7 @@ cubes:
 
       - name: gene_soak
         title: 基因・承傷
-        description: "每分鐘承受加自身減免的傷害（包括護甲、魔抗與護盾擋下的傷害），比法同輸出。一般權重 19%，坦克與輔助為 25%。輔助超過承傷基準 0.5 個標準差的部分按 40% 計分，基因分數仍照實顯示。"
+        description: "經時長校正的有效承傷（0.62×減免＋0.38×承受），以同出裝定位中位數／IQR 經 spow 標準化（50＝同出裝定位基準）。"
         sql: gene_t
         type: avg
         meta:
@@ -343,7 +602,7 @@ cubes:
 
       - name: gene_heal
         title: 基因・治療護盾
-        description: "每分鐘治療＋護盾隊友經固定換算後和同出裝定位的平均比較。加分一半看實際保人量，一半看高於同定位基準的部分。一般權重 18%，輔助折算為 15%。缺完整賽後統計時基因＝50、加減分＝0。"
+        description: "每分鐘治療＋護盾隊友（暫估場次由對局總治療乘 h_scale 估算隊友治療，輔助另依同英雄護盾先驗＋輔助裝數量與參團活躍度估算隊友護盾）相對於輔助基準中位數／IQR 的 spow 分數（50＝輔助基準）。"
         sql: gene_h
         type: avg
         meta:
@@ -353,7 +612,7 @@ cubes:
 
       - name: gene_cc
         title: 基因・控場
-        description: "每分鐘控制敵人的時間（time_ccing_others），比法同輸出。一般權重 11%，坦克與輔助為 15%。"
+        description: "每分鐘控制敵人時間與累計控場時長（0.65×zr_c＋0.35×max(zr_c, zr_ccdur)）相對於同出裝定位基準的分數（50＝基準）。"
         sql: gene_c
         type: avg
         meta:
@@ -363,8 +622,18 @@ cubes:
 
       - name: gene_kill
         title: 基因・擊殺
-        description: "擊殺占比（自己擊殺 ÷ 我方擊殺）先和同場比、再和同出裝定位比，然後和輸出取小。只加分，權重 14%。"
+        description: "每分鐘擊殺數經 spow 標準化相對於同出裝定位基準的分數（50＝基準）。實際核心計分取 min(zr_k, zr_d + 0.4) 防低輸出尾刀灌水。"
         sql: gene_ks
+        type: avg
+        meta:
+          group: 貢獻
+          decimals: 0
+          higherIsBetter: true
+
+      - name: gene_ka
+        title: 基因・參團
+        description: "經時長冪次校正的每分鐘擊殺＋助攻相對於同出裝定位基準的 spow 分數（50＝基準）。核心計分採跨場全局尺度與 65% 時長後參團率。"
+        sql: gene_ka
         type: avg
         meta:
           group: 貢獻
@@ -373,7 +642,7 @@ cubes:
 
       - name: gene_kda
         title: 基因・K/DA
-        description: "參團率（擊殺＋助攻 ÷ 我方擊殺）與存活（每分鐘死亡越少越好）各半，比法同輸出。供打法顯示，總分權重為 0。"
+        description: "參團率與存活（每分鐘死亡越少越好）各半，供打法「很少死／常陣亡」顯示。"
         sql: gene_kda
         type: avg
         meta:
@@ -383,7 +652,7 @@ cubes:
 
       - name: gene_obj
         title: 基因・推塔
-        description: "每分鐘對建築的傷害，比法同輸出。權重 7%。"
+        description: "經時長冪次校正的每分鐘對建築傷害，相對於同出裝定位基準的 spow 分數（50＝基準）。"
         sql: gene_o
         type: avg
         meta:
@@ -393,7 +662,7 @@ cubes:
 
       - name: gene_wave
         title: 基因・清兵
-        description: "每分鐘對小兵的傷害（總輸出 − 對英雄 − 對建築；大亂鬥沒有野怪），比法同輸出。權重 5%。"
+        description: "經時長冪次校正的每分鐘對小兵傷害，相對於同出裝定位基準的 spow 分數（50＝基準）。"
         sql: gene_w
         type: avg
         meta:
@@ -403,7 +672,7 @@ cubes:
 
       - name: gene_anti
         title: 基因・功能裝
-        description: "終場帶重創裝擋掉的敵方治療（敵方全隊治療 × 40% ÷ 我方帶重創的人數）＋帶破盾裝擋掉的敵方護盾（只有賽後統計有），換成 0～100 後和同出裝定位的平均比。以終場裝備估算，權重 3%。"
+        description: "終場帶重創／破盾裝估計擋掉的敵方治療與護盾轉換分數。"
         sql: gene_a
         type: avg
         meta:
@@ -413,7 +682,7 @@ cubes:
 
       - name: pts_dmg
         title: 加減分・輸出
-        description: "輸出這一項讓本場貢獻加減幾分（正的是加分）。八項加起來＝本場貢獻 − 50（夾在 0～100 之前）。"
+        description: "輸出這一項（含坦輔高輸出額外獎勵）讓本場貢獻加減幾分。"
         sql: pts_d
         type: avg
         meta:
@@ -431,7 +700,7 @@ cubes:
 
       - name: pts_heal
         title: 加減分・治療護盾
-        description: "治療護盾這一項讓本場貢獻加減幾分。"
+        description: "治療護盾這一項（含非輔輸出位順手補血獎勵）讓本場貢獻加減幾分。"
         sql: pts_h
         type: avg
         meta:
@@ -440,7 +709,7 @@ cubes:
 
       - name: pts_cc
         title: 加減分・控場
-        description: "控場這一項讓本場貢獻加減幾分。"
+        description: "控場這一項（含輸出／鬥士高控場獎勵）讓本場貢獻加減幾分。"
         sql: pts_c
         type: avg
         meta:
@@ -449,8 +718,35 @@ cubes:
 
       - name: pts_kill
         title: 加減分・擊殺
-        description: "擊殺這一項讓本場貢獻加減幾分（只加不扣，不會是負的）。"
+        description: "擊殺這一項（與輸出上限連動）讓本場貢獻加減幾分。"
         sql: pts_ks
+        type: avg
+        meta:
+          group: 貢獻
+          decimals: 1
+
+      - name: pts_ka
+        title: 加減分・參團
+        description: "參團率與 65% 時長後後期參團讓本場貢獻加減幾分。"
+        sql: pts_ka
+        type: avg
+        meta:
+          group: 貢獻
+          decimals: 1
+
+      - name: pts_bonus
+        title: 加減分・高光加分
+        description: "多殺、拆塔傷害與單人拆塔、換命＋單殺與經濟效率帶來的高光加分（≥ 0，不含首殺、首塔與終結）。"
+        sql: pts_bonus
+        type: avg
+        meta:
+          group: 貢獻
+          decimals: 1
+
+      - name: pts_penalty
+        title: 加減分・失誤扣分
+        description: "純單抓孤立死亡（±10 秒內友方無擊殺且無其他友軍死亡）、65% 後後期孤死與極低存在感隱身造成的扣分（≤ 0）。"
+        sql: pts_penalty
         type: avg
         meta:
           group: 貢獻
@@ -458,7 +754,7 @@ cubes:
 
       - name: pts_base
         title: 加減分・整體校正
-        description: "每個人一樣的整體校正（負的）：九項加減分加起來再加上它，就是本場貢獻 − 50。因為多數項目只加不扣，扣掉它平均才會是 50。"
+        description: "僅依 EOG／暫估資料來源固定的全局基準偏移：全部加減分（含高光／失誤）加上它即等於本場貢獻 − 50（夾 0～100 之前）。"
         sql: pts_base
         type: avg
         meta:
@@ -467,7 +763,7 @@ cubes:
 
       - name: pts_kda
         title: 加減分・K/DA
-        description: "K/DA 從 v3.9 起不計分，一律是 0（欄位留著，舊的查詢不會壞）。"
+        description: "不單獨計分（死亡細節已移至失誤扣分），一律是 0（欄位保留相容舊查詢）。"
         sql: "0.0"
         type: avg
         meta:

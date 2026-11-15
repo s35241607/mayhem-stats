@@ -114,7 +114,7 @@ const zFor = (k: number) => {
 const strengthOf = (mean: number | null, n: number, z: number) => {
   if (mean === null || n < 5) return "看不出"
   const d = mean - 50
-  const half = (z * 18.5) / Math.sqrt(n)  // WORK_SD（lib/gap.ts）
+  const half = (z * 20.8) / Math.sqrt(n)  // WORK_SD（lib/gap.ts）
   if (d - half > 0) return "強勢"
   if (d + half < 0) return "不強勢"
   if (d >= 4) return "偏強"
@@ -238,7 +238,12 @@ test("各定位平均貢獻、計分人次與治療護盾分解符合 SQL", asyn
        GROUP BY b.build_role ORDER BY scored DESC`, crew,
   )
   await expect(ref.locator("dt")).toHaveCount(6, { timeout: 40_000 })
-  const healText = (heal: unknown) => heal === null ? "—" : Number(heal) < 0.05 ? "0.0" : `+${Number(heal).toFixed(1)}`
+  const healText = (heal: unknown) => {
+    if (heal === null) return "—"
+    const v = Number(heal)
+    if (Math.abs(v) < 0.05) return "0.0"
+    return `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(1)}`
+  }
   for (const r of rows) {
     const entry = ref.getByTestId("crew-team-role").filter({ has: page.getByText(String(r.role), { exact: true }) })
     await expect(entry.locator("dd")).toHaveText([r.score === null ? "—" : Number(r.score).toFixed(1), `${r.scored} 人次`])

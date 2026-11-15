@@ -1,0 +1,1028 @@
+{
+  "scope": {
+    "valid_matches": 700,
+    "participants": 7000,
+    "first_date": "2026-08-28",
+    "last_date": "2026-10-17",
+    "all_mayhem_matches": 708,
+    "patch_matches": {
+      "16.17": 117,
+      "16.18": 183,
+      "16.19": 191,
+      "16.20": 209
+    },
+    "heroes": 173,
+    "heroes_under_30": 56,
+    "rows_heroes_under_30": 1129,
+    "hero_n_median": 38.0,
+    "eog_matches": 125,
+    "eog_rows": 1250,
+    "eog_positive_ally_rows": 256,
+    "eog_hero_count": 171,
+    "identity_fields_exported": false
+  },
+  "qa": {
+    "reconstructed_perf_max_error": 9.74978320300579e-10,
+    "complete_match_grain": true,
+    "independent_sql_totals": [
+      7000,
+      700,
+      1250,
+      528
+    ]
+  },
+  "current_by_role": [
+    {
+      "build_role": "刺客",
+      "n": 830,
+      "mean_perf": 53.967,
+      "mean_melee_bonus": 4.135,
+      "mean_role_bonus": 0.0,
+      "mean_extra": 0.0,
+      "zero_objective_pct": 17.47,
+      "at_100_pct": 3.253
+    },
+    {
+      "build_role": "坦克",
+      "n": 1023,
+      "mean_perf": 61.986,
+      "mean_melee_bonus": 4.581,
+      "mean_role_bonus": 3.791,
+      "mean_extra": 6.74,
+      "zero_objective_pct": 15.64,
+      "at_100_pct": 15.934
+    },
+    {
+      "build_role": "射手",
+      "n": 1262,
+      "mean_perf": 50.0,
+      "mean_melee_bonus": 0.0,
+      "mean_role_bonus": 0.0,
+      "mean_extra": 0.0,
+      "zero_objective_pct": 8.162,
+      "at_100_pct": 0.0
+    },
+    {
+      "build_role": "未成形",
+      "n": 6,
+      "mean_perf": 52.75,
+      "mean_melee_bonus": 2.75,
+      "mean_role_bonus": 0.0,
+      "mean_extra": 0.0,
+      "zero_objective_pct": 16.667,
+      "at_100_pct": 0.0
+    },
+    {
+      "build_role": "法師",
+      "n": 1940,
+      "mean_perf": 50.908,
+      "mean_melee_bonus": 0.935,
+      "mean_role_bonus": 0.0,
+      "mean_extra": 0.0,
+      "zero_objective_pct": 13.196,
+      "at_100_pct": 0.412
+    },
+    {
+      "build_role": "輔助",
+      "n": 228,
+      "mean_perf": 63.612,
+      "mean_melee_bonus": 0.277,
+      "mean_role_bonus": 4.648,
+      "mean_extra": 10.358,
+      "zero_objective_pct": 11.842,
+      "at_100_pct": 11.842
+    },
+    {
+      "build_role": "鬥士",
+      "n": 1711,
+      "mean_perf": 53.717,
+      "mean_melee_bonus": 3.901,
+      "mean_role_bonus": 0.0,
+      "mean_extra": 0.0,
+      "zero_objective_pct": 13.676,
+      "at_100_pct": 3.331
+    }
+  ],
+  "ignored_soak": {
+    "damage_role_rows": 3202,
+    "with_tank_investment": 1708,
+    "tank_investment_and_soak_p75": 528,
+    "their_soak_percentile_mean": 88.22895152667303,
+    "tank_fraction_median": 0.17478616904570066
+  },
+  "damage_role_tank_mix": [
+    {
+      "build_role": "射手",
+      "tank_band": "[-0.001, 0.001)",
+      "n": 909,
+      "soak_percentile": 46.414,
+      "perf": 49.433
+    },
+    {
+      "build_role": "射手",
+      "tank_band": "[0.001, 0.1)",
+      "n": 88,
+      "soak_percentile": 51.435,
+      "perf": 51.384
+    },
+    {
+      "build_role": "射手",
+      "tank_band": "[0.1, 0.2)",
+      "n": 173,
+      "soak_percentile": 62.096,
+      "perf": 52.685
+    },
+    {
+      "build_role": "射手",
+      "tank_band": "[0.2, 0.3)",
+      "n": 92,
+      "soak_percentile": 61.311,
+      "perf": 49.235
+    },
+    {
+      "build_role": "法師",
+      "tank_band": "[-0.001, 0.001)",
+      "n": 585,
+      "soak_percentile": 41.874,
+      "perf": 48.018
+    },
+    {
+      "build_role": "法師",
+      "tank_band": "[0.001, 0.1)",
+      "n": 198,
+      "soak_percentile": 47.098,
+      "perf": 54.982
+    },
+    {
+      "build_role": "法師",
+      "tank_band": "[0.1, 0.2)",
+      "n": 709,
+      "soak_percentile": 52.13,
+      "perf": 51.581
+    },
+    {
+      "build_role": "法師",
+      "tank_band": "[0.2, 0.3)",
+      "n": 448,
+      "soak_percentile": 58.522,
+      "perf": 51.816
+    }
+  ],
+  "hero_contrasts": [
+    {
+      "role": "射手",
+      "axis": "wave_p",
+      "heroes": [
+        {
+          "build_role": "射手",
+          "champion_id": 96,
+          "champion": "寇格魔",
+          "n": 25,
+          "wave_p": 31.395,
+          "tower_p": 53.192,
+          "cc_p": 66.363,
+          "soak_p": 37.709,
+          "perf": 54.421,
+          "winrate": 0.68
+        },
+        {
+          "build_role": "射手",
+          "champion_id": 67,
+          "champion": "汎",
+          "n": 61,
+          "wave_p": 33.832,
+          "tower_p": 52.236,
+          "cc_p": 38.59,
+          "soak_p": 54.181,
+          "perf": 46.071,
+          "winrate": 0.475
+        },
+        {
+          "build_role": "射手",
+          "champion_id": 804,
+          "champion": "尤娜拉",
+          "n": 61,
+          "wave_p": 66.936,
+          "tower_p": 54.483,
+          "cc_p": 48.852,
+          "soak_p": 52.251,
+          "perf": 55.01,
+          "winrate": 0.475
+        },
+        {
+          "build_role": "射手",
+          "champion_id": 901,
+          "champion": "史矛德",
+          "n": 56,
+          "wave_p": 66.604,
+          "tower_p": 33.985,
+          "cc_p": 72.674,
+          "soak_p": 42.725,
+          "perf": 52.181,
+          "winrate": 0.5
+        }
+      ]
+    },
+    {
+      "role": "射手",
+      "axis": "tower_p",
+      "heroes": [
+        {
+          "build_role": "射手",
+          "champion_id": 126,
+          "champion": "杰西",
+          "n": 24,
+          "wave_p": 48.792,
+          "tower_p": 31.318,
+          "cc_p": 17.926,
+          "soak_p": 54.354,
+          "perf": 41.374,
+          "winrate": 0.375
+        },
+        {
+          "build_role": "射手",
+          "champion_id": 901,
+          "champion": "史矛德",
+          "n": 56,
+          "wave_p": 66.604,
+          "tower_p": 33.985,
+          "cc_p": 72.674,
+          "soak_p": 42.725,
+          "perf": 52.181,
+          "winrate": 0.5
+        },
+        {
+          "build_role": "射手",
+          "champion_id": 51,
+          "champion": "凱特琳",
+          "n": 74,
+          "wave_p": 58.539,
+          "tower_p": 59.001,
+          "cc_p": 71.893,
+          "soak_p": 46.66,
+          "perf": 59.184,
+          "winrate": 0.514
+        },
+        {
+          "build_role": "射手",
+          "champion_id": 202,
+          "champion": "燼",
+          "n": 61,
+          "wave_p": 50.459,
+          "tower_p": 56.859,
+          "cc_p": 81.189,
+          "soak_p": 43.471,
+          "perf": 59.689,
+          "winrate": 0.623
+        }
+      ]
+    },
+    {
+      "role": "法師",
+      "axis": "wave_p",
+      "heroes": [
+        {
+          "build_role": "法師",
+          "champion_id": 22,
+          "champion": "艾希",
+          "n": 21,
+          "wave_p": 14.262,
+          "tower_p": 34.991,
+          "cc_p": 83.425,
+          "soak_p": 23.759,
+          "perf": 34.52,
+          "winrate": 0.476
+        },
+        {
+          "build_role": "法師",
+          "champion_id": 1,
+          "champion": "安妮",
+          "n": 24,
+          "wave_p": 16.36,
+          "tower_p": 40.219,
+          "cc_p": 55.177,
+          "soak_p": 38.043,
+          "perf": 38.447,
+          "winrate": 0.5
+        },
+        {
+          "build_role": "法師",
+          "champion_id": 13,
+          "champion": "雷茲",
+          "n": 41,
+          "wave_p": 79.82,
+          "tower_p": 55.654,
+          "cc_p": 16.738,
+          "soak_p": 84.263,
+          "perf": 52.259,
+          "winrate": 0.585
+        },
+        {
+          "build_role": "法師",
+          "champion_id": 57,
+          "champion": "茂凱",
+          "n": 28,
+          "wave_p": 68.058,
+          "tower_p": 40.618,
+          "cc_p": 86.424,
+          "soak_p": 46.757,
+          "perf": 72.743,
+          "winrate": 0.571
+        }
+      ]
+    },
+    {
+      "role": "法師",
+      "axis": "tower_p",
+      "heroes": [
+        {
+          "build_role": "法師",
+          "champion_id": 30,
+          "champion": "卡爾瑟斯",
+          "n": 64,
+          "wave_p": 54.043,
+          "tower_p": 24.137,
+          "cc_p": 52.983,
+          "soak_p": 44.676,
+          "perf": 49.036,
+          "winrate": 0.531
+        },
+        {
+          "build_role": "法師",
+          "champion_id": 22,
+          "champion": "艾希",
+          "n": 21,
+          "wave_p": 14.262,
+          "tower_p": 34.991,
+          "cc_p": 83.425,
+          "soak_p": 23.759,
+          "perf": 34.52,
+          "winrate": 0.476
+        },
+        {
+          "build_role": "法師",
+          "champion_id": 4,
+          "champion": "逆命",
+          "n": 68,
+          "wave_p": 67.606,
+          "tower_p": 72.218,
+          "cc_p": 25.958,
+          "soak_p": 36.768,
+          "perf": 51.963,
+          "winrate": 0.603
+        },
+        {
+          "build_role": "法師",
+          "champion_id": 268,
+          "champion": "阿祈爾",
+          "n": 47,
+          "wave_p": 66.575,
+          "tower_p": 66.562,
+          "cc_p": 15.827,
+          "soak_p": 65.601,
+          "perf": 51.411,
+          "winrate": 0.553
+        }
+      ]
+    },
+    {
+      "role": "刺客",
+      "axis": "wave_p",
+      "heroes": [
+        {
+          "build_role": "刺客",
+          "champion_id": 555,
+          "champion": "派克",
+          "n": 34,
+          "wave_p": 30.83,
+          "tower_p": 42.231,
+          "cc_p": 62.077,
+          "soak_p": 64.565,
+          "perf": 52.188,
+          "winrate": 0.324
+        },
+        {
+          "build_role": "刺客",
+          "champion_id": 35,
+          "champion": "薩科",
+          "n": 50,
+          "wave_p": 31.983,
+          "tower_p": 42.59,
+          "cc_p": 85.888,
+          "soak_p": 29.244,
+          "perf": 51.188,
+          "winrate": 0.44
+        },
+        {
+          "build_role": "刺客",
+          "champion_id": 91,
+          "champion": "塔隆",
+          "n": 34,
+          "wave_p": 69.056,
+          "tower_p": 41.543,
+          "cc_p": 48.123,
+          "soak_p": 58.513,
+          "perf": 59.46,
+          "winrate": 0.441
+        },
+        {
+          "build_role": "刺客",
+          "champion_id": 238,
+          "champion": "劫",
+          "n": 48,
+          "wave_p": 63.084,
+          "tower_p": 43.675,
+          "cc_p": 48.067,
+          "soak_p": 47.43,
+          "perf": 61.997,
+          "winrate": 0.479
+        }
+      ]
+    },
+    {
+      "role": "刺客",
+      "axis": "tower_p",
+      "heroes": [
+        {
+          "build_role": "刺客",
+          "champion_id": 91,
+          "champion": "塔隆",
+          "n": 34,
+          "wave_p": 69.056,
+          "tower_p": 41.543,
+          "cc_p": 48.123,
+          "soak_p": 58.513,
+          "perf": 59.46,
+          "winrate": 0.441
+        },
+        {
+          "build_role": "刺客",
+          "champion_id": 555,
+          "champion": "派克",
+          "n": 34,
+          "wave_p": 30.83,
+          "tower_p": 42.231,
+          "cc_p": 62.077,
+          "soak_p": 64.565,
+          "perf": 52.188,
+          "winrate": 0.324
+        },
+        {
+          "build_role": "刺客",
+          "champion_id": 245,
+          "champion": "艾克",
+          "n": 47,
+          "wave_p": 62.238,
+          "tower_p": 62.285,
+          "cc_p": 85.801,
+          "soak_p": 73.291,
+          "perf": 65.506,
+          "winrate": 0.532
+        },
+        {
+          "build_role": "刺客",
+          "champion_id": 105,
+          "champion": "飛斯",
+          "n": 44,
+          "wave_p": 42.545,
+          "tower_p": 57.644,
+          "cc_p": 53.552,
+          "soak_p": 33.717,
+          "perf": 51.024,
+          "winrate": 0.659
+        }
+      ]
+    },
+    {
+      "role": "坦克",
+      "axis": "wave_p",
+      "heroes": [
+        {
+          "build_role": "坦克",
+          "champion_id": 201,
+          "champion": "布郎姆",
+          "n": 23,
+          "wave_p": 21.845,
+          "tower_p": 35.494,
+          "cc_p": 41.604,
+          "soak_p": 26.644,
+          "perf": 34.371,
+          "winrate": 0.304
+        },
+        {
+          "build_role": "坦克",
+          "champion_id": 53,
+          "champion": "布里茨",
+          "n": 29,
+          "wave_p": 23.891,
+          "tower_p": 40.166,
+          "cc_p": 53.435,
+          "soak_p": 23.013,
+          "perf": 37.543,
+          "winrate": 0.276
+        },
+        {
+          "build_role": "坦克",
+          "champion_id": 72,
+          "champion": "史加納",
+          "n": 36,
+          "wave_p": 78.846,
+          "tower_p": 56.58,
+          "cc_p": 71.024,
+          "soak_p": 43.305,
+          "perf": 76.345,
+          "winrate": 0.472
+        },
+        {
+          "build_role": "坦克",
+          "champion_id": 113,
+          "champion": "史瓦妮",
+          "n": 23,
+          "wave_p": 73.78,
+          "tower_p": 48.451,
+          "cc_p": 22.624,
+          "soak_p": 50.434,
+          "perf": 58.522,
+          "winrate": 0.391
+        }
+      ]
+    },
+    {
+      "role": "坦克",
+      "axis": "tower_p",
+      "heroes": [
+        {
+          "build_role": "坦克",
+          "champion_id": 154,
+          "champion": "札克",
+          "n": 20,
+          "wave_p": 35.233,
+          "tower_p": 33.466,
+          "cc_p": 38.865,
+          "soak_p": 31.627,
+          "perf": 37.037,
+          "winrate": 0.3
+        },
+        {
+          "build_role": "坦克",
+          "champion_id": 201,
+          "champion": "布郎姆",
+          "n": 23,
+          "wave_p": 21.845,
+          "tower_p": 35.494,
+          "cc_p": 41.604,
+          "soak_p": 26.644,
+          "perf": 34.371,
+          "winrate": 0.304
+        },
+        {
+          "build_role": "坦克",
+          "champion_id": 223,
+          "champion": "貪啃奇",
+          "n": 62,
+          "wave_p": 44.005,
+          "tower_p": 69.419,
+          "cc_p": 27.614,
+          "soak_p": 65.962,
+          "perf": 69.748,
+          "winrate": 0.484
+        },
+        {
+          "build_role": "坦克",
+          "champion_id": 36,
+          "champion": "蒙多醫生",
+          "n": 42,
+          "wave_p": 72.465,
+          "tower_p": 61.746,
+          "cc_p": 7.301,
+          "soak_p": 59.932,
+          "perf": 64.99,
+          "winrate": 0.405
+        }
+      ]
+    },
+    {
+      "role": "鬥士",
+      "axis": "wave_p",
+      "heroes": [
+        {
+          "build_role": "鬥士",
+          "champion_id": 59,
+          "champion": "嘉文四世",
+          "n": 20,
+          "wave_p": 14.577,
+          "tower_p": 35.994,
+          "cc_p": 83.973,
+          "soak_p": 57.241,
+          "perf": 46.305,
+          "winrate": 0.45
+        },
+        {
+          "build_role": "鬥士",
+          "champion_id": 80,
+          "champion": "潘森",
+          "n": 29,
+          "wave_p": 28.154,
+          "tower_p": 31.586,
+          "cc_p": 41.34,
+          "soak_p": 38.243,
+          "perf": 45.2,
+          "winrate": 0.276
+        },
+        {
+          "build_role": "鬥士",
+          "champion_id": 41,
+          "champion": "剛普朗克",
+          "n": 72,
+          "wave_p": 87.971,
+          "tower_p": 53.118,
+          "cc_p": 44.04,
+          "soak_p": 19.945,
+          "perf": 60.709,
+          "winrate": 0.542
+        },
+        {
+          "build_role": "鬥士",
+          "champion_id": 157,
+          "champion": "犽宿",
+          "n": 56,
+          "wave_p": 78.223,
+          "tower_p": 53.104,
+          "cc_p": 40.654,
+          "soak_p": 54.392,
+          "perf": 57.062,
+          "winrate": 0.643
+        }
+      ]
+    },
+    {
+      "role": "鬥士",
+      "axis": "tower_p",
+      "heroes": [
+        {
+          "build_role": "鬥士",
+          "champion_id": 266,
+          "champion": "厄薩斯",
+          "n": 26,
+          "wave_p": 32.329,
+          "tower_p": 29.675,
+          "cc_p": 57.25,
+          "soak_p": 67.773,
+          "perf": 49.68,
+          "winrate": 0.192
+        },
+        {
+          "build_role": "鬥士",
+          "champion_id": 80,
+          "champion": "潘森",
+          "n": 29,
+          "wave_p": 28.154,
+          "tower_p": 31.586,
+          "cc_p": 41.34,
+          "soak_p": 38.243,
+          "perf": 45.2,
+          "winrate": 0.276
+        },
+        {
+          "build_role": "鬥士",
+          "champion_id": 48,
+          "champion": "特朗德",
+          "n": 51,
+          "wave_p": 34.576,
+          "tower_p": 69.524,
+          "cc_p": 92.676,
+          "soak_p": 68.532,
+          "perf": 66.069,
+          "winrate": 0.549
+        },
+        {
+          "build_role": "鬥士",
+          "champion_id": 5,
+          "champion": "趙信",
+          "n": 40,
+          "wave_p": 48.696,
+          "tower_p": 66.904,
+          "cc_p": 76.833,
+          "soak_p": 61.341,
+          "perf": 65.406,
+          "winrate": 0.675
+        }
+      ]
+    },
+    {
+      "role": "輔助",
+      "axis": "wave_p",
+      "heroes": [
+        {
+          "build_role": "輔助",
+          "champion_id": 350,
+          "champion": "悠咪",
+          "n": 27,
+          "wave_p": 14.683,
+          "tower_p": 23.778,
+          "cc_p": 37.278,
+          "soak_p": 12.167,
+          "perf": 37.866,
+          "winrate": 0.63
+        },
+        {
+          "build_role": "輔助",
+          "champion_id": 16,
+          "champion": "索拉卡",
+          "n": 29,
+          "wave_p": 38.306,
+          "tower_p": 38.389,
+          "cc_p": 77.416,
+          "soak_p": 60.914,
+          "perf": 84.7,
+          "winrate": 0.379
+        },
+        {
+          "build_role": "輔助",
+          "champion_id": 37,
+          "champion": "索娜",
+          "n": 39,
+          "wave_p": 62.916,
+          "tower_p": 65.038,
+          "cc_p": 12.311,
+          "soak_p": 73.237,
+          "perf": 61.407,
+          "winrate": 0.513
+        },
+        {
+          "build_role": "輔助",
+          "champion_id": 40,
+          "champion": "珍娜",
+          "n": 21,
+          "wave_p": 60.678,
+          "tower_p": 51.988,
+          "cc_p": 52.198,
+          "soak_p": 52.848,
+          "perf": 62.013,
+          "winrate": 0.429
+        }
+      ]
+    },
+    {
+      "role": "輔助",
+      "axis": "tower_p",
+      "heroes": [
+        {
+          "build_role": "輔助",
+          "champion_id": 350,
+          "champion": "悠咪",
+          "n": 27,
+          "wave_p": 14.683,
+          "tower_p": 23.778,
+          "cc_p": 37.278,
+          "soak_p": 12.167,
+          "perf": 37.866,
+          "winrate": 0.63
+        },
+        {
+          "build_role": "輔助",
+          "champion_id": 16,
+          "champion": "索拉卡",
+          "n": 29,
+          "wave_p": 38.306,
+          "tower_p": 38.389,
+          "cc_p": 77.416,
+          "soak_p": 60.914,
+          "perf": 84.7,
+          "winrate": 0.379
+        },
+        {
+          "build_role": "輔助",
+          "champion_id": 37,
+          "champion": "索娜",
+          "n": 39,
+          "wave_p": 62.916,
+          "tower_p": 65.038,
+          "cc_p": 12.311,
+          "soak_p": 73.237,
+          "perf": 61.407,
+          "winrate": 0.513
+        },
+        {
+          "build_role": "輔助",
+          "champion_id": 267,
+          "champion": "娜米",
+          "n": 25,
+          "wave_p": 51.332,
+          "tower_p": 58.991,
+          "cc_p": 63.537,
+          "soak_p": 44.097,
+          "perf": 74.067,
+          "winrate": 0.64
+        }
+      ]
+    }
+  ],
+  "win_associations": {
+    "damage": 0.11810932606744383,
+    "soak": -0.036547724078355284,
+    "minion": 0.02409212036486832,
+    "objective": 0.42733510076735554,
+    "cc": 0.00687457463943774,
+    "deaths_rate": -0.28640634430797274,
+    "perf": 0.27179718862188523
+  },
+  "win_associations_by_role": {
+    "刺客": {
+      "damage": 0.14287358446443765,
+      "soak": -0.04868732705845152,
+      "minion": -0.013512245681153263,
+      "objective": 0.41964904444079326,
+      "cc": 0.007895590363531732,
+      "perf": 0.23396907431734806
+    },
+    "坦克": {
+      "damage": 0.08858019756377317,
+      "soak": -0.0030684977118014007,
+      "minion": -0.023816132617863365,
+      "objective": 0.37667552637192353,
+      "cc": 0.03647945109948842,
+      "perf": 0.14664718806012353
+    },
+    "射手": {
+      "damage": 0.16128303880480296,
+      "soak": -0.08695549585672928,
+      "minion": 0.061593924806061746,
+      "objective": 0.5252009566507773,
+      "cc": 0.0004940975597529519,
+      "perf": 0.39052817843353227
+    },
+    "法師": {
+      "damage": 0.10108498495513256,
+      "soak": -0.09879340164104428,
+      "minion": 0.003334591439597908,
+      "objective": 0.4404171514627348,
+      "cc": 0.015507841515112602,
+      "perf": 0.2943219269930724
+    },
+    "輔助": {
+      "damage": -0.06784543784123177,
+      "soak": -0.20775231157100013,
+      "minion": -0.038993473645853094,
+      "objective": 0.4614030754320748,
+      "cc": -0.052567986427387595,
+      "perf": 0.12988050461073242
+    },
+    "鬥士": {
+      "damage": 0.1590881021499179,
+      "soak": -0.02464674624007625,
+      "minion": 0.04837175554848985,
+      "objective": 0.4499454179185553,
+      "cc": -0.008676479640598556,
+      "perf": 0.3312473870889893
+    }
+  },
+  "context_prediction_oof": {
+    "damage": {
+      "coarse_r2": 0.27209300957802596,
+      "hero_mix_r2": 0.3446510833460874,
+      "mse_reduction_pct": 9.968041895847001
+    },
+    "soak": {
+      "coarse_r2": 0.6718414661188805,
+      "hero_mix_r2": 0.7988415164659848,
+      "mse_reduction_pct": 38.70082208287534
+    },
+    "minion": {
+      "coarse_r2": 0.4188951931023005,
+      "hero_mix_r2": 0.5628160805616507,
+      "mse_reduction_pct": 24.76676939357805
+    },
+    "objective": {
+      "coarse_r2": 0.05859864900694123,
+      "hero_mix_r2": 0.10343541633849818,
+      "mse_reduction_pct": 4.762768534829465
+    },
+    "cc": {
+      "coarse_r2": 0.34001066813979697,
+      "hero_mix_r2": 0.7212856624662722,
+      "mse_reduction_pct": 57.769872317759805
+    },
+    "deaths_rate": {
+      "coarse_r2": 0.12386066709196342,
+      "hero_mix_r2": 0.24961745092990884,
+      "mse_reduction_pct": 14.353514231639375
+    }
+  },
+  "context_prediction_future": {
+    "damage": {
+      "coarse_r2": 0.26833254063271017,
+      "hero_mix_r2": 0.3579400726700035,
+      "mse_reduction_pct": 12.247029834397926
+    },
+    "soak": {
+      "coarse_r2": 0.6522304621111791,
+      "hero_mix_r2": 0.7936464705774288,
+      "mse_reduction_pct": 40.663713482421
+    },
+    "minion": {
+      "coarse_r2": 0.4209417100162247,
+      "hero_mix_r2": 0.557012701517634,
+      "mse_reduction_pct": 23.498669107253768
+    },
+    "objective": {
+      "coarse_r2": 0.057960974213037475,
+      "hero_mix_r2": 0.10887034006428431,
+      "mse_reduction_pct": 5.404167391973813
+    },
+    "cc": {
+      "coarse_r2": 0.3367746456246258,
+      "hero_mix_r2": 0.7038879077774884,
+      "mse_reduction_pct": 55.35271830773267
+    },
+    "deaths_rate": {
+      "coarse_r2": 0.10324857687247924,
+      "hero_mix_r2": 0.2332044192603714,
+      "mse_reduction_pct": 14.49184679681429
+    }
+  },
+  "evaluation": {
+    "grouped_folds": 5,
+    "seed": 20261017,
+    "ridge_penalty": 20,
+    "chronological_train_matches": 490,
+    "chronological_test_matches": 210,
+    "first_holdout_date": "2026-10-06",
+    "context_caveat": "Predicting metric opportunity is not validation of a final player score; final builds and some peer category counts are retrospectively known."
+  },
+  "context_mse_reduction_ci95": {
+    "damage": [
+      8.749171180241294,
+      11.346215606142966
+    ],
+    "soak": [
+      36.974560328072876,
+      40.33847849411614
+    ],
+    "minion": [
+      23.313119084731884,
+      26.242962046646763
+    ],
+    "objective": [
+      3.850872760433522,
+      5.648496978962856
+    ],
+    "cc": [
+      56.491224309640316,
+      58.956136950178134
+    ],
+    "deaths_rate": [
+      13.153499350491884,
+      15.613733693384757
+    ]
+  },
+  "outcome_models": {
+    "without_objective": {
+      "holdout_auc": 0.8758181818181818,
+      "holdout_brier": 0.14375220390535134,
+      "holdout_accuracy": 0.7857142857142857,
+      "standardized_coefficients": {
+        "damage": 1.1580255892962248,
+        "soak": 0.8409356506709398,
+        "minion": 0.30207179004055906,
+        "cc": -0.3275155685919608,
+        "deaths_rate": -1.547175962319575
+      }
+    },
+    "with_objective": {
+      "holdout_auc": 0.9882727272727273,
+      "holdout_brier": 0.054970589983159436,
+      "holdout_accuracy": 0.9476190476190476,
+      "standardized_coefficients": {
+        "damage": 0.5393967458857964,
+        "soak": 0.38326859244063893,
+        "minion": 0.41758720455203385,
+        "objective": 3.4019358665185675,
+        "cc": -0.14950042813124634,
+        "deaths_rate": -0.9056252214167955
+      }
+    },
+    "current_perf_difference": {
+      "holdout_auc": 0.8802727272727273
+    },
+    "warning": "End-of-game outcome association only: tower damage and survival reflect winning. These values cannot demonstrate individual causal impact or rank fairness. No ally protection is available for 575 matches."
+  },
+  "timeline": {
+    "matches": 700,
+    "event_counts": {
+      "CHAMPION_KILL": 74979,
+      "BUILDING_KILL": 4959
+    },
+    "kill_events": 74979,
+    "tower_events": 3629,
+    "towers_direct_participants": 3596,
+    "towers_with_assists": 3301,
+    "towers_no_direct_participant": 33,
+    "towers_with_attacker_kill_in_prior_30s": 3434,
+    "kill_events_with_damage_payload": 0,
+    "player_frames_with_damage_fields": 0,
+    "matches_final_frame_gap_gt_90s": 0,
+    "matches_kill_count_differs_from_total_deaths": 0
+  },
+  "raw_live_coverage": 36
+}

@@ -36,22 +36,15 @@ ARAM: Mayhem 的本機戰績採集與分析工具。FastAPI（`app.py`）+ Cube 
   swing（翻盤）讀時間軸：`match_timelines.raw_gz` 是 zlib 壓縮的 JSON，SQL 裡用 `features.py` 註冊的 `inflate()` 解開再 `json_each`；
   yml 的 `sql: >` 會把多行接成一行，SQL 註解要用 `/* */`，不能用 `--`。
 - **貢獻分數的規格與實測依據在 `docs/contribution-scoring.md`**：規則本體在 `contribution.yml` 的 `meta.materialize.sql`，兩邊一起改。
-  全站只有一個分數：**本場貢獻 v3**（`contribution.yml` → `mat_contribution`，欄位 `work_score`）。計分板、對局卡片、MVP／ACE、英雄頁、
-  好友比較頁（含「打法」、稱號、徽章）都用它；不要再加第二套分數（v2、perf、score、builds 的 perf_index 都已刪除）。
-  八個計分基因（輸出、承傷＝承受＋自身減免、擊殺、治療護盾隊友、控場、推塔、清兵、功能裝）先和同一場的人比、再和同出裝定位的平均比，
-  依定位權重加總。**每個人八項都算**，坦克打出高輸出仍能加分。校正常數與權重寫死，
-  **改任何常數、權重或對照表都要升 `score_version`，跑 `analysis/scoring_v3_fit.py --write` 與 `analysis/scoring_v3_check.py`（獨立 Python 逐筆比對）**。
-  K/DA 從 v3.9 起不計分（使用者 2026-11-01 要求；gene_kda 仍算出來給「打法」看）：死亡、助攻不影響分數。不要把金錢、勝負放進輸入。
-  控場（v3.5）、治療護盾隊友與功能裝（v3.6）、承傷（v3.7）只加不扣（使用者 2026-11-01 要求：沒有控場技能、不補血、不出重創、
-  走位好吃得少的英雄不該每場被扣）；
-  v3.8 起清兵、推塔也只加不扣，並加了「擊殺」（擊殺占比和輸出的 z 取小、只加不扣：使用者要收割有分，但不能讓只會尾刀的人變高分）；
-  v3.11 起，坦克與輔助輸出也只加分。總分扣一個固定的整體校正，將校準樣本的平均拉回約 50，以 `pts_base` 顯示在分數拆解最下面。
-  一般權重為輸出 23、承傷 19、擊殺 14、治療護盾 18、控場 11、推塔 7、清兵 5、功能裝 3。坦克與輔助用輸出 13、承傷 25、控場 15，其他五項相同。治療護盾加分一半看實際保人量，一半看超出同出裝定位基準的部分。總分 50 是校準時的整體基準。
-  v3.12 起，輔助承傷超過定位基準半個標準差的部分按 40% 計分，基因分數仍照實顯示。
-  v3.13 起，輔助的治療護盾加分按原值的 5/6 計入，相當於 15% 的權重。
-  前端門檻 `WORK_GAP` 與 `WORK_SD` 跟本場貢獻的標準差綁在一起；基因的標籤與權重在 `hooks/useContribution.ts` 的 `WORK_PARTS`。
+  全站只有一個分數：**本場貢獻 v5.4**（設計代號 `v5-B` 修訂版，`contribution.yml` → `mat_contribution`，欄位 `work_score`）。計分板、對局卡片、MVP／ACE、英雄頁、
+  好友比較頁（含「打法」、稱號、徽章）都用它；不要再加第二套分數（v3、v2、perf、score、builds 的 perf_index 都已停用或刪除）。
+  九個計分基因（輸出＝依敵方前排數 `enemy_front` 與對局血腥度 `pace_k` 調整，高輸出時享動態轉型斜率加成、承受＝0.62 減免＋0.38 承受〔高輸出享負向承傷豁免〕、擊殺〔坦／輔高輸出解鎖有效擊殺加分〕、參團＝依敵方前排數與 `pace_k` 調整、治療護盾隊友、控場＝時間與 cc_duration 融合〔射/刺正控場只加不扣，其餘定位高輸出／高承傷享以攻代守負分豁免〕、推塔 `turret_dmg`、清兵、功能裝）採 **100% 跨場絕對基準**（同出裝定位中位數／IQR 與全局中位數／IQR，並以 16.5 分鐘為基準做冪次去時長修正 `α` 與抗尾端冪次縮放 `p=0.84`），依定位權重加總（輔助以 `tank_w` 連續混合承受與保人，並以 70% 同定位＋30% 全局混比 `ka_mix`；暫估局將 `0.06×(1-tank_w)` 移往參團與控場；高位 `c_pts0 > 15` 乘 `1.18` 延伸）；不再強迫每位玩家或每個定位收斂到 50。
+  另納入 `match_kill_events`（單殺、>=65% 後期參團、±10s 換頭／真孤立死亡〔無友方擊殺且友方僅自己死亡〕／後期掉點）、`match_building_events`（僅純單人拆毀建築加分，不計首塔與多人分攤）、連殺／輔助團戰連鎖、對塔傷害、金幣轉換效率（移除一血／終結／負向經濟懲罰）、坦／輔／鬥跨界高輸出（`b_util_dmg`）、EOG 限定非坦輔順手治療與 `b_util_cc` 高控場獎勵等高光加分（`pts_bonus`，連同 `pts_a` 與跨界／控場加分總上限 +15）與關鍵失誤／消極扣分（`pts_penalty`，下限 -18），加上單一全域基準校正 `pts_base`（`score_status='complete'` 用 EOG `-11.295682`，`estimate` 用 `-9.569918`），保證 12 項 `pts_*` 與 `pts_base` 加總精確等於 `work_score - 50`（再裁 `[0, 100]`）。
+  **改任何常數、權重或對照表都要升 `score_version`，跑 `uv run python analysis/scoring_v5_fit.py --write`、`uv run features.py` 與 `uv run python analysis/scoring_v5_check.py`（獨立 Python 逐筆比對）**。
+  `gene_kda` 仍算出來給「打法」看，不直接作為核心權重；不要把勝負放進輸入。
+  前端門檻 `WORK_GAP`（4）與 `WORK_SD`（20.8）跟同玩家組內標準差綁在一起；九個基因標籤在 `hooks/useContribution.ts` 的 `WORK_PARTS`，加減修正項在 `WORK_MODS`，全域校正標籤在 `WORK_BASE`。
   對局明細沒有護盾與治療隊友的量；賽後統計端點有，採集器自動存進 `eog_snapshots` 並拆進 `eog_player_stats`，
-  「治療護盾」有這份資料（本場十人齊全）就用它，沒有的場次這項給 0 並標暫估（`score_status = 'estimate'`）。
+  「治療護盾」有這份資料（本場十人齊全）就用它，沒有的場次對治療依 `units_healed >= 2 ? total_heal/mins : 0` 乘 `h_scale`（`0.620922`）對齊，輔助另依 `calib_champ_shield`＋終場輔助裝數量（`max(0, 240×min(3, n_sup_items) - 0.25×h_scale×x_h)`）貝氏先驗乘參團活躍度估算未捕獲的隊友護盾，並標暫估（`score_status = 'estimate'`）。
 - **`cube/model/views/` 是給 AI Agent 與外部工具的查詢入口**，前端不用、自由探索頁會濾掉。在 cube 加了對外有用的欄位，記得一併加進對應的 view，並補上 description。
 - **聚合走 Cube，逐列走 `/api/matches`；新的可下鑽維度一律用 `game_ids`**，不要再往 `/api/matches` 加篩選參數。
   作法：用和圖表同一組條件向 Cube 查 `<cube>.game_id`，再交給 `<DrillPanel query gameIdKey>`（`components/MatchList.tsx`）。

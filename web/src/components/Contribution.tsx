@@ -1,5 +1,5 @@
 import { ChevronDown } from "lucide-react"
-import { WORK_BASE, WORK_GAP, WORK_PARTS, type ContribTag } from "@/hooks/useContribution"
+import { WORK_BASE, WORK_GAP, WORK_MODS, WORK_PARTS, type ContribTag } from "@/hooks/useContribution"
 import { num, type CubeRow } from "@/lib/cube"
 import { cn } from "@/lib/utils"
 
@@ -42,7 +42,7 @@ function DivergingBar({ pts, className, full = 15 }: { pts: number | null; class
 
 const signed = (v: number) => (Math.abs(v) < 0.05 ? "0.0" : `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(1)}`)
 
-/** 八個計分基因的橫條：條和右邊的數字都是這一項讓總分加減幾分（中線 0）；基因分數（50＝同出裝定位的平均）在滑過的提示裡。
+/** 九個計分基因與高光／失誤加減分的橫條：條和右邊的數字都是這一項讓總分加減幾分（中線 0）；基因分數（50＝同出裝定位基準）在滑過的提示裡。
  *  compact：好友比較全員一覽每人一欄用的小尺寸；放的是多場平均，半條代表 6 分 */
 export function ContribBars({ row, className, compact }: { row: CubeRow | undefined; className?: string; compact?: boolean }) {
   return (
@@ -51,9 +51,8 @@ export function ContribBars({ row, className, compact }: { row: CubeRow | undefi
         const v = row ? num(row[c.key]) : null
         const pts = row ? num(row[c.pts]) : null
         const tip =
-          (pts === null ? "" : `{{lab|總分}}{{${pts >= 0 ? "win" : "loss"}|${signed(pts)}}} 分（這一項占 ${c.weight}%；橫條畫的就是它）\n`) +
-          `{{lab|${c.label}}}{{big|${v === null ? "—" : Math.round(v)}}} 基因分數，50＝同出裝定位的平均\n> ${c.hint}` +
-          (c.key === "contribution.gene_dmg" || c.key === "contribution.gene_heal" ? "" : "\n> 只加不扣：基因低於 50 的場次這一項是 0，所以多場平均時基因可能低於 50、加減分仍是正的")
+          (pts === null ? "" : `{{lab|總分}}{{${pts >= 0 ? "win" : "loss"}|${signed(pts)}}} 分（${c.weight}；橫條畫的就是它）\n`) +
+          `{{lab|${c.label}}}{{big|${v === null ? "—" : Math.round(v)}}} 基因分數，50＝同出裝定位的平均\n> ${c.hint}`
         return (
           <div
             key={c.key}
@@ -74,14 +73,40 @@ export function ContribBars({ row, className, compact }: { row: CubeRow | undefi
           </div>
         )
       })}
-      {/* 整體校正：每個人一樣。多數項目只加不扣，不扣掉它平均會高於 50；列出來，上面的加減分才加得回總分 */}
+      {WORK_MODS.map((m) => {
+        const pts = row ? num(row[m.pts]) : null
+        if (row && pts === null) return null
+        const tip =
+          (pts === null ? "" : `{{lab|總分}}{{${pts >= 0 ? "win" : "loss"}|${signed(pts)}}} 分\n`) +
+          `{{lab|${m.label}}}\n> ${m.hint}`
+        return (
+          <div
+            key={m.pts}
+            className={cn("grid items-center", compact ? "grid-cols-[3rem_minmax(0,1fr)_2.25rem] gap-1.5" : "grid-cols-[3.5rem_minmax(0,1fr)_2.75rem] gap-2")}
+            data-tip={tip}
+          >
+            <span className={compact ? "text-[10px] leading-[13px] text-muted-foreground" : "text-[12px]"}>{m.label}</span>
+            <DivergingBar pts={pts} className={compact ? "h-1.5" : "h-2"} full={compact ? 6 : 15} />
+            <span
+              className={cn(
+                "text-right font-mono tabular-nums",
+                compact ? "text-[10px] leading-[13px]" : "text-[12px]",
+                pts === null || Math.abs(pts) < 0.05 ? "text-muted-foreground" : pts > 0 ? "text-win" : "text-loss",
+              )}
+            >
+              {pts === null ? "—" : signed(pts)}
+            </span>
+          </div>
+        )
+      })}
+      {/* 全局基準補償：依該場是否有賽後統計決定（EOG −11.3／暫估 −9.6），不對定位強制歸 50；列出來，上面的加減分才加得回總分 */}
       {row && num(row[WORK_BASE]) !== null && (
         <div
           className={cn("grid items-center border-t border-border/50", compact ? "grid-cols-[3rem_minmax(0,1fr)_2.25rem] gap-1.5 pt-[3px]" : "grid-cols-[3.5rem_minmax(0,1fr)_2.75rem] gap-2 pt-1.5")}
-          data-tip={"{{lab|整體校正}}每個人一樣\n> 八項裡除了輸出都只加不扣（承傷、擊殺、治療護盾、控場、推塔、清兵、功能裝），不扣掉這一點，全站平均會高於 50。上面的加減分加起來再加上它，就是總分 − 50"}
+          data-tip={"{{lab|整體校正}}依賽後統計是否齊全固定的全局基準補償（不強制各定位歸 50）\n> 上面九個維度＋高光加分＋失誤扣分，再加上這一行，即等於總分 − 50（夾 0～100 之前）"}
         >
           <span className={compact ? "text-[10px] leading-[13px] text-muted-foreground" : "text-[12px] text-muted-foreground"}>校正</span>
-          <span className="text-[10px] text-muted-foreground">{compact ? "" : "每個人一樣"}</span>
+          <span className="text-[10px] text-muted-foreground">{compact ? "" : "全局 EOG 補償"}</span>
           <span className={cn("text-right font-mono tabular-nums text-muted-foreground", compact ? "text-[10px] leading-[13px]" : "text-[12px]")}>
             {signed(num(row[WORK_BASE])!)}
           </span>
@@ -92,8 +117,8 @@ export function ContribBars({ row, className, compact }: { row: CubeRow | undefi
 }
 
 const WORK_TITLE =
-  "本場貢獻（0～100）：輸出、承傷、擊殺、治療護盾、控場、推塔、清兵、功能裝八項加權。治療護盾採計實際保人量與超出同定位基準的部分。50＝校準時的整體基準"
-const ESTIMATE_NOTE = "*暫估：這場沒有賽後統計，治療護盾隊友不計分（這一項視為平均）"
+  "本場貢獻（0～100，v5.4）：跨場絕對尺度（依時長、敵方前排數與血腥度校正，非主 C 高傷享動態轉型加成），含九大維度、高光加分（+15）與失誤扣分（−18），不強制各定位歸 50。"
+const ESTIMATE_NOTE = "*暫估：這場缺少賽後統計的護盾量，治療乘 h_scale 估算、輔助護盾依英雄未捕獲先驗＋輔助裝估算並微調參團／控場權重；破盾裝不含敵方護盾"
 
 /** 對局卡片裡的一個小數字：「貢獻 62」；暫估的場次數字後面加「*」 */
 export function ContribInline({ score, estimate }: { score: number | null; estimate?: boolean }) {
@@ -125,7 +150,7 @@ export function ContribTagBadge({ tag, className }: { tag: ContribTag; className
   )
 }
 
-/** 計分板每列：大數字（本場貢獻，暫估加「*」）＋ 以 50 為中線的橫條；點了展開八個基因。 */
+/** 計分板每列：大數字（本場貢獻，暫估加「*」）＋ 以 50 為中線的橫條；點了展開各基因與加減分。 */
 export function ContribMeter({
   score,
   tag,
@@ -144,8 +169,8 @@ export function ContribMeter({
       type="button"
       onClick={onToggle}
       aria-expanded={expanded}
-      data-tip={`${WORK_TITLE}${estimate ? `\n${ESTIMATE_NOTE}` : ""}\n點一下看八個基因${tag === "MVP" ? "\nMVP：贏的一隊本場貢獻最高" : tag === "ACE" ? "\nACE：輸的一隊本場貢獻最高" : ""}`}
-      className="flex w-[150px] shrink-0 flex-col gap-1 rounded-md px-1.5 py-1 text-left transition hover:bg-secondary/60"
+      data-tip={`${WORK_TITLE}${estimate ? `\n${ESTIMATE_NOTE}` : ""}\n點一下看各基因與加減分${tag === "MVP" ? "\nMVP：贏的一隊本場貢獻最高" : tag === "ACE" ? "\nACE：輸的一隊本場貢獻最高" : ""}`}
+      className="flex w-[126px] shrink-0 flex-col gap-1 rounded-md px-1.5 py-1 text-left transition hover:bg-secondary/60"
     >
       <span className="flex items-center gap-1.5">
         <ContribScore dev={score === null ? null : score - 50} gap={WORK_GAP} className="text-base font-bold leading-none" />

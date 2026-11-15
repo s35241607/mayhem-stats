@@ -67,6 +67,7 @@ SOURCE_SQL = (
     "SELECT COALESCE(MAX(rowid), 0) || ':' || COUNT(*) || ':' || (SELECT COUNT(*) FROM eog_player_stats)"
     " || ':' || COALESCE((SELECT value FROM kv WHERE key='eog_revision'),'0')"
     " || ':' || (SELECT COUNT(*) || '.' || COALESCE(SUM(frames), 0) FROM match_timelines)"
+    " || ':' || (SELECT COUNT(*) FROM match_building_events)"
     " FROM match_participants"
 )
 

@@ -17,9 +17,10 @@ import { NO_LIMIT } from "./shared"
 import { useFilters } from "@/lib/filters"
 import { CubeMatchList, MatchList } from "@/components/MatchList"
 import { RoleChip, RoleLegend } from "@/components/RoleChip"
-import { ContribRadarChart, TimelineChart, type TimelineBuilding, type TimelineFrame, type TimelineKill } from "@/components/charts"
+import { ContribRadarChart, TimelineChart, type TimelineFrame } from "@/components/charts"
+import { TimelineEvents, type BuildingEvent, type KillEvent, type TimelineFight } from "@/components/TimelineEvents"
 import { ContribBars, ContribInline, ContribMeter, ContribTagBadge } from "@/components/Contribution"
-import { WORK, WORK_GAP, WORK_PARTS, WORK_WEIGHTS_TEXT, contribTagOf, isEstimate, useCardContribution, useContribution, workScore, type ContribTag } from "@/hooks/useContribution"
+import { WORK, WORK_BASE, WORK_GAP, WORK_MODS, WORK_PARTS, WORK_WEIGHTS_TEXT, contribTagOf, isEstimate, useCardContribution, useContribution, workScore, type ContribTag } from "@/hooks/useContribution"
 import { participantKey, useBuildRoles } from "@/hooks/useBuildRoles"
 import { cn } from "@/lib/utils"
 import { useCrumb } from "@/lib/breadcrumb"
@@ -106,13 +107,16 @@ type SwingRow = {
 type TimelineData = {
   available: boolean
   frames?: TimelineFrame[]
-  buildings?: TimelineBuilding[]
-  kills?: TimelineKill[]
+  buildings?: BuildingEvent[]
+  kills?: KillEvent[]
+  fights?: TimelineFight[]
   swing?: Record<string, SwingRow>
 }
 const clock = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, "0")}`
 
-function TimelinePanel({ tl, team, duration, win }: { tl: TimelineData | null; team: number; duration: number; win: boolean }) {
+function TimelinePanel({ tl, team, duration, win, players, subjectId }: {
+  tl: TimelineData | null; team: number; duration: number; win: boolean; players: Player[]; subjectId?: number
+}) {
   if (!tl) return <Skeleton className="h-[420px] w-full" />
   if (!tl.available || !tl.frames?.length)
     return <EmptyState>這場還沒有時間軸。採集器會自動補抓；太舊的場次官方可能已經不給。</EmptyState>
@@ -153,6 +157,7 @@ function TimelinePanel({ tl, team, duration, win }: { tl: TimelineData | null; t
           }
         />
       </p>
+      {tl.fights && <TimelineEvents kills={tl.kills ?? []} buildings={tl.buildings ?? []} fights={tl.fights} players={players} team={team} subjectId={subjectId} />}
     </div>
   )
 }
@@ -260,7 +265,7 @@ const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
 function ItemRow({ items, size = "size-7" }: { items: Item[]; size?: string }) {
   const bySlot = new Map(items.map((i) => [i.slot, i]))
   return (
-    <div className="flex gap-0.5">
+    <div className="flex shrink-0 gap-0.5">
       {[0, 1, 2, 3, 4, 5, 6].map((slot) => {
         const item = bySlot.get(slot)
         return item?.item_id ? (
@@ -282,12 +287,12 @@ function ItemRow({ items, size = "size-7" }: { items: Item[]; size?: string }) {
   )
 }
 
-/** 增幅：一般是四個，提前結束的對局會少拿。空格也畫出來，列與列才對得齊。
+/** 增幅：一般是四個，提前結束的對局會少拿、部分增幅玩法可能超過四個。空格也畫出來，列與列才對得齊。
  *  外框顏色代表稀有度（稜彩／金／銀），和單場戰報同一套。 */
-function AugmentRow({ augments, size = "size-6" }: { augments: Augment[]; size?: string }) {
-  const slots = Math.max(4, augments.length)
+function AugmentRow({ augments, size = "size-6", minSlots = 4 }: { augments: Augment[]; size?: string; minSlots?: number }) {
+  const slots = Math.max(minSlots, augments.length)
   return (
-    <div className="flex gap-0.5">
+    <div className="flex shrink-0 gap-0.5">
       {Array.from({ length: slots }, (_, i) => {
         const a = augments[i]
         return a ? (
@@ -357,6 +362,7 @@ function Scoreboard({
     })
   // 大數字、MVP／ACE 都看本場貢獻（只和同一場的人比），沒有別的分數
   const scoreOf = (p: Player) => workScore(contrib.get(keyOf(p)))
+  const maxAugments = Math.max(4, ...players.map((p) => p.augments.length))
   const teams = [100, 200].map((teamId) => {
     const members = players.filter((p) => p.team_id === teamId)
     return {
@@ -402,7 +408,7 @@ function Scoreboard({
               <div
                 key={p.participant_id}
                 className={cn(
-                  "flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2",
+                  "flex flex-wrap items-center gap-x-2.5 gap-y-2 px-3 py-2",
                   p.is_me && "bg-primary/10",
                 )}
               >
@@ -417,7 +423,7 @@ function Scoreboard({
                   </span>
                 </div>
 
-                <div className="min-w-[110px] flex-1">
+                <div className="min-w-[96px] flex-1">
                   <div className="truncate text-sm font-medium">{p.riot_id}</div>
                   <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
                     <span className="truncate">{p.champion_name}</span>
@@ -425,13 +431,13 @@ function Scoreboard({
                   </div>
                 </div>
 
-                <AugmentRow augments={p.augments} />
+                <AugmentRow augments={p.augments} minSlots={maxAugments} />
                 <ItemRow items={p.items} />
 
-                <div className="w-[92px] text-right text-sm font-semibold tabular-nums">
+                <div className="w-[82px] shrink-0 text-right text-sm font-semibold tabular-nums">
                   {p.kills} / <span className="text-loss">{p.deaths}</span> / {p.assists}
                 </div>
-                <div className="w-[70px] text-right text-sm tabular-nums text-muted-foreground">
+                <div className="w-[56px] shrink-0 text-right text-sm tabular-nums text-muted-foreground">
                   {p.gold_earned.toLocaleString()}
                 </div>
 
@@ -452,8 +458,8 @@ function Scoreboard({
                     </div>
                     <div className="min-w-[260px] flex-1 space-y-1.5">
                       <div className="text-[11px] text-muted-foreground">
-                        八個基因：先和同一場的人比、再和同出裝定位的平均比（雷達，50＝平均）；橫條和右邊的數字是這一項讓總分加減幾分。
-                        {isEstimate(contrib.get(keyOf(p))) && " *暫估：這場沒有賽後統計，治療護盾不計分。"}
+                        九個基因：經時長校正並與同出裝定位基準比較（雷達，50＝基準）；橫條和右邊的數字是每一項（含高光加分／失誤扣分）讓總分加減幾分。
+                        {isEstimate(contrib.get(keyOf(p))) && " *暫估：缺賽後護盾量，治療護盾依對局治療估算。"}
                       </div>
                       <ContribBars row={contrib.get(keyOf(p))} className="grid gap-x-8 gap-y-1.5 sm:grid-cols-2" />
                     </div>
@@ -471,8 +477,8 @@ function Scoreboard({
 
 // ─────────────────────────────────────────── 數據（十人橫向比較）
 
-// get 回 null 表示這場沒有這個數字（例如沒有賽後統計），畫成「無資料」而不是 0
-type StatRow = { label: string; get: (p: Player) => number | null; fmt?: (n: number) => string }
+// get 回 null 表示這場沒有這個數字（例如沒有賽後統計），畫成 empty 指定的文字（預設「無資料」）而不是 0
+type StatRow = { label: string; get: (p: Player) => number | null; fmt?: (n: number) => string; empty?: string; hint?: string; cls?: (n: number) => string }
 
 const STAT_SECTIONS: { title: string; rows: StatRow[] }[] = [
   {
@@ -565,19 +571,36 @@ const STAT_SECTIONS: { title: string; rows: StatRow[] }[] = [
 ]
 
 function StatTable({ players, roleOf, contrib }: { players: Player[]; roleOf: Map<string, string>; contrib: Map<string, CubeRow> }) {
-  // 本場貢獻與各基因是 0～100 的分數，不是這場的原始數字；缺值（重開局）給 -1，畫成「—」且不會被標成最高
-  const pct = (key: string) => (p: Player) => {
+  // 本場貢獻與各基因是 0～100 的分數；高光加分／失誤扣分／全域校正是對總分的直接增減分（有正有負）
+  const val = (key: string) => (p: Player) => {
     const r = contrib.get(keyOf(p))
-    return (r ? num(r[key]) : null) ?? -1
+    return r ? num(r[key]) : null
   }
-  const fmtPct = (n: number) => (n < 0 ? "—" : String(Math.round(n)))
+  const fmtPct = (n: number) => String(Math.round(n))
+  const fmtSigned = (n: number) => (Math.abs(n) < 0.05 ? "0.0" : `${n >= 0 ? "+" : "−"}${Math.abs(n).toFixed(1)}`)
   const sections = [
     ...STAT_SECTIONS,
     {
-      title: "本場貢獻（各基因 50＝同出裝定位的平均）",
+      title: "本場貢獻（各基因 50＝同出裝定位基準；加減分為總分修正）",
       rows: [
-        { label: "本場貢獻", get: pct(WORK), fmt: fmtPct },
-        ...WORK_PARTS.map((c) => ({ label: c.label, get: pct(c.key), fmt: fmtPct })),
+        { label: "本場貢獻", get: val(WORK), fmt: fmtPct, empty: "—" },
+        ...WORK_PARTS.map((c) => ({ label: c.label, get: val(c.key), fmt: fmtPct, empty: "—", hint: `${c.label}（${c.weight}）\n${c.hint}` })),
+        ...WORK_MODS.map((m) => ({
+          label: m.label,
+          get: val(m.pts),
+          fmt: fmtSigned,
+          empty: "—",
+          hint: m.hint,
+          cls: (n: number) => (Math.abs(n) < 0.05 ? "text-muted-foreground" : n > 0 ? "text-win" : "text-loss"),
+        })),
+        {
+          label: "全域校正",
+          get: val(WORK_BASE),
+          fmt: fmtSigned,
+          empty: "—",
+          hint: "依賽後統計是否齊全固定的全局基準補償（EOG −11.3／暫估 −9.6），不強制各定位歸 50",
+          cls: () => "text-muted-foreground",
+        },
       ] as StatRow[],
     },
   ]
@@ -628,10 +651,14 @@ function StatTable({ players, roleOf, contrib }: { players: Player[]; roleOf: Ma
               </tr>
               {section.rows.map((row) => {
                 const values = players.map(row.get)
-                const max = Math.max(...values.map((v) => v ?? -1))
+                const nums = values.filter((v): v is number => v !== null)
+                const max = nums.length ? Math.max(...nums) : null
                 return (
                   <tr key={`${section.title}-${row.label}`} className="border-b last:border-0">
-                    <td className="sticky left-0 z-10 whitespace-nowrap bg-card px-3 py-1.5 text-xs text-muted-foreground">
+                    <td
+                      data-tip={row.hint}
+                      className="sticky left-0 z-10 whitespace-nowrap bg-card px-3 py-1.5 text-xs text-muted-foreground"
+                    >
                       {row.label}
                     </td>
                     {players.map((p, i) => {
@@ -642,12 +669,12 @@ function StatTable({ players, roleOf, contrib }: { players: Player[]; roleOf: Ma
                           className={cn(
                             "px-2 py-1.5 text-center tabular-nums",
                             // 全場最高的用主色標出來，一眼看得到誰在該項領先
-                            v !== null && v === max && max > 0 ? "font-bold text-primary" : "",
+                            v !== null && max !== null && v === max && max > 0 ? "font-bold text-primary" : v !== null ? row.cls?.(v) : undefined,
                             p.is_me && "bg-primary/5",
                           )}
                         >
                           {v === null ? (
-                            <span className="text-xs text-muted-foreground">無資料</span>
+                            <span className="text-xs text-muted-foreground">{row.empty ?? "無資料"}</span>
                           ) : row.fmt ? (
                             row.fmt(v)
                           ) : (
@@ -693,11 +720,13 @@ export function MatchDetail({
   // 時間軸：標頭的翻盤標籤與「時間軸」分頁都用它
   const [tl, setTl] = useState<TimelineData | null>(null)
   useEffect(() => {
+    const controller = new AbortController()
     setTl(null)
-    fetch(`/api/match/${platformId}/${gameId}/timeline`)
+    fetch(`/api/match/${platformId}/${gameId}/timeline`, { signal: controller.signal })
       .then((r) => r.json())
-      .then((d: TimelineData) => setTl(d))
-      .catch(() => setTl({ available: false }))
+      .then((d: TimelineData) => { if (!controller.signal.aborted) setTl(d) })
+      .catch(() => { if (!controller.signal.aborted) setTl({ available: false }) })
+    return () => controller.abort()
   }, [platformId, gameId])
 
   useEffect(() => {
@@ -750,14 +779,15 @@ export function MatchDetail({
           </div>
           <Scoreboard players={players} roleOf={roleOf} contrib={contrib} />
           <p className="mt-2 text-xs text-muted-foreground">
-            大數字是「本場貢獻」（0～100，50＝校準時的整體基準），八個基因加權而成；點一列看每一項加減幾分。
+            大數字是「本場貢獻」（0～100，v5.4 跨場絕對尺度）；點一列看九個基因、高光加分與失誤扣分各自加減幾分。
             <Hint
               text={
-                "本場貢獻怎麼算\n" +
+                "本場貢獻怎麼算（v5.4 / v5-B 修訂版）\n" +
                 `1. ${WORK_WEIGHTS_TEXT}\n` +
-                "2. 基因分數以同出裝定位為基準。治療護盾加分一半看實際保人量，一半看高於同定位基準的部分。\n" +
-                "3. 八項都計分。擊殺加分同時看擊殺占比與輸出。死亡和助攻不影響總分。分數拆解底部的整體校正把校準樣本的平均拉回 50。\n" +
-                "4. 數字後面有「*」是暫估：這場沒有賽後統計，治療護盾隊友不計分（這一項視為平均）。\n" +
+                "2. 100% 跨場絕對尺度（依對局時長 16.5 分鐘為基準做冪次校正，並依敵方前排數與對局血腥度調整輸出與參團基準）：全場打得好一起高分，打得爛一起低分。\n" +
+                "3. 非主 C 定位（鬥士／坦克／輔助）打出高傷害時，邊際輸出權重自動遞增並解鎖有效擊殺加分，且高輸出可豁免負向承傷／控場扣分（以攻代守）。\n" +
+                "4. 不強制各定位或各玩家歸 50，僅依賽後統計是否齊全做固定全局基準補償（pts_base）；推塔／交戰高光不含首殺、首塔與終結，僅單人拆毀建築或高推塔傷害加分。\n" +
+                "5. 數字後面有「*」是暫估：缺少賽後護盾統計時，治療乘 h_scale 對齊，輔助護盾依英雄未捕獲先驗＋輔助裝與參團度估算並微調參團／控場比重。\n" +
                 "6 分鐘內的重開局不計分。MVP＝贏的一隊本場貢獻最高、ACE＝輸的一隊本場貢獻最高。"
               }
             />
@@ -766,11 +796,11 @@ export function MatchDetail({
         <TabsContent value="stats">
           <StatTable players={players} roleOf={roleOf} contrib={contrib} />
           <p className="mt-2 text-xs text-muted-foreground">
-            每一列的全場最高值以主色標示。上方色條藍＝隊伍 1、紅＝隊伍 2；色條下是這場的出裝定位。
+            每一列的全場最高值以主色標示。上方色條藍＝隊伍 1、紅＝隊伍 2；色條下是這場的出裝定位；切回「計分板」點任一列可看每個維度與加減分的詳細拆解。
           </p>
         </TabsContent>
         <TabsContent value="timeline">
-          <TimelinePanel tl={tl} team={team} duration={match.game_duration} win={!!subject?.win} />
+          <TimelinePanel tl={tl} team={team} duration={match.game_duration} win={!!subject?.win} players={players} subjectId={subject?.participant_id} />
         </TabsContent>
       </Tabs>
     </div>

@@ -308,8 +308,8 @@ views:
           - name: team_lineup
           - name: enemy_lineup
 
-      # 本場貢獻：全站唯一的分數（計分板、MVP／ACE、英雄頁、好友比較頁都用它）。八個基因各自先和同一場的人比、再和同出裝定位的平均比，
-      # 加權成總分，50 是校準時的整體基準。gene_* 是各基因分數，50 為同出裝定位基準。pts_* 是各項加減分，含治療護盾的實際保人量。
+      # 本場貢獻：全站唯一的分數（計分板、MVP／ACE、英雄頁、好友比較頁都用它）。v5.4（v5-B）採 100% 跨場絕對尺度與時長／前排／血腥度校正，
+      # 並支援非主 C 定位高傷害動態轉型加成與以攻代守副軸豁免，不再強制各定位歸 50，外加高光加分（pts_bonus）與失誤扣分（pts_penalty）。pts_base 為僅依 EOG 有無校正的全局基準補償。
       - join_path: participants.contribution
         includes:
           - name: work
@@ -335,6 +335,7 @@ views:
           - name: gene_wave
           - name: gene_anti
           - name: gene_kill
+          - name: gene_ka
           - name: pts_dmg
           - name: pts_soak
           - name: pts_heal
@@ -344,6 +345,9 @@ views:
           - name: pts_wave
           - name: pts_anti
           - name: pts_kill
+          - name: pts_ka
+          - name: pts_bonus
+          - name: pts_penalty
           - name: pts_base
           - name: rel_dmg
           - name: rel_soak

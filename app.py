@@ -43,6 +43,7 @@ import db
 import features
 import icons
 import lcu
+from timeline_analysis import summarize_fights
 
 BASE_DIR = Path(__file__).parent
 collector = collector_module.Collector()
@@ -1715,7 +1716,7 @@ def match_detail(platform_id: str, game_id: int, puuid: Optional[str] = None):
 
 @app.get("/api/match/{platform_id}/{game_id}/timeline")
 def match_timeline(platform_id: str, game_id: int):
-    """單場時間軸：每分鐘雙方的累積經濟、拆建築與擊殺的時間點（給戰報畫圖），以及兩隊的翻盤標籤。
+    """單場時間軸的經濟、事件參與者、交戰、推進與翻盤標籤。
     標籤直接讀 mat_swing，判斷規則只有 cube/model/cubes/swing.yml 一份，這裡不另外判斷。"""
     conn = db.connect()
     try:
@@ -1736,17 +1737,38 @@ def match_timeline(platform_id: str, game_id: int):
                 team = team_of.get(pf.get("participantId"))
                 if team in gold:
                     gold[team] += pf.get("totalGold") or 0
-            frames.append({"t": frame.get("timestamp", 0) / 1000, "gold100": gold[100], "gold200": gold[200]})
+            frames.append({"t": (frame.get("timestamp") or 0) / 1000, "gold100": gold[100], "gold200": gold[200]})
             for e in frame.get("events") or []:
-                t = e.get("timestamp", 0) / 1000
+                timestamp = e.get("timestamp")
+                if not isinstance(timestamp, int) or timestamp < 0:
+                    continue
+                t = timestamp / 1000
                 if e.get("type") == "BUILDING_KILL":
                     # teamId 是被拆的那一方
-                    buildings.append({"t": t, "owner": e.get("teamId"), "kind": e.get("towerType") or e.get("buildingType"), "lane": e.get("laneType")})
+                    owner = e.get("teamId")
+                    if owner not in (100, 200):
+                        continue
+                    events, event_team = buildings, 300 - owner
+                    event = {"t": t, "owner": owner, "kind": e.get("towerType") or e.get("buildingType"), "lane": e.get("laneType")}
                 elif e.get("type") == "CHAMPION_KILL":
                     # 被塔、小兵打死時 killerId 是 0，所以用被殺的人反推：得分的是另一隊
-                    victim = team_of.get(e.get("victimId"))
-                    if victim in (100, 200):
-                        kills.append({"t": t, "team": 300 - victim})
+                    victim_id = e.get("victimId")
+                    victim_team = team_of.get(victim_id)
+                    if victim_team not in (100, 200):
+                        continue
+                    events, event_team = kills, 300 - victim_team
+                    event = {"t": t, "team": event_team, "victimId": victim_id}
+                else:
+                    continue
+                actor_id = e.get("killerId")
+                event["killerId"] = actor_id if team_of.get(actor_id) == event_team else None
+                event["assistIds"] = list(dict.fromkeys(
+                    pid for pid in (e.get("assistingParticipantIds") or [])
+                    if pid != actor_id and team_of.get(pid) == event_team
+                ))
+                events.append(event)
+        kills.sort(key=lambda event: event["t"])
+        buildings.sort(key=lambda event: event["t"])
         try:
             swing = {
                 row["team_id"]: dict(row)
@@ -1758,7 +1780,10 @@ def match_timeline(platform_id: str, game_id: int):
             }
         except sqlite3.OperationalError:
             swing = {}  # 衍生表還沒建好（剛升級、鏡像比主服務先起來）
-        return {"available": True, "frames": frames, "buildings": buildings, "kills": kills, "swing": swing}
+        return {
+            "available": True, "frames": frames, "buildings": buildings, "kills": kills,
+            "fights": summarize_fights(kills, buildings), "swing": swing,
+        }
     finally:
         conn.close()
 

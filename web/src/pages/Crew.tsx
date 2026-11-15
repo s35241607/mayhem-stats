@@ -3,7 +3,7 @@ import { ArrowRight, Swords, HandHeart, Bomb, Crosshair, Castle, Orbit, Rocket, 
 import { RecordCell, StatCell } from "@/components/cells"
 import { CloudRain } from "lucide-react"
 import { ContribBars, ContribScore } from "@/components/Contribution"
-import { WORK, WORK_BASE, WORK_GAMES, WORK_GAP, WORK_MEASURES, WORK_PARTS, WORK_STATUS, WORK_WEIGHTS_TEXT } from "@/hooks/useContribution"
+import { WORK, WORK_BASE, WORK_GAMES, WORK_GAP, WORK_MEASURES, WORK_MODS, WORK_PARTS, WORK_STATUS, WORK_WEIGHTS_TEXT } from "@/hooks/useContribution"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
@@ -44,13 +44,13 @@ import { participantRows } from "@/lib/who"
 import { BUILD_ROLES, BUILD_SHORT, MIN_GAMES, NO_LIMIT, round0, splitRiotId } from "./shared"
 
 // ── 判斷：和陣容、敗因、節奏三頁同一套「區間」講法 ─────────────────────────────
-// 判斷用本場貢獻（contribution.work，v3 起全站唯一的分數）：八個計分基因（輸出、承傷、擊殺、治療護盾、控場、推塔、清兵、功能裝）
-// 先各自和同一場的人比、再和同出裝定位的平均比，加權成 0～100；50＝校準時的整體基準，治療護盾另依實際保人量加分。
+// 判斷用本場貢獻（contribution.work，v5.4 / v5-B 修訂版）：九個計分基因（輸出、承傷、擊殺、參團、治療護盾、控場、推塔、清兵、功能裝）
+// 經時長冪次、敵方前排數與血腥度校正並採 100% 跨場絕對尺度計分（非主 C 高傷享動態轉型加成與副軸豁免，外加高光加分 +15 與失誤扣分 −18），不強制各定位歸 50。
 // 「打法」看同一組基因的平均。規格與限制見 contribution.yml 與 docs/contribution-scoring.md。
 // 2026-10-10 從隊內排名（contribution.score）換成本場貢獻的理由仍然成立：隊內排名是零和的，而好友幾乎都五排，
 //   它量到的是「這群朋友之間誰分到比較多工作」——和強的朋友同隊的人一定被壓低（同隊時 64.7 對 31.1）。
 //   原本不用本場貢獻是因為它和勝負有關（個人相關 0.19），但五排的朋友共享輸贏，這個顧慮在這頁不成立。
-//   和 50 比，95% 區間（標準誤＝單場標準差 WORK_SD 18.5 ÷ √有分數的場數）整段高於 50 是「強勢」、整段低於 50 是「不強勢」；
+//   和 50 比，95% 區間（標準誤＝單場標準差 WORK_SD 20.8 ÷ √有分數的場數）整段高於 50 是「強勢」、整段低於 50 是「不強勢」；
 //   差 WORK_GAP（4）分以上但區間還跨過 50 是「偏強／偏弱」；不到 MIN_N 場不下判斷（畫面寫熱身中／初體驗）。
 //   畫面上的字（labelOf）再依差距與場次細分成十級、全部用正面的說法：招牌／拿手／上手／順手／標準發揮／磨合中／摸索中／潛力股，
 //   場次不到 MIN_N 的是熱身中／初體驗。內部值（data-strength、e2e）仍是五級，和陣容頁共用，不動。
@@ -1143,11 +1143,12 @@ function SummaryCard({ title, main, sub, strength, label, note, cls }: { title: 
 // 門檻是判斷：基因的單場標準差 20，平均在 300 場時誤差約 ±2，差 AXIS_LEAN 分以上才算突出；場次不到 STYLE_MIN 只講位置不講打法。
 
 const STYLE_MIN = 20
-/** 打法用的基因（本場貢獻的八項加 K/DA；K/DA v3.9 起不計分，但「很少死／常陣亡」仍是打法的一部分） */
+/** 打法用的基因（本場貢獻的九項加 K/DA；K/DA 不單獨計分，但「很少死／常陣亡」仍是打法的一部分） */
 const AXES = [
   { key: "contribution.gene_dmg", label: "輸出", up: "輸出高", down: "輸出較少" },
   { key: "contribution.gene_soak", label: "承傷", up: "很耐打", down: "承傷較少" },
   { key: "contribution.gene_kill", label: "擊殺", up: "收割多", down: "收割較少" },
+  { key: "contribution.gene_ka", label: "參團", up: "參團高", down: "參團較少" },
   { key: "contribution.gene_heal", label: "治療護盾", up: "常補血護盾", down: "補血護盾較少" },
   { key: "contribution.gene_cc", label: "控場", up: "控場多", down: "控場較少" },
   { key: "contribution.gene_kda", label: "K/DA", up: "很少死", down: "常陣亡" },
@@ -3081,7 +3082,7 @@ function PlayerDrawerBody({
             strength={ov.strength}
             label={labelOf(ov)}
             cls={levelClass(ov)}
-            note="八個基因（輸出、承傷、擊殺、治療護盾、控場、推塔、清兵、功能裝）加權成總分，50＝校準時的整體基準。標 * 的暫估場次（沒有賽後統計）也算在內"
+            note="v5.4 跨場絕對尺度（依時長、敵方前排數與血腥度校正，非主 C 高傷享動態轉型加成）：九個核心與功能維度＋高光加分（+15）／失誤扣分（−18），不強制各定位歸 50。標 * 的暫估場次也算在內"
           />
           <SummaryCard
             title="勝率"
@@ -3132,8 +3133,8 @@ function PlayerDrawerBody({
           </div>
         </div>
         <div className="mb-2 flex items-center gap-1 text-[11px] text-muted-foreground">
-          八個基因：雷達是基因分數（50＝同出裝定位的平均）；橫條和右邊的數字是每一項讓總分加減幾分，最下面是每個人一樣的整體校正
-          <Hint text={`${WORK_WEIGHTS_TEXT}\n雷達的 50 是同出裝定位的基準，總分的 50 是校準時的整體基準。\n治療護盾加分一半看實際保人量，一半看高於同定位基準的部分。缺賽後統計時這一項不計分。`} />
+          九個基因：雷達是經時長校正的標準化基因分（50＝同出裝定位基準）；橫條和右邊的數字是每一項（含高光加分／失誤扣分）讓總分加減幾分，最下面是全局 EOG 補償
+          <Hint text={`${WORK_WEIGHTS_TEXT}\n雷達的 50 是同出裝定位的基準；總分不再強制各定位歸 50。\n缺少賽後護盾時，治療護盾依對局治療乘係數估算。`} />
         </div>
         {!settled || contrib.loading ? (
           <LoadingBlock height={300} label="載入貢獻分解…" />
@@ -3375,7 +3376,7 @@ const LOOKUP_MEASURES = [
   "participants.ace_games",
   ...WORK_PARTS.map((c) => c.key),
 ]
-const LOOKUP_GRID = "grid-cols-[minmax(9rem,14rem)_3.5rem_minmax(9rem,13rem)_4rem_3rem_5.5rem_5.5rem_4.5rem_3.5rem_3.5rem_minmax(17rem,1fr)]"
+const LOOKUP_GRID = "grid-cols-[minmax(9rem,14rem)_3.5rem_minmax(9rem,13rem)_4rem_3rem_5.5rem_5.5rem_4.5rem_3.5rem_3.5rem_minmax(19rem,1fr)]"
 
 /** 走勢圖有打的日子超過幾天就改成每週一點 */
 const TREND_DAYS = 30
@@ -3807,14 +3808,14 @@ function PairList({
     </div>
   )
 }
-const GENE_COLS = "grid grid-cols-8 gap-1"
+const GENE_COLS = "grid grid-cols-9 gap-1"
 
-/** 表格最後一欄的表頭：八個基因的名稱 */
+/** 表格最後一欄的表頭：九個基因的名稱 */
 function GeneHead() {
   return (
     <span className={cn(GENE_COLS, "text-center")}>
       {WORK_PARTS.map((c) => (
-        <span key={c.key} className="truncate" data-tip={`${c.label}（權重 ${c.weight}）\n${c.hint}\n格子裡是這幾場的平均：50＝同出裝定位的平均，綠色高於、紅色低於，差不到 ${WORK_GAP} 分是灰色`}>
+        <span key={c.key} className="truncate" data-tip={`${c.label}（${c.weight}）\n${c.hint}\n格子裡是這幾場的平均：50＝同出裝定位基準，綠色高於、紅色低於，差不到 ${WORK_GAP} 分是灰色`}>
           {c.label}
         </span>
       ))}
@@ -3822,7 +3823,7 @@ function GeneHead() {
   )
 }
 
-/** 一個人用它那幾場的八個基因平均（50＝同出裝定位的平均）。和 50 差不到 WORK_GAP 用中性灰，差 15 分是最深色 */
+/** 一個人用它那幾場的九個基因平均（50＝同出裝定位基準）。和 50 差不到 WORK_GAP 用中性灰，差 15 分是最深色 */
 function GeneStrip({ d, name, games }: { d: CubeRow; name: string; games: number }) {
   return (
     <span className={GENE_COLS}>
@@ -3883,7 +3884,7 @@ const CHAMPION_LOOKUP: LookupKind = {
   title: "查英雄",
   short: "選一隻英雄，看每個人玩它的戰績",
   caption:
-    "選一隻英雄，看每個人玩它的戰績；點一列開抽屜看他玩這隻英雄的每一場。「勝率」是和他自己整體勝率的差距（依場次收縮後），戰績條的刻度也是他自己的整體勝率；「貢獻」是這幾場的本場貢獻平均（50＝校準時的整體基準）。右邊是這幾場的平均：KDA（下面是平均擊殺／死亡／助攻）、每分鐘輸出（下面是傷害占隊伍的比例）、每分鐘承傷（承受＋減免）、參團率、MVP 與 ACE 次數，以及本場貢獻八個基因各自的平均（50＝同出裝定位的平均，綠高紅低）",
+    "選一隻英雄，看每個人玩它的戰績；點一列開抽屜看他玩這隻英雄的每一場。「勝率」是和他自己整體勝率的差距（依場次收縮後），戰績條的刻度也是他自己的整體勝率；「貢獻」是這幾場的本場貢獻平均（v5.4 跨場絕對尺度）。右邊是這幾場的平均：KDA（下面是平均擊殺／死亡／助攻）、每分鐘輸出（下面是傷害占隊伍的比例）、每分鐘承傷（承受＋減免）、參團率、MVP 與 ACE 次數，以及本場貢獻九個基因各自的平均（50＝同出裝定位基準，綠高紅低）",
   noun: "英雄",
   counter: "隻",
   verb: "玩",
@@ -4095,6 +4096,7 @@ const ROSTER_MEASURES = [
     ...ROSTER_EOG_MEASURES,
     ...AXES.map((c) => c.key),
     ...WORK_PARTS.map((c) => c.pts),
+    ...WORK_MODS.map((m) => m.pts),
     WORK_BASE,
   ]),
 ]
@@ -5071,13 +5073,12 @@ export function Crew() {
                 </div>
                 <HowWeJudge>
                   <p>
-                    本場貢獻：八個基因——輸出（對英雄傷害）、承傷（承受＋減免）、擊殺（擊殺占比和輸出取小）、治療護盾隊友、控場、推塔、清兵、功能裝（重創、破盾擋掉的敵方治療護盾）——
-                    加權後換成 0～100，50 是校準時的整體基準。{WORK_WEIGHTS_TEXT} 治療護盾加分一半看實際保人量，一半看高於同定位基準的部分。K/DA 不計分。
-                    每個人每項都算，坦克打出高輸出一樣加分。推塔有一半是結果（拆得到塔的多半是贏的隊），所以權重不高；死亡、助攻不影響分數。這是「這場做了多少工作」，不是操作實力：同樣的數字在不同陣容下會不同分，跨場平均只是描述。
-                    沒有賽後統計的場次（治療護盾不計分）是暫估，也算進平均。
+                    本場貢獻（v5.4 / v5-B 修訂版）：九個基因——輸出（依敵方前排數與血腥度校正，非主 C 高傷享動態轉型加成）、承傷（0.62×減免＋0.38×承受，高傷享以攻代守免扣）、擊殺（與輸出上限連動，坦／輔高傷解鎖有效擊殺）、參團（依前排與血腥度校正，含 65% 後期參團；輔助 70% 同定位＋30% 全局）、治療護盾隊友、控場（次數／時長混合，高傷／高坦享負分豁免）、推塔（turret_dmg）、清兵、功能裝——
+                    以 100% 跨場絕對尺度與時長冪次校正計分，不再強制各定位或各玩家趨近於 50。{WORK_WEIGHTS_TEXT}
+                    缺賽後護盾的暫估場次治療改乘 h_scale 對齊，輔助護盾依同英雄未捕獲先驗＋輔助裝與參團度估算並把 6%×(1-tank_w) 比重轉到參團／控場，最後僅依資料來源做固定全局基準補償（pts_base）。
                   </p>
                   <p>
-                    每一項都算誤差範圍（95%；單場的分數起伏大，標準差約 18.5，場次越多範圍越窄）。範圍整段高於 50 是「得心應手」以上（高 8／12／20 分以上是拿手／招牌／傳奇）、整段低於 50 是「潛力股」（低 15 分以上是璞玉）；
+                    每一項都算誤差範圍（95%；單場的分數起伏大，標準差約 20.8，場次越多範圍越窄）。範圍整段高於 50 是「得心應手」以上（高 8／12／20 分以上是拿手／招牌／傳奇）、整段低於 50 是「潛力股」（低 15 分以上是璞玉）；
                     差 {WORK_GAP} 分以上但範圍還跨過 50，依差距寫「順手／漸入佳境／上手／嶄露頭角」或「磨合中／調整中／摸索中／練功中」；差不到 {WORK_GAP} 分是「小有心得／標準發揮／暖機中」；
                     不到 {MIN_N} 場不下判斷，寫「熱身中」（{TRIAL_MAX} 場以下是「初體驗」）。同一個人同時比好幾種出裝或好幾隻英雄，範圍會再放寬——
                     一次比二十隻，總有一兩隻看起來特別好或特別差只是運氣。

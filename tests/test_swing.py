@@ -105,7 +105,11 @@ class SwingTests(unittest.TestCase):
         self.assertEqual(out["frames"][3], {"t": 180.0, "gold100": 30000, "gold200": 30500})
         self.assertEqual([(b["t"], b["owner"], b["kind"]) for b in out["buildings"]], [(890.0, 200, "NEXUS_TURRET"), (930.0, 200, "NEXUS_TURRET")])
         # 被殺的是紅方 7 號 → 藍方得分；被殺的是藍方 2 號 → 紅方得分
-        self.assertEqual(out["kills"], [{"t": 60.0, "team": 100}, {"t": 70.0, "team": 200}])
+        self.assertEqual(out["kills"], [
+            {"t": 60.0, "team": 100, "victimId": 7, "killerId": None, "assistIds": []},
+            {"t": 70.0, "team": 200, "victimId": 2, "killerId": None, "assistIds": []},
+        ])
+        self.assertEqual(out["fights"], [])  # 沒有玩家擊殺者的事件不納入交戰
         self.assertEqual(out["swing"][100]["label"], "門開被翻盤")
         self.assertEqual(out["swing"][200]["label"], "門破仍翻盤")
 

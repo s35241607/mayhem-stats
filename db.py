@@ -75,6 +75,8 @@ CREATE TABLE IF NOT EXISTS match_participants (
   total_damage       INTEGER, cc_duration INTEGER,
   largest_spree      INTEGER, killing_sprees INTEGER,
   turret_kills       INTEGER, largest_crit INTEGER, units_healed INTEGER,
+  inhibitor_kills    INTEGER, first_blood_assist INTEGER,
+  first_tower_assist INTEGER, turret_dmg INTEGER,
   PRIMARY KEY (platform_id, game_id, participant_id),
   FOREIGN KEY (platform_id, game_id) REFERENCES matches(platform_id, game_id)
 );
@@ -211,6 +213,20 @@ CREATE TABLE IF NOT EXISTS match_kill_events (
   PRIMARY KEY (platform_id, game_id, event_index)
 );
 CREATE INDEX IF NOT EXISTS idx_kill_victim ON match_kill_events(platform_id, game_id, victim_id, killer_id);
+
+CREATE TABLE IF NOT EXISTS match_building_events (
+  platform_id   TEXT    NOT NULL,
+  game_id       INTEGER NOT NULL,
+  event_index   INTEGER NOT NULL,
+  time_ms       INTEGER NOT NULL,
+  team_id       INTEGER,
+  building_type TEXT,
+  tower_type    TEXT,
+  killer_id     INTEGER,
+  assist_ids    TEXT    NOT NULL,
+  PRIMARY KEY (platform_id, game_id, event_index)
+);
+CREATE INDEX IF NOT EXISTS idx_bldg_killer ON match_building_events(platform_id, game_id, killer_id);
 
 -- 選角過程（/lol-champ-select/v1/session）：選角時每次內容有變就記一筆精簡快照
 -- （我方每人的英雄、板凳、重抽次數、交換），snapshots 是依時間排的 JSON 陣列；raw_last 是最後一份完整 session。
@@ -353,6 +369,7 @@ def _migrate(conn):
         _backfill_eog_extra(conn)
     raw_data.recover_existing(conn)
     _backfill_kill_events(conn)
+    _backfill_building_events(conn)
 
     # 保留舊版的開始時間，僅供追溯；時間軸現在會回補所有已知場次。
     with conn:
@@ -900,6 +917,21 @@ def _replace_kill_events(conn, platform_id, game_id, timeline):
     conn.executemany("INSERT INTO match_kill_events VALUES (?,?,?,?,?,?,?)", rows)
 
 
+def _replace_building_events(conn, platform_id, game_id, timeline):
+    rows = []
+    for frame in timeline.get("frames") or []:
+        for event in frame.get("events") or []:
+            if event.get("type") == "BUILDING_KILL":
+                rows.append((
+                    platform_id, game_id, len(rows), event.get("timestamp") or 0,
+                    event.get("teamId"), event.get("buildingType") or "",
+                    event.get("towerType") or "", event.get("killerId"),
+                    json.dumps(event.get("assistingParticipantIds") or []),
+                ))
+    conn.execute("DELETE FROM match_building_events WHERE platform_id=? AND game_id=?", (platform_id, game_id))
+    conn.executemany("INSERT INTO match_building_events VALUES (?,?,?,?,?,?,?,?,?)", rows)
+
+
 def _backfill_kill_events(conn):
     """從已保存的時間軸補回逐筆擊殺，和匯入標記一起提交。"""
     with conn:
@@ -909,6 +941,17 @@ def _backfill_kill_events(conn):
         for platform_id, game_id, raw in conn.execute("SELECT platform_id, game_id, raw_gz FROM match_timelines"):
             _replace_kill_events(conn, platform_id, game_id, json.loads(zlib.decompress(raw)))
         conn.execute("INSERT INTO kv (key,value) VALUES ('kill_events_backfilled_v1','1')")
+
+
+def _backfill_building_events(conn):
+    """從已保存的時間軸補回摧毀建築事件（供單人獨拆防禦塔／兵營判斷用）。"""
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if conn.execute("SELECT 1 FROM kv WHERE key='building_events_backfilled_v1'").fetchone():
+            return
+        for platform_id, game_id, raw in conn.execute("SELECT platform_id, game_id, raw_gz FROM match_timelines"):
+            _replace_building_events(conn, platform_id, game_id, json.loads(zlib.decompress(raw)))
+        conn.execute("INSERT INTO kv (key,value) VALUES ('building_events_backfilled_v1','1')")
 
 
 def store_timeline(conn, platform_id, game_id, timeline):
@@ -928,6 +971,7 @@ def store_timeline(conn, platform_id, game_id, timeline):
         )
         if cur.rowcount > 0:
             _replace_kill_events(conn, platform_id or "", game_id, timeline)
+            _replace_building_events(conn, platform_id or "", game_id, timeline)
             conn.execute("""INSERT INTO kv (key,value) VALUES ('kill_events_revision','1')
                             ON CONFLICT(key) DO UPDATE SET value=CAST(value AS INTEGER)+1""")
     return cur.rowcount > 0
