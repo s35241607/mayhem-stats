@@ -9,6 +9,7 @@ import {
   type CellClickedEvent,
   type CellDoubleClickedEvent,
   type ColDef,
+  type ColumnState,
   type GridApi,
   type GridReadyEvent,
   type ICellRendererParams,
@@ -22,6 +23,8 @@ import { iconUrl } from "@/lib/cube"
 import { cn } from "@/lib/utils"
 import { useThemeName } from "@/lib/theme"
 import { useAfterPageEnter } from "@/lib/motion"
+import { readStored, writeStored } from "@/lib/tableLayout"
+import { ColumnMenu, type MenuColumn } from "@/components/ColumnMenu"
 
 ModuleRegistry.registerModules([AllCommunityModule])
 
@@ -43,9 +46,12 @@ export type GridColumn = {
   hide?: boolean
   flex?: number
   minWidth?: number
-  /** 釘在左邊：欄位多到要橫向捲動時，維度欄（英雄、玩家）仍留在眼前 */
+  /** 預設釘在左邊：欄位多到要橫向捲動時，維度欄（英雄、玩家）仍留在眼前。使用者可在「欄位」選單改 */
   pinned?: "left"
 }
+
+/** 存在 localStorage 的版面：AG Grid 的 column state（順序、寬度、隱藏、凍結、排序） */
+type StoredGrid = { v: 1; state: ColumnState[] }
 
 type Row = Record<string, unknown>
 
@@ -132,7 +138,11 @@ export function AgTable({
   rowHeight = ROW_H,
   highlight = null,
   onRowClick,
+  stateKey,
 }: {
+  /** 版面（欄位順序、寬度、顯示、凍結、排序）存在 localStorage 的名稱；預設用 fileName。
+   *  fileName 帶了動態字（玩家名、範圍）時要另外給一個固定的。 */
+  stateKey?: string
   /** 交叉篩選：選取並捲到這一列（例如點了圖表的某根長條）；null 清除選取 */
   highlight?: { key: string; value: string } | null
   /** 單擊一列（雙擊不算，雙擊留給下鑽） */
@@ -154,6 +164,9 @@ export function AgTable({
   const enterDone = useAfterPageEnter()
   const apiRef = useRef<GridApi | null>(null)
   const [quickFilter, setQuickFilter] = useState("")
+  const storeKey = `grid:${stateKey ?? fileName}`
+  // 「欄位」選單畫的是 grid 當下的欄位狀態，每次欄位有變動就重讀一次
+  const [menuCols, setMenuCols] = useState<MenuColumn[]>([])
 
   const colDefs = useMemo<ColDef[]>(
     () =>
@@ -167,15 +180,20 @@ export function AgTable({
           headerName: col.title,
           sortable: true,
           resizable: true,
+          // 標題可以拖曳換位置（AG Grid 內建）；拖出表格外不會把欄位藏掉
+          suppressMovable: false,
           // 數值欄用數字篩選器（大於／小於／區間），文字欄用文字篩選器
           filter: isMetric ? "agNumberColumnFilter" : "agTextColumnFilter",
           filterParams: { buttons: ["reset"], closeOnApply: true },
           // 全部欄位一起彈性分攤容器寬度，維度欄佔兩份。
           // 固定寬度會讓欄位一多就超出容器、逼出橫向捲軸。
-          flex: col.flex ?? (isMetric ? 1 : 2),
+          // 寬度、凍結用 initial*：只在欄位第一次出現時套用。
+          // 寫成 flex / pinned 的話，資料一變欄位定義重建，使用者拉好的寬度與凍結會被蓋回預設
+          initialFlex: col.flex ?? (isMetric ? 1 : 2),
           minWidth: col.minWidth ?? (isMetric ? 96 : 170),
-          hide: col.hide,
-          pinned: col.pinned,
+          // 複合格子吃掉的原始欄一律藏著（只給匯出），使用者在選單裡也看不到它
+          hide: col.hide ? true : undefined,
+          initialPinned: col.pinned,
           headerClass: isMetric && !col.cell ? "ag-right-aligned-header" : undefined,
           // 排序照原始數值，不受格式化字串影響
           comparator: isMetric
@@ -222,11 +240,99 @@ export function AgTable({
     if (col?.kind === "dimension" && e.value != null) onDrill?.(col, String(e.value), e.data as Row)
   }
 
+  const csvOnly = useMemo(() => new Set(columns.filter((c) => c.hide).map((c) => c.key)), [columns])
+  const titleOf = useMemo(() => new Map(columns.map((c) => [c.key, c.title])), [columns])
+
+  const syncMenu = useCallback(() => {
+    const api = apiRef.current
+    if (!api) return
+    // getColumnState 的順序就是畫面上的順序（凍結的不一定在前，這裡把它們排到前面，和畫面一致）
+    const state = api.getColumnState().filter((s) => !csvOnly.has(s.colId) && titleOf.has(s.colId))
+    const list = state.map((s) => ({ id: s.colId, title: titleOf.get(s.colId)!, hidden: !!s.hide, pinned: s.pinned === "left" }))
+    setMenuCols([...list.filter((c) => c.pinned), ...list.filter((c) => !c.pinned)])
+  }, [csvOnly, titleOf])
+
+  const save = useCallback(() => {
+    const api = apiRef.current
+    if (!api) return
+    writeStored(storeKey, { v: 1, state: api.getColumnState() } satisfies StoredGrid)
+    syncMenu()
+  }, [storeKey, syncMenu])
+
+  const restore = useCallback(
+    (api: GridApi) => {
+      const stored = readStored<StoredGrid>(storeKey)
+      if (stored?.v === 1) {
+        // 只套目前還存在的欄；程式設定成「只匯出」的欄維持藏著
+        const ids = new Set(columns.map((c) => c.key))
+        const state = stored.state
+          .filter((s) => ids.has(s.colId))
+          .map((s) => (csvOnly.has(s.colId) ? { ...s, hide: true } : s))
+        api.applyColumnState({ state, applyOrder: true })
+      }
+      syncMenu()
+    },
+    [storeKey, columns, csvOnly, syncMenu],
+  )
+
   const [gridReady, setGridReady] = useState(false)
-  const onGridReady = useCallback((e: GridReadyEvent) => {
-    apiRef.current = e.api
-    setGridReady(true)
-  }, [])
+  const onGridReady = useCallback(
+    (e: GridReadyEvent) => {
+      apiRef.current = e.api
+      restore(e.api)
+      setGridReady(true)
+    },
+    [restore],
+  )
+  // 欄位定義換了（例如增幅頁選了英雄多出條件欄）：重新套一次存好的版面
+  useEffect(() => {
+    if (apiRef.current && gridReady) restore(apiRef.current)
+  }, [colDefs, gridReady, restore])
+
+  const toggleHidden = (id: string) => {
+    const api = apiRef.current
+    const col = api?.getColumn(id)
+    if (!api || !col) return
+    api.setColumnsVisible([id], !col.isVisible())
+    save()
+  }
+  const togglePin = (id: string) => {
+    const api = apiRef.current
+    const col = api?.getColumn(id)
+    if (!api || !col) return
+    api.setColumnsPinned([id], col.getPinned() === "left" ? null : "left")
+    save()
+  }
+  const moveCol = (id: string, target: string) => {
+    const api = apiRef.current
+    if (!api) return
+    const order = api.getColumnState().map((s) => s.colId)
+    const to = order.indexOf(target)
+    if (to < 0) return
+    api.moveColumns([id], to)
+    // 拖到凍結區或從凍結區拖出來：跟著目標欄的凍結狀態
+    const targetPinned = api.getColumn(target)?.getPinned() ?? null
+    if ((api.getColumn(id)?.getPinned() ?? null) !== targetPinned) api.setColumnsPinned([id], targetPinned)
+    save()
+  }
+  const resetLayout = () => {
+    const api = apiRef.current
+    writeStored(storeKey, null)
+    if (!api) return
+    api.resetColumnState()
+    // resetColumnState 回到欄位定義的狀態；initial* 的寬度與凍結在這裡要自己補回去
+    api.applyColumnState({
+      state: columns.map((c) => ({
+        colId: c.key,
+        hide: !!c.hide,
+        pinned: c.pinned ?? null,
+        flex: c.flex ?? (c.kind === "metric" ? 1 : 2),
+        sort: null,
+      })),
+      applyOrder: true,
+    })
+    syncMenu()
+  }
 
   useEffect(() => {
     const api = apiRef.current
@@ -286,7 +392,11 @@ export function AgTable({
           )}
         </div>
         <span className="text-xs text-muted-foreground">{rows.length} 列</span>
-        <Button size="sm" variant="outline" className="ml-auto h-8" onClick={exportCsv}>
+        <span className="ml-auto" />
+        {menuCols.length > 0 && (
+          <ColumnMenu columns={menuCols} onToggleHidden={toggleHidden} onTogglePin={togglePin} onMove={moveCol} onReset={resetLayout} />
+        )}
+        <Button size="sm" variant="outline" className="h-8" onClick={exportCsv}>
           <Download className="size-3.5" />
           匯出 CSV
         </Button>
@@ -309,6 +419,14 @@ export function AgTable({
           }}
           columnDefs={colDefs}
           onGridReady={onGridReady}
+          // 使用者動過的版面都存起來：拖曳換位、拉寬度只在放開時存一次
+          // 只存使用者在表頭上的操作（source 是 ui*）；程式套用的狀態（還原、換欄位定義）不存，
+          // 不然預設值會被凍結進 localStorage，之後改了程式的預設也看不到。「欄位」選單的操作由選單自己存
+          // 拖曳換位、拉寬度都在放開滑鼠時觸發 dragStopped（columnMoved 的 finished 事件 source 不固定）
+          onDragStopped={save}
+          onSortChanged={(e) => e.source.startsWith("ui") && save()}
+          maintainColumnOrder
+          suppressDragLeaveHidesColumns
           quickFilterText={quickFilter}
           // 每欄標題都有篩選器圖示，點開就能設條件
           defaultColDef={{
@@ -354,7 +472,8 @@ export function AgTable({
       </div>
 
       <p className="text-[11px] text-muted-foreground">
-        點欄位標題排序，標題下方的輸入框可逐欄篩選（數值欄支援大於／小於／區間）
+        點欄位標題排序（Shift＋點可多欄排序）、拖曳標題換位置、拉標題右緣調寬度；「欄位」可選要顯示哪些、凍結在左邊。
+        標題下方的輸入框可逐欄篩選（數值欄支援大於／小於／區間）
         {onDrill ? `；${drillOn === "click" ? "點" : "雙擊"}維度儲存格會下鑽該項目。` : "。"}
       </p>
     </div>

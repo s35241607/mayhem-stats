@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { DataTable, type DataColumn } from "@/components/DataTable"
 import { ArrowRight, ChevronDown, Crosshair, Swords } from "lucide-react"
 import type { TimelineBuilding, TimelineKill } from "@/components/charts"
 import { Hint } from "@/components/TipLayer"
@@ -99,19 +100,28 @@ function Opponents({ player, kills, byId }: { player: Player; kills: KillEvent[]
         <ChevronDown className="size-4 text-muted-foreground group-open:rotate-180" aria-hidden="true" />
       </summary>
       {entries.length ? (
-        <table className="w-full border-t text-xs">
-          <thead className="text-muted-foreground">
-            <tr><th scope="col" className="px-3 py-1.5 text-left font-normal">對手</th><th scope="col" className="font-normal">擊殺</th><th scope="col" className="font-normal">助攻</th><th scope="col" className="font-normal">被擊殺</th></tr>
-          </thead>
-          <tbody>
-            {entries.map(([opponent, counts]) => (
-              <tr key={opponent} className="border-t border-border/50">
-                <th scope="row" className="px-3 py-1.5 text-left font-normal"><Hero player={byId.get(opponent)} /></th>
-                {counts.map((value, i) => <td key={i} className="text-center font-mono tabular-nums">{value}</td>)}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="border-t p-2">
+          <DataTable
+            stateKey="timeline-opponents"
+            rows={entries}
+            rowKey={([opponent]) => String(opponent)}
+            tableClassName="text-xs"
+            dense
+            showHelp={false}
+            columns={[
+              { id: "who", title: "對手", locked: true, pinned: true, descFirst: false, sortValue: ([o]) => byId.get(o)?.champion_name ?? null, cell: ([o]) => <Hero player={byId.get(o)} /> },
+              ...(["擊殺", "助攻", "被擊殺"] as const).map((title, i): DataColumn<[number, [number, number, number]]> => ({
+                id: String(i),
+                title,
+                align: "center",
+                descFirst: true,
+                sortValue: ([, counts]) => counts[i],
+                className: "font-mono tabular-nums",
+                cell: ([, counts]) => counts[i],
+              })),
+            ]}
+          />
+        </div>
       ) : <p className="px-3 pb-2 text-xs text-muted-foreground">沒有可辨識的英雄交手紀錄。</p>}
     </details>
   )

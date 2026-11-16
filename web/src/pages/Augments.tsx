@@ -401,6 +401,7 @@ export function Augments() {
             emptyHint={champion ? "這個條件下這隻英雄還沒有增幅紀錄。" : undefined}
             height={520}
             fileName={champion ? `augments-${champion}` : "augments"}
+            stateKey={champion ? "augments-champion" : "augments"}
             onDrill={(_col, value) =>
               addDrill({
                 member: "augments.name",

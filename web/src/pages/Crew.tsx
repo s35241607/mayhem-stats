@@ -21,6 +21,7 @@ import { ForestAxis, ForestTrack } from "@/components/GapForest"
 import { useCube } from "@/hooks/useCube"
 import { MAX_GAME_IDS, iconUrl, num, type CubeFilter, type CubeQuery, type CubeRow } from "@/lib/cube"
 import { MatchList } from "@/components/MatchList"
+import { DataTable, type DataColumn } from "@/components/DataTable"
 import { useFilters, type Player } from "@/lib/filters"
 import { useCrumb } from "@/lib/breadcrumb"
 import { prefersReducedMotion } from "@/lib/motion"
@@ -4142,7 +4143,6 @@ function StatsPanel({
   onOpen: (games: GamesFocus) => void
 }) {
   const [setId, setSetId] = useState<string>("overview")
-  const [sortKey, setSortKey] = useState<string>("participants.avg_damage")
   const isMix = setId === "mix"
   // 「單場前 10 場」用的是單場巔峰那一組的指標，只是換成每場一列的看法
   const isTop = setId === "top"
@@ -4155,14 +4155,8 @@ function StatsPanel({
     if (key.startsWith("mix:")) return profiles.get(puuid)?.style.mix.find((m) => m.label === key.slice(4))?.share ?? 0
     return opt(rowOf(puuid), key)
   }
-  const activeSort = cols.some((c) => c.key === sortKey) ? sortKey : cols[0]?.key
-  const lowerSort = cols.find((c) => c.key === activeSort)?.lower
-  const sorted = [...people].sort((a, b) => {
-    const va = valueOf(a.puuid, activeSort)
-    const vb = valueOf(b.puuid, activeSort)
-    if (va === null || vb === null) return va === null ? (vb === null ? 0 : 1) : -1
-    return lowerSort ? va - vb : vb - va
-  })
+  // 沒點過標題時：有平均傷害就照它排，否則照這組的第一欄；越少越好的欄由小到大
+  const defaultCol = cols.find((c) => c.key === "participants.avg_damage") ?? cols[0]
   // 每欄最好的人標綠；死亡類越少越好。出裝比例不是好壞，不標
   const best = new Map(
     cols.map((c) => {
@@ -4196,81 +4190,85 @@ function StatsPanel({
           {isTop ? (
             <PeakTop scoped={scoped} cols={cols} centers={centers} onOpen={onOpen} />
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[860px] text-sm" data-testid="crew-stats">
-                <thead>
-                  <tr className="border-b text-[11px] text-muted-foreground">
-                    <th className="px-2 py-1.5 text-left font-medium">玩家</th>
-                    <th className="px-2 py-1.5 text-right font-medium">場次</th>
-                    {cols.map((c) => (
-                      <th key={c.key} className="px-2 py-1.5 text-right font-medium" data-tip={c.hint}>
-                        <button
-                          type="button"
-                          onClick={() => setSortKey(c.key)}
-                          className={cn("cursor-pointer underline-offset-2 hover:text-foreground hover:underline", activeSort === c.key && "text-foreground underline")}
-                        >
-                          {c.label}
-                        </button>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sorted.map((p) => {
-                    const r = rowOf(p.puuid)
-                    return (
-                      <tr key={p.puuid} className="border-b border-border/50 last:border-b-0" data-testid="crew-stats-row">
-                        <td className="px-2 py-1.5">
-                          <PlayerName player={p} className="text-sm" />
-                        </td>
-                        <td className="px-2 py-1.5 text-right font-mono tabular-nums text-muted-foreground">{n0(r, "participants.games")}</td>
-                        {cols.map((c) => {
-                          const v = valueOf(p.puuid, c.key)
-                          const name = splitId(p.riot_id, p.puuid).name
-                          return (
-                            <td
-                              key={c.key}
-                              data-key={c.key}
-                              className={cn(
-                                "px-2 py-1.5 text-right font-mono tabular-nums",
-                                v !== null && v === best.get(c.key) && "font-semibold text-win",
-                                active?.puuid === p.puuid && active.key === c.key && "bg-primary/10",
-                              )}
+            <div data-testid="crew-stats">
+              <DataTable
+                stateKey={`crew-stats-${setId}`}
+                rows={people}
+                rowKey={(p) => p.puuid}
+                rowProps={() => ({ "data-testid": "crew-stats-row" })}
+                tableClassName="min-w-[860px]"
+                defaultSort={defaultCol ? { key: defaultCol.key, dir: defaultCol.lower ? "asc" : "desc" } : null}
+                columns={[
+                  {
+                    id: "player",
+                    title: "玩家",
+                    pinned: true,
+                    locked: true,
+                    descFirst: false,
+                    sortValue: (p) => splitId(p.riot_id, p.puuid).name,
+                    cell: (p) => <PlayerName player={p} className="text-sm" />,
+                  },
+                  {
+                    id: "games",
+                    title: "場次",
+                    align: "right",
+                    sortValue: (p) => opt(rowOf(p.puuid), "participants.games"),
+                    className: "font-mono tabular-nums text-muted-foreground",
+                    cell: (p) => n0(rowOf(p.puuid), "participants.games"),
+                  },
+                  ...cols.map((c): DataColumn<Player> => ({
+                    id: c.key,
+                    title: c.label,
+                    tip: c.hint,
+                    align: "right",
+                    descFirst: !c.lower,
+                    sortValue: (p) => valueOf(p.puuid, c.key),
+                    className: (p) => {
+                      const v = valueOf(p.puuid, c.key)
+                      return cn(
+                        "font-mono tabular-nums",
+                        v !== null && v === best.get(c.key) && "font-semibold text-win",
+                        active?.puuid === p.puuid && active.key === c.key && "bg-primary/10",
+                      )
+                    },
+                    cell: (p) => {
+                      const v = valueOf(p.puuid, c.key)
+                      const r = rowOf(p.puuid)
+                      const name = splitId(p.riot_id, p.puuid).name
+                      return (
+                        <span data-key={c.key}>
+                          {v === null ? (
+                            "—"
+                          ) : (
+                            <button
+                              type="button"
+                              data-tip={c.record ? `看${name}創下「${c.label}」的那一場` : `看${name}算進「${c.label}」的每一場`}
+                              onClick={() =>
+                                onOpen({
+                                  title: `${name}・${c.label}${c.record ? "的紀錄場" : "的每一場"}`,
+                                  note: cellNote(c),
+                                  cell: { puuid: p.puuid, key: c.key },
+                                  source: {
+                                    puuid: p.puuid,
+                                    filters: c.key.startsWith("mix:") ? [{ member: "builds.build_role", operator: "equals", values: [c.key.slice(4)] }] : [],
+                                    recordMetric: c.record ? c.key : undefined,
+                                  },
+                                })
+                              }
+                              className="cursor-pointer rounded px-0.5 underline-offset-2 transition hover:bg-accent hover:underline"
                             >
-                              {v === null ? (
-                                "—"
-                              ) : (
-                                <button
-                                  type="button"
-                                  data-tip={c.record ? `看${name}創下「${c.label}」的那一場` : `看${name}算進「${c.label}」的每一場`}
-                                  onClick={() =>
-                                    onOpen({
-                                      title: `${name}・${c.label}${c.record ? "的紀錄場" : "的每一場"}`,
-                                      note: cellNote(c),
-                                      cell: { puuid: p.puuid, key: c.key },
-                                      source: {
-                                        puuid: p.puuid,
-                                        filters: c.key.startsWith("mix:") ? [{ member: "builds.build_role", operator: "equals", values: [c.key.slice(4)] }] : [],
-                                        recordMetric: c.record ? c.key : undefined,
-                                      },
-                                    })
-                                  }
-                                  className="cursor-pointer rounded px-0.5 underline-offset-2 transition hover:bg-accent hover:underline"
-                                >
-                                  {c.fmt(v)}
-                                </button>
-                              )}
-                              {(c.key === "participants.avg_time_dead" || c.key === "participants.time_dead_share") && v !== null && (
-                                <span className="ml-1 text-[10px] font-normal text-muted-foreground">{n0(r, "participants.time_dead_games")} 場</span>
-                              )}
-                            </td>
-                          )
-                        })}
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+                              {c.fmt(v)}
+                            </button>
+                          )}
+                          {(c.key === "participants.avg_time_dead" || c.key === "participants.time_dead_share") && v !== null && (
+                            <span className="ml-1 text-[10px] font-normal text-muted-foreground">{n0(r, "participants.time_dead_games")} 場</span>
+                          )}
+                        </span>
+                      )
+                    },
+                  })),
+                ]}
+              />
             </div>
           )}
         </div>

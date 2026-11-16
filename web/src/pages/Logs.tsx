@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input"
 import { DetailDrawer } from "@/components/DetailDrawer"
 import { EmptyState, LoadingBlock } from "@/components/primitives"
 import { cn } from "@/lib/utils"
+import { DataTable, type DataColumn } from "@/components/DataTable"
 
 type Kind = "429" | "query" | "login" | "denied" | "error" | "api"
 type Row = {
@@ -161,6 +162,53 @@ function chipsOf(f: Filters): { key: string; label: string; clear: () => Partial
 }
 
 const fmtMs = (v: number | null | undefined) => (v == null ? "—" : v >= 1000 ? `${(v / 1000).toFixed(2)} s` : `${v} ms`)
+
+// 表格的欄位；表頭排序只排已載入的這批（「依時間／依耗時」按鈕是向伺服器要的順序）
+const LOG_COLUMNS: DataColumn<Row>[] = [
+  { id: "ts", title: "時間", sortValue: (r) => r.ts, className: "whitespace-nowrap font-mono tabular-nums text-muted-foreground", cell: (r) => r.ts },
+  {
+    id: "kind",
+    title: "類型",
+    sortValue: (r) => KIND_LABEL[r.kind],
+    descFirst: false,
+    className: "whitespace-nowrap",
+    cell: (r) => (
+      <>
+        <span className={cn("rounded-full border px-2 py-0.5 text-[10px]", KIND_TONE[r.kind])}>{KIND_LABEL[r.kind]}</span>
+        {r.kind === "429" && r.detail && <span className="ml-1 text-[10px] text-muted-foreground">{r.detail}</span>}
+      </>
+    ),
+  },
+  {
+    id: "path",
+    title: "請求",
+    sortValue: (r) => r.path ?? null,
+    descFirst: false,
+    className: "max-w-[28rem] truncate font-mono",
+    cell: (r) => (
+      <span data-tip={`${r.method} ${r.path}`}>
+        <span className="text-muted-foreground">{r.method}</span> {r.path}
+      </span>
+    ),
+  },
+  {
+    id: "status",
+    title: "狀態",
+    align: "right",
+    sortValue: (r) => r.status ?? null,
+    className: (r) => cn("whitespace-nowrap font-mono tabular-nums", (r.status ?? 0) >= 500 ? "text-loss" : (r.status ?? 0) >= 400 ? "text-gold" : ""),
+    cell: (r) => r.status ?? "—",
+  },
+  {
+    id: "ms",
+    title: "耗時",
+    align: "right",
+    sortValue: (r) => r.ms ?? null,
+    className: (r) => cn("whitespace-nowrap font-mono tabular-nums", (r.ms ?? 0) > 1000 ? "text-gold" : "text-muted-foreground"),
+    cell: (r) => fmtMs(r.ms),
+  },
+  { id: "who", title: "是誰", sortValue: (r) => r.who ?? null, descFirst: false, className: "whitespace-nowrap font-mono", cell: (r) => r.who ?? "—" },
+]
 const fmtPct = (v: number | null | undefined) => (v == null ? "—" : `${(v * 100).toFixed(1)}%`)
 
 export function Logs() {
@@ -414,44 +462,19 @@ export function Logs() {
               {rows.length === 0 ? (
                 <EmptyState>符合條件的紀錄沒有。</EmptyState>
               ) : (
-                <div className="max-h-[62vh] overflow-auto">
-                  <table className="w-full min-w-[760px] text-xs">
-                    <thead className="sticky top-0 z-10 bg-card">
-                      <tr className="border-b text-left text-[11px] text-muted-foreground">
-                        <th className="px-3 py-2 font-medium">時間</th>
-                        <th className="px-3 py-2 font-medium">類型</th>
-                        <th className="px-3 py-2 font-medium">請求</th>
-                        <th className="px-3 py-2 text-right font-medium">狀態</th>
-                        <th className="px-3 py-2 text-right font-medium">耗時</th>
-                        <th className="px-3 py-2 font-medium">是誰</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((r) => (
-                        <tr
-                          key={r.id}
-                          onClick={() => setSelected(r)}
-                          className={cn("cursor-pointer border-b border-border/50 last:border-b-0 hover:bg-muted/40", selected?.id === r.id && "bg-primary/10")}
-                        >
-                          <td className="whitespace-nowrap px-3 py-1.5 font-mono tabular-nums text-muted-foreground">{r.ts}</td>
-                          <td className="whitespace-nowrap px-3 py-1.5">
-                            <span className={cn("rounded-full border px-2 py-0.5 text-[10px]", KIND_TONE[r.kind])}>{KIND_LABEL[r.kind]}</span>
-                            {r.kind === "429" && r.detail && <span className="ml-1 text-[10px] text-muted-foreground">{r.detail}</span>}
-                          </td>
-                          <td className="max-w-[28rem] truncate px-3 py-1.5 font-mono" title={`${r.method} ${r.path}`}>
-                            <span className="text-muted-foreground">{r.method}</span> {r.path}
-                          </td>
-                          <td className={cn("whitespace-nowrap px-3 py-1.5 text-right font-mono tabular-nums", (r.status ?? 0) >= 500 ? "text-loss" : (r.status ?? 0) >= 400 ? "text-gold" : "")}>
-                            {r.status ?? "—"}
-                          </td>
-                          <td className={cn("whitespace-nowrap px-3 py-1.5 text-right font-mono tabular-nums", (r.ms ?? 0) > 1000 ? "text-gold" : "text-muted-foreground")}>
-                            {fmtMs(r.ms)}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-1.5 font-mono">{r.who ?? "—"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="p-2">
+                  <DataTable
+                    stateKey="logs"
+                    columns={LOG_COLUMNS}
+                    rows={rows}
+                    rowKey={(r) => String(r.id)}
+                    onRowClick={setSelected}
+                    rowClassName={(r) => selected?.id === r.id && "bg-primary/10"}
+                    tableClassName="min-w-[760px] text-xs"
+                    maxHeight="62vh"
+                    stickyHeader
+                    dense
+                  />
                 </div>
               )}
               {nextBefore !== null && (

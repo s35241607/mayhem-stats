@@ -466,7 +466,7 @@ function PersonDetail({
               <Skeleton className="h-[360px] w-full" />
             ) : champRows.length ? (
               <>
-                <AgTable columns={champCols} rowHeight={54} rows={champRows} height={360} fileName={`together-${player}-${rel}-${side}`} />
+                <AgTable columns={champCols} rowHeight={54} rows={champRows} height={360} fileName={`together-${player}-${rel}-${side}`} stateKey={`together-${rel}`} />
                 <p className="mt-2 text-[11px] text-muted-foreground">
                   戰績條上的刻度線是和這個人{rel === "all" ? "同場" : REL_LABEL[rel]}時的整體勝率。{champRows.length} 隻英雄裡有 {thin} 隻不到 {MIN_GAMES} 場——那幾列的勝率只是
                   「還沒輸過」或「還沒贏過」，別當結論。上面的定位分組才是這個資料量問得出答案的粒度。
@@ -627,6 +627,7 @@ function PeopleTable({
             rows={rows}
             height={480}
             fileName={`players-${scope}`}
+            stateKey="players"
             emptyHint="這個條件下沒有同場過的人。"
             highlight={highlight}
             onRowClick={(row) => onPick(row as unknown as Person)}
