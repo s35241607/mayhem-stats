@@ -88,6 +88,19 @@ const dev = (r: CubeRow | undefined) => {
 
 type CrewGame = { time: string; key: string; win: boolean; score: number | null; estimate: boolean }
 
+function recentStatsOf(games: CrewGame[], size: number, overall: number | null) {
+  const recent = games.filter((g): g is CrewGame & { score: number } => g.score !== null).slice(0, size)
+  if (!recent.length) return null
+  const count = recent.length
+  const average = recent.reduce((sum, g) => sum + g.score, 0) / count
+  const wins = recent.filter((g) => g.win).length
+  const estimates = recent.filter((g) => g.estimate).length
+  const delta = overall === null ? null : Number((average - overall).toFixed(1))
+  return { recent, count, average, wins, estimates, delta }
+}
+
+type RecentStats = NonNullable<ReturnType<typeof recentStatsOf>>
+
 function RecentCrewScore({ games, size, overall, loading, error, onOpen }: {
   games: CrewGame[]
   size: number
@@ -96,17 +109,13 @@ function RecentCrewScore({ games, size, overall, loading, error, onOpen }: {
   error: string | null
   onOpen: (gameIds: string[], note: string) => void
 }) {
-  const recent = games.filter((g): g is CrewGame & { score: number } => g.score !== null).slice(0, size)
+  const stats = recentStatsOf(games, size, overall)
   const pillClass = "inline-flex h-5 shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-border bg-muted/40 px-1.5 text-[10px] leading-none text-muted-foreground"
-  if (loading || error || !recent.length) {
+  if (loading || error || !stats) {
     const status = loading ? "載入近期貢獻中" : error ? "近期貢獻載入失敗" : "近期表現\n{{lab|計入場次}}{{n|0 場}}"
     return <span className={pillClass} data-tip={status}>近期 {loading ? "…" : "—"}</span>
   }
-  const count = recent.length
-  const average = recent.reduce((sum, g) => sum + g.score, 0) / count
-  const wins = recent.filter((g) => g.win).length
-  const estimates = recent.filter((g) => g.estimate).length
-  const delta = overall === null ? null : Number((average - overall).toFixed(1))
+  const { recent, count, average, wins, estimates, delta } = stats
   const record = `${wins} 勝 ${count - wins} 敗${estimates ? `・${estimates} 場暫估` : ""}`
   const note = `平均貢獻 ${average.toFixed(1)}・${record}`
   const latest = recent.slice(0, 5)
@@ -255,7 +264,7 @@ const WR_SHOWN: Record<Strength, string> = { 強勢: WR_NOTES.clearUp, 偏強: W
 /** 畫面上的標籤，全部是正面的說法，由強到弱共十九級。內部五級（強勢…不強勢）和陣容頁共用，這裡再依「和 50 差幾分」細分：
  *  - 看得出高（區間整段高於 50）：傳奇 ≥20、招牌 ≥12、拿手 ≥8，其餘得心應手
  *  - 偏強（差 WORK_GAP 以上、還在誤差內）：嶄露頭角 ≥12、上手 ≥8、漸入佳境 ≥6，其餘順手
- *  - 和平均差不多（差不到 WORK_GAP）：小有心得 ≥+2、標準發揮、暖機中 ≤−2
+ *  - 和平均差不多（差不到 WORK_GAP）：小有心得 ≥+2、標準發揮、微幅偏低 ≤−2
  *  - 偏弱：磨合中、調整中 ≤−6、摸索中 ≤−8、練功中 ≤−12
  *  - 看得出低：潛力股，差 15 以上是璞玉
  *  - 有分數的場次不到 MIN_N：TRIAL_MAX 場以下「初體驗」，其餘「熱身中」
@@ -275,7 +284,7 @@ const LEVELS = [
   { label: "順手", strength: "偏強", min: -Infinity, note: `高 ${WORK_GAP} 分以上，還在誤差內`, cls: "border-win/40 bg-win/10 text-foreground" },
   { label: "小有心得", strength: "看不出", min: 2, note: `高 2～${WORK_GAP} 分，和平均差不多`, cls: "border-foreground/25 bg-muted text-foreground" },
   { label: "標準發揮", strength: "看不出", min: -2, note: "和平均差不多", cls: "border-foreground/20 bg-muted text-foreground/85" },
-  { label: "暖機中", strength: "看不出", min: -Infinity, note: `低 2～${WORK_GAP} 分，和平均差不多`, cls: "border-foreground/25 bg-muted text-foreground" },
+  { label: "微幅偏低", strength: "看不出", min: -Infinity, note: `低 2～${WORK_GAP} 分，和平均差不多`, cls: "border-foreground/25 bg-muted text-foreground" },
   { label: "磨合中", strength: "偏弱", min: -6, note: `低 ${WORK_GAP} 分以上，還在誤差內`, cls: "border-loss/40 bg-loss/10 text-foreground" },
   { label: "調整中", strength: "偏弱", min: -8, note: "低 6 分以上，還在誤差內", cls: "border-loss/50 bg-loss/15 text-foreground" },
   { label: "摸索中", strength: "偏弱", min: -12, note: "低 8 分以上，還在誤差內", cls: "border-loss/60 bg-loss/22 text-foreground" },
@@ -1158,11 +1167,43 @@ const AXES = [
   { key: "contribution.gene_anti", label: "功能裝", up: "常出重創破盾", down: "很少出重創" },
 ] as const
 const AXIS_LEAN = 4
+const ARCHETYPE_STRONG = 6.5
+const SEVERE_DOWN = -6
+
+/** 全體玩家在各出裝定位下的基因平均：role -> (geneKey -> avg) */
+type RoleGeneBaseline = Map<string, Map<string, number>>
+
+type PlayAxis = {
+  key: string
+  label: string
+  value: number | null
+  /** 依該玩家出裝定位比例加權後的預期基準（無基準資料時退回 50） */
+  baseline: number
+  /** value - baseline */
+  delta: number | null
+  /** 是否納入打法評價（治療護盾僅對常玩輔助或高治療場次有效） */
+  applicable: boolean
+  up: string
+  down: string
+}
+
+const SINGLE_ARCHETYPES: Record<string, { name: string; note: string }> = {
+  輸出: { name: "輸出型", note: "打出的傷害明顯高於同出裝定位平均" },
+  承傷: { name: "前排型", note: "扛下的傷害（承受＋減免）明顯高於同出裝定位平均" },
+  擊殺: { name: "收割型", note: "擊殺終結明顯高於同出裝定位平均，擅長擴大戰果" },
+  參團: { name: "參團型", note: "擊殺參與率明顯高於同出裝定位平均，很少缺席團戰" },
+  治療護盾: { name: "保人型", note: "治療、護盾隊友明顯高於同出裝定位平均" },
+  控場: { name: "控場型", note: "控制敵人的時間明顯高於同出裝定位平均" },
+  "K/DA": { name: "穩健型", note: "很少陣亡，K/DA 明顯高於同出裝定位平均" },
+  推塔: { name: "推進型", note: "拆塔明顯高於同出裝定位平均：團戰贏了會把優勢換成塔" },
+  清兵: { name: "清線型", note: "清兵明顯高於同出裝定位平均" },
+  功能裝: { name: "機能型", note: "重創、破盾等功能裝採購率明顯高於同出裝定位平均" },
+}
 
 type PlayStyle = {
   /** 「AD 後排輸出」這種位置描述 */
   position: string
-  /** 「衝鋒型」這種打法；場次不夠或沒有明顯特徵是 null */
+  /** 「拆遷推進」這種打法；場次不夠或沒有明顯特徵是 null */
   archetype: string | null
   archetypeNote: string | null
   /** 出裝比例，由多到少（只列有玩的）；base 是一般玩家的比例 */
@@ -1175,8 +1216,26 @@ type PlayStyle = {
   topChamps: string[]
   /** 有表現分的場次夠 STYLE_MIN，才講打法 */
   enough: boolean
-  /** 基因的平均（和同出裝定位比，50＝平均） */
-  axes: { label: string; value: number | null; up: string; down: string }[]
+  /** 基因平均與同定位加權基準差值 */
+  axes: PlayAxis[]
+}
+
+function expectedAxesOf(roles: Judged[], roleGenes?: RoleGeneBaseline) {
+  const out = new Map<string, number>()
+  if (!roleGenes?.size) return out
+  for (const ax of AXES) {
+    let weighted = 0
+    let weightSum = 0
+    for (const r of roles) {
+      if (r.scored <= 0) continue
+      const pop = roleGenes.get(r.label)?.get(ax.key)
+      if (pop === undefined) continue
+      weighted += r.scored * pop
+      weightSum += r.scored
+    }
+    if (weightSum > 0) out.set(ax.key, weighted / weightSum)
+  }
+  return out
 }
 
 function playStyleOf(
@@ -1186,6 +1245,7 @@ function playStyleOf(
   base: Map<string, number>,
   scored: number,
   dmgGames: { ad: number; ap: number },
+  roleGenes?: RoleGeneBaseline,
 ): PlayStyle {
   const total = roles.reduce((a, j) => a + j.games, 0)
   const share = (labels: string[]) => (total ? roles.filter((j) => labels.includes(j.label)).reduce((a, j) => a + j.games, 0) / total : 0)
@@ -1227,37 +1287,50 @@ function playStyleOf(
   const champGames = played.reduce((a, j) => a + j.games, 0)
   const top5Share = champGames ? played.slice(0, 5).reduce((a, j) => a + j.games, 0) / champGames : 0
 
-  const axes = AXES.map((a) => ({ label: a.label, value: opt(sum, a.key), up: a.up, down: a.down }))
-  const v = (label: string) => axes.find((a) => a.label === label)?.value ?? 50
+  const expected = expectedAxesOf(roles, roleGenes)
+  const supRole = roles.find((r) => r.label === "輔助")
+  const supShare = total ? (supRole?.games ?? 0) / total : 0
+  const supScored = supRole?.scored ?? 0
+  const axes: PlayAxis[] = AXES.map((a) => {
+    const value = opt(sum, a.key)
+    const baseline = expected.get(a.key) ?? 50
+    const delta = value === null ? null : value - baseline
+    // gene_heal 在計分表是以輔助群組為基準（非輔助平均約 17），非輔助常駐玩家只在高治療例外時才納入打法評價
+    const applicable =
+      a.key !== "contribution.gene_heal" ||
+      supShare >= 0.15 ||
+      supScored >= MIN_N ||
+      (value !== null && delta !== null && value >= 30 && delta >= 8)
+    return { key: a.key, label: a.label, value, baseline, delta, applicable, up: a.up, down: a.down }
+  })
   let archetype: string | null = null
   let archetypeNote: string | null = null
   if (scored >= STYLE_MIN) {
-    const ups = axes.filter((a) => a.value !== null && a.value >= 50 + AXIS_LEAN)
-    const downs = axes.filter((a) => a.value !== null && a.value <= 50 - AXIS_LEAN)
-    if (ups.length >= 3) {
+    const eligible = axes.filter((a): a is PlayAxis & { value: number; delta: number } => a.applicable && a.value !== null && a.delta !== null)
+    const ups = eligible.filter((a) => a.delta >= AXIS_LEAN).sort((a, b) => b.delta - a.delta)
+    const downs = eligible.filter((a) => a.delta <= -AXIS_LEAN)
+    const d = (label: string) => eligible.find((a) => a.label === label)?.delta ?? 0
+    const hasSevereDown = downs.some((a) => a.delta <= SEVERE_DOWN)
+    const bestUp = ups[0]
+
+    if ((d("承傷") >= AXIS_LEAN || d("控場") >= AXIS_LEAN) && d("K/DA") <= SEVERE_DOWN) {
+      archetype = "開戰換命型"
+      archetypeNote = "很常吃傷害或交控開戰，交換下陣亡也偏多"
+    } else if (!hasSevereDown && d("推塔") >= 5 && d("清兵") >= 5 && (d("推塔") >= ARCHETYPE_STRONG || d("清兵") >= ARCHETYPE_STRONG)) {
+      archetype = "拆遷推進"
+      archetypeNote = "清兵與推塔都明顯高於同定位平均，很會抓節奏推進"
+    } else if (!hasSevereDown && d("輸出") >= 5 && d("承傷") >= 5 && (d("輸出") >= ARCHETYPE_STRONG || d("承傷") >= ARCHETYPE_STRONG)) {
+      archetype = "攻守一體"
+      archetypeNote = "能扛前排壓力也能打出高輸出，團戰存在感很高"
+    } else if (!downs.length && (ups.length >= 4 || (ups.length >= 3 && (bestUp?.delta ?? 0) < 7.5))) {
       archetype = "全面型"
-      archetypeNote = "好幾項都比同出裝定位的人多，沒有明顯的洞"
-    } else if (v("推塔") >= 57) {
-      archetype = "推進型"
-      archetypeNote = "拆塔比同出裝定位的人多：團戰贏了會把優勢換成塔"
-    } else if (v("輸出") >= 57) {
-      archetype = "輸出型"
-      archetypeNote = "打出的傷害比同出裝定位的人多"
-    } else if (v("承傷") >= 57) {
-      archetype = "前排型"
-      archetypeNote = "扛下的傷害（承受＋減免）比同出裝定位的人多"
-    } else if (v("治療護盾") >= 57) {
-      archetype = "保人型"
-      archetypeNote = "治療、護盾隊友比同出裝定位的人多"
-    } else if (v("控場") >= 57) {
-      archetype = "控場型"
-      archetypeNote = "控制敵人的時間比同出裝定位的人多"
-    } else if (v("K/DA") >= 57) {
-      archetype = "穩健型"
-      archetypeNote = "參與擊殺多、死得少"
-    } else if (v("清兵") >= 57) {
-      archetype = "清線型"
-      archetypeNote = "清兵比同出裝定位的人多"
+      archetypeNote = "多項表現都穩定高於同出裝定位平均，沒有明顯短板"
+    } else if (!hasSevereDown && bestUp && bestUp.delta >= ARCHETYPE_STRONG) {
+      const hit = SINGLE_ARCHETYPES[bestUp.label]
+      if (hit) {
+        archetype = hit.name
+        archetypeNote = hit.note
+      }
     } else if (!ups.length && !downs.length) {
       archetype = "均衡型"
       archetypeNote = "每一項都和同出裝定位的平均差不多"
@@ -1284,11 +1357,11 @@ const styleLine = (s: PlayStyle) => {
   if (s.archetype) return `${s.position}・${s.archetype}`
   if (!s.enough) return s.position
   const top = s.axes
-    .filter((a) => a.value !== null && Math.abs(a.value - 50) >= AXIS_LEAN)
-    .sort((a, b) => Math.abs((b.value ?? 50) - 50) - Math.abs((a.value ?? 50) - 50))
+    .filter((a): a is PlayAxis & { delta: number } => a.applicable && a.delta !== null && Math.abs(a.delta) >= AXIS_LEAN)
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
     .slice(0, 2)
-    .map((a) => ((a.value ?? 50) > 50 ? a.up : a.down))
-  return top.length ? `${s.position}・${top.join('、')}` : s.position
+    .map((a) => (a.delta > 0 ? a.up : a.down))
+  return top.length ? `${s.position}・${top.join("、")}` : s.position
 }
 
 // ── 稱號：累積到門檻就有 ─────────────────────────────────────────────────────
@@ -2410,8 +2483,8 @@ function BadgeTile({ card, st, holders, total, index }: { card: BadgeCard; st: B
 /** 總覽分頁的「玩家類型」卡片 */
 function StyleCard({ style, scored }: { style: PlayStyle; scored: number }) {
   const notable = style.axes
-    .filter((a) => a.value !== null && Math.abs(a.value - 50) >= AXIS_LEAN)
-    .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
+    .filter((a): a is PlayAxis & { value: number; delta: number } => a.applicable && a.value !== null && a.delta !== null && Math.abs(a.delta) >= AXIS_LEAN)
+    .sort((a, b) => b.delta - a.delta)
   return (
     <div className="rounded-lg border p-3" data-testid="crew-style">
       <div className="text-[11px] text-muted-foreground">玩家類型</div>
@@ -2447,31 +2520,59 @@ function StyleCard({ style, scored }: { style: PlayStyle; scored: number }) {
               ? notable.map((a, i) => (
                   <span key={a.label}>
                     {i > 0 && "、"}
-                    <span className={(a.value ?? 50) > 50 ? "text-win" : "text-loss"}>{(a.value ?? 50) > 50 ? a.up : a.down}</span>
-                    <span className="font-mono text-muted-foreground tabular-nums">（{a.label} {Math.round(a.value ?? 50)}）</span>
+                    <span className={a.delta > 0 ? "text-win" : "text-loss"}>{a.delta > 0 ? a.up : a.down}</span>
+                    <span className="font-mono text-muted-foreground tabular-nums">（{a.label} {Math.round(a.value)}，{signed(a.delta)}）</span>
                   </span>
                 ))
               : "每一項都和同出裝定位的平均差不多"}
-          <Hint className="ml-1" text="打法看的是本場貢獻各基因的平均（含不計分的 K/DA）：每一項先和同一場的人比、再和同出裝定位的平均比，50＝平均，所以是「同樣的位置裡他哪裡做得多」" />
+          <Hint
+            className="ml-1"
+            text={`打法看的是各基因（含不計分的 K/DA）相對「該玩家常玩出裝定位」的跨場基準差值（±${AXIS_LEAN} 分以上才會顯示）。括號內為基因均分與相對基準差值；非輔助常駐玩家不以治療護盾計較低分`}
+          />
         </dd>
       </dl>
     </div>
   )
 }
 
-/** 一句話講這個人整體的情形：只根據看得出的差別 */
-function readingOf(p: Profile) {
+/** 一句話講這個人整體的情形：結合整體貢獻／勝率差別、近期走勢與最突出的出裝 */
+function readingOf(p: Profile, recent: RecentStats | null) {
   const s = p.overall.strength
   const w = p.overallWr ? strengthOf(p.overallWr) : "看不出"
-  if (s === "強勢")
-    return w === "強勢"
-      ? "貢獻比平均高，勝率也明顯高於 50%：打得好也贏得多。"
-      : "貢獻比平均高，勝率則和 50% 分不出差別：輸贏很大一部分取決於隊友與隨機拿到的陣容，表現已經到位。"
-  if (s === "不強勢")
-    return w === "不強勢"
-      ? "貢獻還在追趕平均，勝率也還在累積：每一項都還有成長的餘地，是潛力最大的階段。"
-      : "貢獻還在追趕平均，勝率卻沒有受影響：和隊友配合得很好。"
-  return "本場貢獻和平均差不多，發揮很標準（差距還在誤差內）。"
+  let base: string
+  if (s === "強勢") {
+    base =
+      w === "強勢"
+        ? "貢獻比平均高，勝率也明顯高於 50%：打得好也贏得多"
+        : "貢獻比平均高，勝率則和 50% 分不出差別：輸贏很大一部分取決於隊友與隨機拿到的陣容，表現已經到位"
+  } else if (s === "偏強") {
+    base = "本場貢獻高於平均（目前樣本或幅度尚在誤差內，已有領先趨勢）"
+  } else if (s === "不強勢") {
+    base =
+      w === "不強勢"
+        ? "貢獻還在追趕平均，勝率也還在累積：每一項都還有成長的餘地，是潛力最大的階段"
+        : "貢獻還在追趕平均，勝率卻沒有受影響：和隊友配合得很好"
+  } else if (s === "偏弱") {
+    base = "本場貢獻暫時偏低（還在誤差範圍內，有待再多打幾場確認）"
+  } else {
+    base = "本場貢獻和平均差不多，發揮很平穩（差距還在誤差內）"
+  }
+
+  const extras: string[] = []
+  if (recent && recent.count >= MIN_N && recent.delta !== null && Math.abs(recent.delta) >= 5) {
+    extras.push(
+      recent.delta > 0
+        ? `近 ${recent.count} 場平均 ${Math.round(recent.average)} 分（較整體 ${signed(recent.delta)}），近期狀態明顯上升`
+        : `近 ${recent.count} 場平均 ${Math.round(recent.average)} 分（較整體 ${signed(recent.delta)}），近期手感稍微回落`,
+    )
+  }
+  const bestRole = [...p.roles]
+    .filter((r) => (r.strength === "強勢" || r.strength === "偏強") && r.est !== null)
+    .sort((a, b) => (b.est ?? 0) - (a.est ?? 0))[0]
+  if (bestRole && bestRole.est !== null) {
+    extras.push(`最突出的是「${bestRole.label}」（${Math.round(bestRole.est)} 分）`)
+  }
+  return extras.length ? `${base}；${extras.join("，")}。` : `${base}。`
 }
 
 /** 總覽分頁的「看得出的強項／潛力」：只列區間整段在一邊的，其餘只講有幾項 */
@@ -2951,6 +3052,8 @@ function PlayerDrawerBody({
   boardLoading,
   people,
   onWide,
+  recentGames,
+  recentSize,
 }: {
   board: CubeRow[]
   boardLoading: boolean
@@ -2961,6 +3064,8 @@ function PlayerDrawerBody({
   summaryRow?: CubeRow
   /** 這個人已解鎖的徽章 */
   titles?: Title[]
+  recentGames?: CrewGame[]
+  recentSize?: number
   role: string | null
   onRole: (role: string | null) => void
   tab: DrawerTab
@@ -3041,6 +3146,7 @@ function PlayerDrawerBody({
   }
   const ov = profile.overall
   const wrAll = profile.overallWr
+  const recentSummary = recentGames && recentSize ? recentStatsOf(recentGames, recentSize, ov.score) : null
   const champCols = "grid-cols-[1.5rem_minmax(8rem,1fr)_3rem_minmax(8rem,11rem)_minmax(7rem,10rem)_2.25rem_6.5rem]"
   // 英雄清單裡的貢獻區間共用一把尺：取所有區間最遠的一端，進位到 10，介於 20～50
   const champReach = Math.min(
@@ -3099,7 +3205,7 @@ function PlayerDrawerBody({
           />
         </div>
         <p className="text-sm" data-testid="crew-reading">
-          {readingOf(profile)}
+          {readingOf(profile, recentSummary)}
         </p>
         {!!titles?.length && (
           <div className="flex flex-wrap items-center gap-2 rounded-lg border p-3">
@@ -4566,9 +4672,22 @@ export function Crew() {
   const dmgTypes = useCube(q({ measures: ["participants.games"], dimensions: ["participants.puuid", "builds.damage_type"], limit: NO_LIMIT }))
   // 同一場兩個人都在就算兩人次，仍由 Cube 算合計，不能直接平均每個人的平均。
   const teamRoles = useCube(section === "matrix" ? q({ measures: [...WORK_MEASURES, WORK_GAMES], dimensions: ["builds.build_role"], limit: NO_LIMIT }) : null)
-  const matrixLoading = summary.loading || roles.loading || champs.loading || dmgTypes.loading || teamRoles.loading
-
   const drawerTab = focus?.kind === "player" ? focus.tab : null
+  // 一般玩家（所有參賽者）的出裝比例與各定位基因平均：「打法」用來比較玩家和同定位基準的差別
+  const everyoneRoles = useCube(
+    centerFilters === null || (section !== "matrix" && drawerTab !== "overview")
+      ? null
+      : apply(
+          {
+            measures: ["participants.games", WORK_GAMES, ...AXES.map((a) => a.key)],
+            dimensions: ["builds.build_role"],
+            filters: centerFilters,
+            limit: NO_LIMIT,
+          },
+          "all",
+        ),
+  )
+  const matrixLoading = summary.loading || roles.loading || champs.loading || dmgTypes.loading || teamRoles.loading || everyoneRoles.loading
   const board = useCube(
     section === "stats" || drawerTab === "stats"
       ? q({ measures: BOARD_MEASURES, dimensions: ["participants.puuid"], limit: NO_LIMIT })
@@ -4668,8 +4787,6 @@ export function Crew() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [puuids.join(), queueId, activeVersions.join(), timeFilter])
   const duo = useCube(loadMatrixExtras ? duoQuery : null)
-  // 一般玩家（所有參賽者）的出裝比例：「打法」拿來對照「他比一般人多玩什麼」
-  const everyoneRoles = useCube(drawerTab !== "overview" || centerFilters === null ? null : apply({ measures: ["participants.games"], dimensions: ["builds.build_role"], filters: centerFilters, limit: NO_LIMIT }, "all"))
   const error = summary.error ?? roles.error ?? champs.error ?? board.error ?? augments.error ?? items.error ??
     teamRoles.error ?? everyoneRoles.error ?? dmgTypes.error ?? badgeError ?? duo.error ?? together.error
 
@@ -4680,9 +4797,19 @@ export function Crew() {
   // 每個人的判斷一次算好：一覽表、抽屜都用同一份
   const profiles = useMemo(() => {
     const out = new Map<string, Profile>()
-    // 一般玩家（資料庫裡所有參賽者）的出裝比例，拿來對照「他比一般人多玩什麼」
+    // 一般玩家（資料庫裡所有參賽者）的出裝比例與各定位基因基準，用來校正每個人與同定位的比較
     const baseTotal = everyoneRoles.rows.reduce((a, r) => a + n0(r, "participants.games"), 0)
     const base = new Map(everyoneRoles.rows.map((r) => [String(r["builds.build_role"]), baseTotal ? n0(r, "participants.games") / baseTotal : 0]))
+    const roleGenes: RoleGeneBaseline = new Map()
+    for (const r of everyoneRoles.rows) {
+      const role = String(r["builds.build_role"])
+      const genes = new Map<string, number>()
+      for (const ax of AXES) {
+        const v = opt(r, ax.key)
+        if (v !== null) genes.set(ax.key, v)
+      }
+      roleGenes.set(role, genes)
+    }
     for (const p of crew) {
       const s = summary.rows.find((r) => r["participants.puuid"] === p.puuid)
       const overallStat = statOf(s, "overall", "整體")
@@ -4699,7 +4826,7 @@ export function Crew() {
       const roleJ = judgeAll(roleStats, own)
       const champJ = judgeAll(champStats, own)
       const dmgOf = (t: string) => n0(dmgTypes.rows.find((r) => r["participants.puuid"] === p.puuid && r["builds.damage_type"] === t), "participants.games")
-      const style = playStyleOf(roleJ.items, champJ.items, s, base, overallStat.scored, { ad: dmgOf("AD"), ap: dmgOf("AP") })
+      const style = playStyleOf(roleJ.items, champJ.items, s, base, overallStat.scored, { ad: dmgOf("AD"), ap: dmgOf("AP") }, roleGenes)
       out.set(p.puuid, { overall, overallWr, roles: roleJ.items, roleK: roleJ.k, champs: champJ.items, champK: champJ.k, style })
     }
     return out
@@ -5077,7 +5204,7 @@ export function Crew() {
                   </p>
                   <p>
                     每一項都算誤差範圍（95%；單場的分數起伏大，標準差約 20.8，場次越多範圍越窄）。範圍整段高於 50 是「得心應手」以上（高 8／12／20 分以上是拿手／招牌／傳奇）、整段低於 50 是「潛力股」（低 15 分以上是璞玉）；
-                    差 {WORK_GAP} 分以上但範圍還跨過 50，依差距寫「順手／漸入佳境／上手／嶄露頭角」或「磨合中／調整中／摸索中／練功中」；差不到 {WORK_GAP} 分是「小有心得／標準發揮／暖機中」；
+                    差 {WORK_GAP} 分以上但範圍還跨過 50，依差距寫「順手／漸入佳境／上手／嶄露頭角」或「磨合中／調整中／摸索中／練功中」；差不到 {WORK_GAP} 分是「小有心得／標準發揮／微幅偏低」；
                     不到 {MIN_N} 場不下判斷，寫「熱身中」（{TRIAL_MAX} 場以下是「初體驗」）。同一個人同時比好幾種出裝或好幾隻英雄，範圍會再放寬——
                     一次比二十隻，總有一兩隻看起來特別好或特別差只是運氣。
                   </p>
@@ -5215,6 +5342,8 @@ export function Crew() {
             boardLoading={board.loading}
             people={crew}
             onWide={setDrawerWide}
+            recentGames={gamesByPlayer.get(focusPlayer.puuid)}
+            recentSize={Number(recentSize)}
           />
         )}
       </DetailDrawer>
