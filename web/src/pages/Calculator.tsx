@@ -509,7 +509,7 @@ function TopPick({ row, mode }: { row: Record<string, string | number | null>; m
   const key = mode === "dmg" ? "dmgPerK" : mode === "ehp" ? "ehpPerK" : "mixPerK"
   return (
     <div className="mb-3 flex items-center gap-3 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2" data-testid="calc-top-pick">
-      {row.icon && <img src={iconUrl(String(row.icon))} alt="" className="size-9 rounded bg-icon-tile" />}
+      {row.icon && <img loading="lazy" decoding="async" src={iconUrl(String(row.icon))} alt="" className="size-9 rounded bg-icon-tile" />}
       <div className="min-w-0 text-sm">
         <div>
           看{label}，現在最划算的是 <span className="font-semibold">{row.name}</span>
@@ -570,7 +570,7 @@ function NumField({
 function Chip({ icon, label, sub, onRemove }: { icon?: string | null; label: string; sub?: string; onRemove: () => void }) {
   return (
     <span className="flex items-center gap-1.5 rounded-md border bg-muted/40 py-0.5 pl-0.5 pr-1 text-xs" title={sub}>
-      {icon && <img src={iconUrl(icon)} alt="" className="size-6 rounded bg-icon-tile" />}
+      {icon && <img loading="lazy" decoding="async" src={iconUrl(icon)} alt="" className="size-6 rounded bg-icon-tile" />}
       <span className="max-w-[8rem] truncate">{label}</span>
       {sub && <span className="size-1.5 rounded-full bg-primary" aria-label="有被動規則" />}
       <button type="button" onClick={onRemove} className="rounded p-0.5 opacity-60 hover:bg-muted hover:opacity-100" aria-label={`移除 ${label}`}>
@@ -597,7 +597,7 @@ function AugmentChip({
 }) {
   return (
     <span className="flex items-center gap-1.5 rounded-md border bg-muted/40 py-0.5 pl-0.5 pr-1 text-xs">
-      {icon && <img src={iconUrl(icon)} alt="" className="size-6 rounded bg-icon-tile" />}
+      {icon && <img loading="lazy" decoding="async" src={iconUrl(icon)} alt="" className="size-6 rounded bg-icon-tile" />}
       <span>{name}</span>
       <Input
         type="number"
@@ -652,7 +652,7 @@ function Picker({
                 onClick={() => pick(o.id)}
                 className="gap-2"
               >
-                {o.icon && <img src={iconUrl(o.icon)} alt="" className="size-6 shrink-0 rounded bg-icon-tile" />}
+                {o.icon && <img loading="lazy" decoding="async" src={iconUrl(o.icon)} alt="" className="size-6 shrink-0 rounded bg-icon-tile" />}
                 <span className="min-w-0 flex-1 truncate">{o.name}</span>
                 {o.sub && <span className="shrink-0 text-[11px] text-muted-foreground">{o.sub}</span>}
               </CommandItem>
@@ -717,7 +717,7 @@ function LiveBar({ byId, onApply }: { byId: Map<number, CalcItem>; onApply: (liv
                   picked === i ? "border-primary bg-primary/15" : "hover:border-primary/40",
                 )}
               >
-                {p.icon && <img src={iconUrl(p.icon)} alt="" className="size-6 rounded-full bg-icon-tile" />}
+                {p.icon && <img loading="lazy" decoding="async" src={iconUrl(p.icon)} alt="" className="size-6 rounded-full bg-icon-tile" />}
                 {p.championName ?? p.champion}
                 <span className="text-muted-foreground">Lv{p.level}</span>
               </button>

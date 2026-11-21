@@ -183,7 +183,7 @@ export function AccountSwitcher({ pages }: { pages: PageEntry[] }) {
                   const open = run(() => go("champions", { champ: c.name }))
                   return (
                     <CommandItem key={c.name} value={`champion ${c.name}`} onSelect={open} onClick={open} className="gap-2">
-                      {c.icon ? <img src={c.icon} alt="" className="size-5 shrink-0 rounded bg-icon-tile" /> : <span className="size-5 shrink-0" />}
+                      {c.icon ? <img loading="lazy" decoding="async" src={c.icon} alt="" className="size-5 shrink-0 rounded bg-icon-tile" /> : <span className="size-5 shrink-0" />}
                       <span className="min-w-0 flex-1 truncate">{c.name}</span>
                       <span className="shrink-0 text-xs text-muted-foreground">{c.games} 場</span>
                     </CommandItem>
@@ -197,7 +197,7 @@ export function AccountSwitcher({ pages }: { pages: PageEntry[] }) {
                   const open = run(() => go("augments", { aug: a.name }))
                   return (
                     <CommandItem key={a.name} value={`augment ${a.name}`} onSelect={open} onClick={open} className="gap-2">
-                      {a.icon ? <img src={a.icon} alt="" className="size-5 shrink-0 rounded bg-icon-tile" /> : <span className="size-5 shrink-0" />}
+                      {a.icon ? <img loading="lazy" decoding="async" src={a.icon} alt="" className="size-5 shrink-0 rounded bg-icon-tile" /> : <span className="size-5 shrink-0" />}
                       <span className="min-w-0 flex-1 truncate">{a.name}</span>
                       <span className="shrink-0 text-xs text-muted-foreground">{a.games} 場</span>
                     </CommandItem>

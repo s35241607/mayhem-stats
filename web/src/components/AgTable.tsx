@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge"
 import { iconUrl } from "@/lib/cube"
 import { cn } from "@/lib/utils"
 import { useThemeName } from "@/lib/theme"
-import { useAfterPageEnter } from "@/lib/motion"
+import { prefersReducedMotion, useAfterPageEnter } from "@/lib/motion"
 import { readStored, writeStored } from "@/lib/tableLayout"
 import { ColumnMenu, type MenuColumn } from "@/components/ColumnMenu"
 
@@ -113,7 +113,7 @@ function DimensionCell({ params, column }: { params: ICellRendererParams; column
   return (
     <span className="flex items-center gap-2">
       {icon && (
-        <img src={iconUrl(icon)} alt="" className="size-6 shrink-0 rounded bg-icon-tile" />
+        <img loading="lazy" decoding="async" src={iconUrl(icon)} alt="" className="size-6 shrink-0 rounded bg-icon-tile" />
       )}
       <span className="truncate" title={(params.value as string) ?? undefined}>
         {(params.value as string) ?? "—"}
@@ -441,7 +441,7 @@ export function AgTable({
             autoHeaderHeight: true,
           }}
           suppressCellFocus={false}
-          animateRows
+          animateRows={!prefersReducedMotion()}
           rowSelection={{ mode: "multiRow", checkboxes: false, headerCheckbox: false }}
           onCellClicked={drillOn === "click" ? handleDrill : undefined}
           onCellDoubleClicked={drillOn === "dblclick" ? handleDrill : undefined}

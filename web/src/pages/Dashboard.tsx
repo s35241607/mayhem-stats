@@ -96,7 +96,7 @@ function TopList({
             style={{ "--stagger": `${i * 40}ms` } as CSSProperties}
             className="slide-in flex w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left transition hover:bg-accent"
           >
-            <img src={iconUrl(r[iconKey] as string)} alt="" className="size-7 shrink-0 rounded-md bg-icon-tile" />
+            <img loading="lazy" decoding="async" src={iconUrl(r[iconKey] as string)} alt="" className="size-7 shrink-0 rounded-md bg-icon-tile" />
             <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
             <CountUp text={`${n} 場`} className="text-xs text-muted-foreground" />
             <Badge

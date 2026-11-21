@@ -98,7 +98,7 @@ function buildColumns(rows: CubeRow[], overallWr: number | null, roleMix: RoleMi
             className="flex min-w-0 items-center gap-2"
             title={mix.length ? `出裝定位：${mix.map((m) => `${m.role} ${m.games} 場`).join("、")}` : undefined}
           >
-            <img src={iconUrl(r["champions.icon_path"] as string)} alt="" className="size-7 shrink-0 rounded bg-icon-tile" />
+            <img loading="lazy" decoding="async" src={iconUrl(r["champions.icon_path"] as string)} alt="" className="size-7 shrink-0 rounded bg-icon-tile" />
             <span className="flex min-w-0 flex-col items-start gap-0.5">
               <span className="truncate font-medium">{name}</span>
               {mix[0] && (
@@ -284,7 +284,7 @@ function BuildList({
                 style={{ "--stagger": `${Math.min(i, 10) * 30}ms` } as CSSProperties}
                 className="slide-in flex items-center gap-2.5 rounded-md px-1.5 py-1"
               >
-                <img src={iconUrl(r[iconKey] as string)} alt="" className="size-7 shrink-0 rounded bg-icon-tile" />
+                <img loading="lazy" decoding="async" src={iconUrl(r[iconKey] as string)} alt="" className="size-7 shrink-0 rounded bg-icon-tile" />
                 <span className="min-w-0 flex-1 truncate text-[13px]">{label}</span>
                 <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{games} 場</span>
                 <span

@@ -593,6 +593,58 @@
     animation: progress-slide 1100ms cubic-bezier(0.4, 0, 0.2, 1) infinite;
   }
 }
+/* 骨架：一道淡光由左掃到右（只動偽元素的 transform），比整塊呼吸更像「正在載入」。
+ * 光的顏色取前景色混透明，暗色、亮色主題都看得到又不搶眼 */
+@keyframes shimmer {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+@utility shimmer {
+  overflow: hidden;
+  &:not(.absolute):not(.fixed) {
+    position: relative;
+  }
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--foreground) 9%, transparent), transparent);
+    animation: shimmer 1400ms cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+}
+/* 側欄目前頁的標記：左緣一條主色，換頁時從中間長出來（scaleY） */
+@keyframes nav-mark {
+  from { transform: scaleY(0); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@utility nav-mark {
+  position: relative;
+  &[data-active="true"]::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 22%;
+    bottom: 22%;
+    width: 3px;
+    border-radius: 9999px;
+    background: var(--primary);
+    animation: nav-mark 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+}
+/* 長清單的列：畫面外的不排版、不繪製（瀏覽器自己做的虛擬化），捲到才算。
+ * contain-intrinsic-size 給一個接近的高度，捲軸長度才不會邊捲邊跳；auto 表示量過一次就記住真正的高度 */
+@utility cv-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 76px;
+}
+/* 可以點的卡片與列：按下去微微縮一點（只動 transform），放開彈回 */
+@utility pressable {
+  transition: transform 120ms ease-out;
+  &:active {
+    transform: scale(0.99);
+  }
+}
 /* 骨架換成真正內容時淡入，而不是瞬間跳出來 */
 @utility reveal {
   animation: reveal 220ms ease-out both;
@@ -616,6 +668,10 @@
   .progress-bar > span {
     animation: none !important;
     width: 100%;
+  }
+  .shimmer::after {
+    animation: none !important;
+    display: none;
   }
 }
 

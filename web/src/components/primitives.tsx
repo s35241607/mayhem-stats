@@ -94,7 +94,7 @@ export function Panel({
 }) {
   return (
     <div className={cn("rise", className)} style={{ "--stagger": `${index * 50}ms` } as CSSProperties}>
-      <Card className="relative h-full gap-3">
+      <Card className="relative h-full gap-3 transition-shadow duration-200 hover:ring-primary/25">
         <EdgeLight />
         {title && (
           <CardHeader className="pb-0">

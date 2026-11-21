@@ -40,7 +40,7 @@ function Hero({ player }: { player?: Player }) {
   if (!player) return <span className="text-muted-foreground">未知英雄</span>
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5">
-      {player.champion_icon && <img className="size-5 shrink-0 rounded bg-icon-tile" src={iconUrl(player.champion_icon)} alt="" />}
+      {player.champion_icon && <img loading="lazy" decoding="async" className="size-5 shrink-0 rounded bg-icon-tile" src={iconUrl(player.champion_icon)} alt="" />}
       <span className="break-words">{player.champion_name}</span>
     </span>
   )

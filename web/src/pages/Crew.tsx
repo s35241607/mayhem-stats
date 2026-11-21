@@ -3348,7 +3348,7 @@ function PlayerDrawerBody({
                     </span>
                     <span className="flex min-w-0 items-center gap-2.5" data-tip={tipOf(j, ownWr)}>
                       <ChevronDown className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", !open && "-rotate-90")} />
-                      <img src={iconUrl(j.icon)} alt="" className="size-8 shrink-0 rounded-md bg-icon-tile" />
+                      <img loading="lazy" decoding="async" src={iconUrl(j.icon)} alt="" className="size-8 shrink-0 rounded-md bg-icon-tile" />
                       <span className="truncate text-[13px] font-medium">{j.label}</span>
                     </span>
                     <span className="font-mono text-xs tabular-nums text-muted-foreground">{j.games} 場</span>
@@ -3414,7 +3414,7 @@ function LookupPicker({
         <Button variant="outline" className="h-10 w-[280px] justify-between gap-2">
           <span className="flex min-w-0 items-center gap-2">
             {current ? (
-              <img src={iconUrl(current.icon)} alt="" className="size-6 shrink-0 rounded bg-icon-tile" />
+              <img loading="lazy" decoding="async" src={iconUrl(current.icon)} alt="" className="size-6 shrink-0 rounded bg-icon-tile" />
             ) : (
               <Search className="size-4 text-muted-foreground" />
             )}
@@ -3437,7 +3437,7 @@ function LookupPicker({
                 onClick={() => pick(o.name)}
                 className="gap-2"
               >
-                <img src={iconUrl(o.icon)} alt="" className="size-6 shrink-0 rounded bg-icon-tile" />
+                <img loading="lazy" decoding="async" src={iconUrl(o.icon)} alt="" className="size-6 shrink-0 rounded bg-icon-tile" />
                 <span className="min-w-0 flex-1 truncate">{o.name}</span>
                 <span className="shrink-0 text-xs text-muted-foreground">
                   {o.players} 人・{o.games} 場
@@ -3815,7 +3815,7 @@ function RankStrip({ items, selected, onPick }: { items: LookupOption[]; selecte
               on ? "border-primary bg-primary/10 ring-1 ring-primary" : "border-border/60",
             )}
           >
-            <img src={iconUrl(o.icon)} alt="" className="size-8 shrink-0 rounded bg-icon-tile" />
+            <img loading="lazy" decoding="async" src={iconUrl(o.icon)} alt="" className="size-8 shrink-0 rounded bg-icon-tile" />
             <span className="min-w-0 leading-tight">
               <span className="block truncate text-[12px]">{o.name}</span>
               <span className="flex items-baseline gap-1.5 font-mono text-[11px] tabular-nums">
@@ -3899,7 +3899,7 @@ function PairList({
                 style={{ "--stagger": `${Math.min(i, 12) * 30}ms` } as CSSProperties}
                 className="slide-in grid w-full grid-cols-[1.5rem_minmax(0,1fr)_minmax(3rem,5rem)_2.5rem_2.25rem_1.75rem] items-center gap-1.5 rounded px-1 py-0.5 text-left transition hover:bg-accent"
               >
-                <img src={iconUrl(o.icon)} alt="" className="size-6 rounded bg-icon-tile" />
+                <img loading="lazy" decoding="async" src={iconUrl(o.icon)} alt="" className="size-6 rounded bg-icon-tile" />
                 <span className="truncate text-[12px]">{o.name}</span>
                 <span className="h-1.5 overflow-hidden rounded-full bg-muted/40">
                   <span className="bar-grow block h-full rounded-full bg-data" style={{ width: `${Math.min(100, share)}%` }} />

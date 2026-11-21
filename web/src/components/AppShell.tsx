@@ -464,6 +464,7 @@ function NavSections({
               {section.items.map((item) => (
                 <SidebarMenuItem key={item.id}>
                   <SidebarMenuButton
+                    className="nav-mark"
                     isActive={page === item.id}
                     tooltip={item.label}
                     onClick={() => go(item.id)}

@@ -97,6 +97,10 @@ description: 這個專案前端的主題與動畫規範。只要動到 web/src �
    | `bar-grow` | 表格格子裡的迷你資料條從左邊長出（`scaleX`） | 600ms |
    | `refreshable` | 內容是上一個條件的、新的還在查：`aria-busy="true"` 時淡到 0.45（延後 120ms 才開始，快的查詢不閃）。`Panel`／`Kpi` 的 `refreshing` prop 已內建 | 160ms |
    | `progress-bar` | 標題列底部的查詢進度條（`AppShell` 的 `QueryProgress`），有 Cube 查詢在跑才亮（延後 150ms） | 1100ms 循環 |
+   | `shimmer` | 骨架上由左掃到右的淡光（偽元素的 transform）；`ui/skeleton` 已內建，不要再加 `animate-pulse` | 1400ms 循環 |
+   | `nav-mark` | 側欄目前頁左緣的主色標記，換頁時從中間長出（`scaleY`） | 240ms |
+   | `pressable` | 可點的卡片與列按下去縮到 0.99 | 120ms |
+   | `cv-row` | 不是動畫：長清單的列加 `content-visibility: auto`，畫面外的不排版不繪製。列的內容不能溢出列外（會被裁掉） | — |
    | `drawer-in` / `drawer-overlay` | 右側詳細抽屜滑入 32px + 淡入／遮罩淡入（英雄頁點一列）。抽屜裡的重元件等滑完（300ms）再掛 | 280ms / 200ms |
    | `title-shine` | 好友比較的稱號徽章出現時掃過一道光（偽元素的 transform），同一列用 `--stagger` 依序閃，只播一次 | 900ms（延遲 300ms 起） |
    不要自己另寫時長。需要新的動畫就加 utility 並更新這張表。

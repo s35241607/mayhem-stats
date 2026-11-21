@@ -44,7 +44,7 @@ export function DetailDrawer({
           aria-describedby={undefined}
         >
           <div className="flex items-center gap-3 border-b px-5 py-3">
-            {icon && <img src={icon} alt="" className="size-10 shrink-0 rounded-lg bg-icon-tile ring-1 ring-border" />}
+            {icon && <img loading="lazy" decoding="async" src={icon} alt="" className="size-10 shrink-0 rounded-lg bg-icon-tile ring-1 ring-border" />}
             <div className="min-w-0 flex-1">
               <DialogPrimitive.Title className="truncate text-base font-semibold">{title}</DialogPrimitive.Title>
               {subtitle && <div className="text-xs text-muted-foreground">{subtitle}</div>}

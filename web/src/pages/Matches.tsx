@@ -885,7 +885,7 @@ function MatchCardChunk({
             // 一列一列滑進來；「再顯示 20 場」時新增的那批從 0 開始錯開，不會等上一批的延遲
             style={{ "--stagger": `${(i % 20) * 30}ms` } as CSSProperties}
             className={cn(
-              "slide-in",
+              "slide-in cv-row pressable",
               // 勝敗靠底色與文字傳達就夠了。先前用高彩度的左側粗邊，
               // 二十列疊起來像斑馬紋，反而蓋過內容。
               "flex w-full flex-wrap items-center gap-y-1.5 rounded-lg border px-3 py-2 text-left transition",
@@ -912,7 +912,7 @@ function MatchCardChunk({
                 容器不到 700px（768px 寬螢幕扣掉側邊欄、手機）時換行，後半段排到第二行，不會被切掉 */}
             <div className="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
               <div className="relative shrink-0">
-                <img src={iconUrl(m.champion_icon)} alt="" title={m.champion_name} className="size-10 rounded-md bg-icon-tile" />
+                <img loading="lazy" decoding="async" src={iconUrl(m.champion_icon)} alt="" title={m.champion_name} className="size-10 rounded-md bg-icon-tile" />
                 {tag && <ContribTagBadge tag={tag} className="absolute -left-1 -top-1 shadow-sm ring-1 ring-background" />}
                 <span className="absolute -bottom-1 -right-1 rounded bg-background px-1 text-[10px] font-bold tabular-nums">
                   {m.champ_level}
