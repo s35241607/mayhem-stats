@@ -84,6 +84,11 @@ class MayhemSqliteQuery extends SqliteQuery {
     for (const [op, sign] of [["gt", ">"], ["gte", ">="], ["lt", "<"], ["lte", "<="]]) {
       templates.filters[op] = `{{ column }} ${sign} CAST({{ param }} AS REAL)`
     }
+    // 兩個以上的指標分屬不同 cube（例如 participants.games + contribution.work）時，規劃器各算一段 CTE，
+    // 再用分組欄位接回來。沒有這個運算子時它寫成 (a = b OR (a IS NULL AND b IS NULL))，SQLite 對 OR 建不出
+    // 自動索引，每一列都把另一段整個掃一遍：依玩家×增幅分組的 1911 列實測 4551ms。
+    // SQLite 的 IS 就是不分 NULL 的相等，而且能用自動索引：同一個查詢 536ms，結果逐列相同。
+    templates.operators.is_not_distinct_from = "IS"
     return templates
   }
 

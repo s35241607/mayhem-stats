@@ -798,8 +798,22 @@ async def login(request: Request):
 
 WEB_DIST = BASE_DIR / "web" / "dist"
 
+class HashedAssets(StaticFiles):
+    """assets/ 底下的檔名都帶內容雜湊（Vite 產生），內容變了檔名就變，所以可以標成 immutable。
+
+    原本沒有 Cache-Control：瀏覽器只能照 Last-Modified 猜能快取多久，剛 build 完的那段時間
+    每次重新整理都會把三十幾個檔案逐一回來問一次（304）。標了之後連問都不用問，
+    鏡像那邊也少掉這些請求與重複壓縮。index.html 仍是 no-cache，改版一樣立刻生效。"""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if response.status_code in (200, 304):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
+
 if (WEB_DIST / "assets").is_dir():
-    app.mount("/assets", StaticFiles(directory=WEB_DIST / "assets"), name="assets")
+    app.mount("/assets", HashedAssets(directory=WEB_DIST / "assets"), name="assets")
 
 
 @app.get("/")

@@ -1,7 +1,7 @@
 cubes:
   - name: matches
     # 重開局（matches.is_remake）不算：遊戲裡不算輸贏，但對局資料仍把一隊記為勝。原始資料保留在資料表裡
-    sql: SELECT * FROM matches WHERE is_remake = 0
+    sql: SELECT rowid AS rowid, * FROM matches WHERE is_remake = 0
     description: 一場對局的表頭。時間欄位在資料庫裡是 epoch 毫秒(UTC),這裡轉成時間戳給 Cube,時區換算交由查詢端指定。
 
     # 與 participants.yml 相同的 refresh key,理由寫在那裡。SQL 必須一字不差才會被合併。
@@ -16,9 +16,13 @@ cubes:
         sql: "{CUBE}.queue_id = 2400"
 
     dimensions:
+      # 用來源表的 rowid 當整數主鍵，不要用 platform_id || ':' || game_id（理由同 participants.id）。
+      # 以 participants 的維度分組、又要 matches 的指標（avg_duration）時，Cube 會先撈出 (分組, 對局主鍵)
+      # 再 join 回本表；主鍵是字串運算式時那個 join 用不到索引，每一列都把整張 matches 掃一遍。
+      # 實測好友比較的數據總表（13 人、100 個指標）SQLite 10.5 秒，其中 99 個 participants 指標只佔 34 毫秒。
       - name: id
-        sql: "{CUBE}.platform_id || ':' || {CUBE}.game_id"
-        type: string
+        sql: "{CUBE}.rowid"
+        type: number
         primary_key: true
 
       - name: game_id
