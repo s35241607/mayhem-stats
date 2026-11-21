@@ -24,6 +24,7 @@ import { MIN_GAMES, NO_LIMIT, round0, round1 } from "./shared"
 import { empiricalBayes, shrinkRate } from "@/lib/gap"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { boolCodec, oneOf, stringCodec, useUrlState } from "@/lib/urlState"
+import { compareColumns, useComparedRows } from "@/components/compare"
 
 const ALL = "__all__"
 const rankCodec = oneOf<"eb" | "raw">("eb", "raw")
@@ -137,7 +138,7 @@ function buildColumns(
 }
 
 export function Augments() {
-  const { addDrill, drills } = useFilters()
+  const { addDrill, drills, applyCompare, compare } = useFilters()
   // 看誰的數據（和英雄頁同一個切換列）。之後所有查詢都走 scope.q，不直接用 apply
   const [who, setWhoState] = usePageWho()
   const scope = useWhoScope(who)
@@ -272,9 +273,29 @@ export function Augments() {
           )
       : rows.map(withEb)
   }, [rows, baseline.rows, champion, overallWr, eb.m])
+  // 對照前期：同一張表換成前一段再查一次（只在看目前帳號時接，理由同英雄頁）
+  const comparing = who === "account" ? compare : null
+  const comparedRows = useComparedRows(
+    tableRows,
+    "augments.name",
+    comparing
+      ? applyCompare({
+          measures: ["participants.games", "participants.wins"],
+          dimensions: ["augments.name"],
+          filters: [
+            HAS_AUGMENT,
+            ...(champion && !drilled ? [{ member: "champions.name", operator: "equals" as const, values: [champion] }] : []),
+          ],
+          limit: NO_LIMIT,
+        })
+      : null,
+  )
   const columns = useMemo(
-    () => buildColumns(tableRows, !!champion, overallWr, overallDpm, scope.baselineLabel),
-    [tableRows, champion, overallWr, overallDpm, scope.baselineLabel],
+    () => [
+      ...buildColumns(tableRows, !!champion, overallWr, overallDpm, scope.baselineLabel),
+      ...(comparing ? compareColumns(comparing.label) : []),
+    ],
+    [tableRows, champion, overallWr, overallDpm, scope.baselineLabel, comparing],
   )
 
   // 全部英雄時圖表只放樣本夠的，否則整張圖都是 1 場 100% 的雜訊。
@@ -414,7 +435,7 @@ export function Augments() {
             rowHeight={54}
             highlight={focus ? { key: "augments.name", value: focus } : null}
             onRowClick={(row) => toggleFocus(String(row["augments.name"]))}
-            rows={tableRows}
+            rows={comparedRows}
             emptyHint={champion ? "這個條件下這隻英雄還沒有增幅紀錄。" : undefined}
             height={520}
             fileName={champion ? `augments-${champion}` : "augments"}

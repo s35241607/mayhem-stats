@@ -23,6 +23,7 @@ import { WhoSwitch } from "@/components/WhoSwitch"
 import { usePageWho } from "@/lib/whoState"
 import { WHO_LABEL, useWhoScope, type Who, type WhoScope } from "@/lib/who"
 import { stringCodec, useUrlState } from "@/lib/urlState"
+import { compareColumns, useComparedRows } from "@/components/compare"
 
 const WhoContext = createContext<WhoScope | null>(null)
 const useWho = () => {
@@ -579,7 +580,25 @@ function ChampionsBody({ onWho }: { onWho: (who: Who) => void }) {
     for (const list of m.values()) list.sort((a, b) => b.games - a.games || a.role.localeCompare(b.role, "zh-Hant"))
     return m
   }, [mixQuery.rows])
-  const columns = useMemo(() => buildColumns(rows, baseline, roleMix, baselineLabel), [rows, baseline, roleMix, baselineLabel])
+  // 對照前期（標題列的按鈕）：只在看「目前帳號」時接——追蹤對象／所有人的範圍條件不是 apply 那一套
+  const { applyCompare, compare } = useFilters()
+  const comparing = who === "account" ? compare : null
+  const tableRows = useComparedRows(
+    rows,
+    "champions.name",
+    comparing
+      ? applyCompare({
+          measures: ["participants.games", "participants.wins"],
+          dimensions: ["champions.name"],
+          filters: roleFilters(activeRole, spec),
+          limit: NO_LIMIT,
+        })
+      : null,
+  )
+  const columns = useMemo(
+    () => [...buildColumns(rows, baseline, roleMix, baselineLabel), ...(comparing ? compareColumns(comparing.label) : [])],
+    [rows, baseline, roleMix, baselineLabel, comparing],
+  )
   const noTracked = who === "tracked" && !trackedCount
 
   return (
@@ -630,7 +649,7 @@ function ChampionsBody({ onWho }: { onWho: (who: Who) => void }) {
                 <AgTable
                   columns={columns}
                   rowHeight={54}
-                  rows={rows}
+                  rows={tableRows}
                   height={560}
                   fileName="champions"
                   drillOn="click"
