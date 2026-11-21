@@ -33,13 +33,13 @@ test.describe("好友比較頁：比較對象", () => {
   })
 
   test("每位好友一顆標籤（含自己），預設全部勾選", async ({ page }) => {
-    const chips = (await roster(page)).getByTestId("crew-chip")
+    const chips = panel(page, "比較對象").getByTestId("crew-chip")
     await expect(chips).toHaveCount(crewMembers().length)
     for (const c of await chips.all()) await expect(c).toHaveClass(/border-primary\/50/)
   })
 
   test("點名字拿掉：全員一覽少一列；再點加回來；最後一個拿不掉", async ({ page }) => {
-    const chips = (await roster(page)).getByTestId("crew-chip")
+    const chips = panel(page, "比較對象").getByTestId("crew-chip")
     const toggle = (i: number) => chips.nth(i).locator("button").first()
     const rows = () => panel(page, "全員一覽").getByTestId("crew-row")
     const n = crewMembers().length
@@ -63,16 +63,16 @@ test.describe("好友比較頁：頂層分頁與範圍列", () => {
     await openPage(page, "crew")
   })
 
-  test("四個分頁一次只看一段；捲下去時分頁列貼在頁首正下方；比較對象在分頁列上直接調整", async ({ page }) => {
+  test("四個分頁一次只看一段；捲下去時分頁列貼在頁首正下方；調整比較對象回到最上面", async ({ page }) => {
     await expect(page.getByRole("tab", { name: "全員一覽", exact: true })).toHaveAttribute("data-state", "active")
     await expect(panel(page, "全員一覽")).toBeVisible()
     await expect(panel(page, "數據總表")).toHaveCount(0)
     await page.getByRole("tab", { name: "數據總表", exact: true }).click()
     await expect(panel(page, "數據總表")).toBeVisible()
     await expect(panel(page, "全員一覽")).toHaveCount(0)
-    await page.getByRole("tab", { name: "查詢", exact: true }).click()
+    await page.getByRole("tab", { name: "查英雄", exact: true }).click()
     await expect(panel(page, "查英雄")).toBeVisible()
-    await lookupKind(page, "增幅裝置")
+    await page.getByRole("tab", { name: "查增幅裝置", exact: true }).click()
     await expect(panel(page, "查增幅裝置")).toBeVisible()
 
     await page.evaluate(() => window.scrollTo(0, 600))
@@ -84,10 +84,8 @@ test.describe("好友比較頁：頂層分頁與範圍列", () => {
     })
     expect(gap).toBeLessThan(2)
 
-    // 名單收在分頁列的彈出選單：捲下去之後不用回頂端就打得開
-    const before = await page.evaluate(() => window.scrollY)
-    await expect((await roster(page)).getByTestId("crew-chip").first()).toBeVisible()
-    expect(await page.evaluate(() => window.scrollY)).toBe(before)
+    await page.getByRole("button", { name: "調整比較對象", exact: true }).click()
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0)
   })
 })
 
@@ -332,9 +330,8 @@ test.describe("好友比較頁：全員一覽", () => {
     for (const [label, note] of [["傳奇", "20 分以上"], ["順手", "高 4 分以上，還在誤差內"], ["潛力股", "低於平均（看得出）"], ["初體驗", "2 場以下"]]) {
       await expect(legend.filter({ hasText: label }).first()).toHaveAttribute("data-tip", new RegExp(note))
     }
-    // 說明收進右側抽屜
-    await box.getByTestId("crew-how-open").click()
-    await expect(page.getByTestId("crew-how").getByText(/舊版的「適合／不適合」用固定門檻/)).toBeVisible()
+    await box.getByText(/怎麼判斷的/).click()
+    await expect(box.getByText(/舊版的「適合／不適合」用固定門檻/)).toBeVisible()
   })
 
   test("英雄頭像：每人比平均強／培養中的英雄上下兩條、各最多 12 隻，數量和獨立計算一致", async ({ page }) => {
@@ -530,7 +527,7 @@ test("好友比較頁不再有「陣容情境」：陣容分析集中在陣容�
 test.describe("好友比較頁：查英雄／查增幅裝置", () => {
   test.beforeEach(async ({ page }) => {
     await openPage(page, "crew")
-    await page.getByRole("tab", { name: "查詢", exact: true }).click()
+    await page.getByRole("tab", { name: "查英雄", exact: true }).click()
     await expect(panel(page, "查英雄")).toBeVisible()
   })
 
@@ -584,7 +581,7 @@ test.describe("好友比較頁：查英雄／查增幅裝置", () => {
   })
 
   test("查增幅裝置：摘要的人數、場次、勝敗和 SQL 一致", async ({ page }) => {
-    await lookupKind(page, "增幅裝置")
+    await page.getByRole("tab", { name: "查增幅裝置", exact: true }).click()
     const box = panel(page, "查增幅裝置")
     const aug = (await box.getByRole("button").first().innerText()).trim()
     const crew = crewMembers().map((m) => m.puuid)
@@ -632,19 +629,7 @@ const peakTop = async (page: Page) => {
 
 /** 比較對象裡一個人的標籤（名字在前）右邊的 ★：設為中心的那一顆 */
 const centerBtn = (page: Page, riotId: string) =>
-  page.getByTestId("crew-roster").getByTestId("crew-chip").filter({ hasText: nameOf(riotId) }).first().getByTestId("crew-center")
-
-/** 比較對象收在分頁列的彈出選單裡：沒開就先打開，回傳選單本身 */
-async function roster(page: Page) {
-  const box = page.getByTestId("crew-roster")
-  if (!(await box.isVisible())) await page.getByTestId("crew-roster-open").click()
-  await expect(box).toBeVisible()
-  return box
-}
-
-/** 「查詢」分頁裡切換查英雄／增幅裝置／裝備 */
-const lookupKind = (page: Page, name: "英雄" | "增幅裝置" | "裝備") =>
-  page.getByTestId("crew-lookup-kind").getByRole("radio", { name, exact: true }).click()
+  panel(page, "比較對象").getByTestId("crew-chip").filter({ hasText: nameOf(riotId) }).first().getByTestId("crew-center")
 
 /** 比較對象（站長＋追蹤中的帳號）的每一場，某個每分鐘數值由高到低前 10 場；有給中心就只算他也在場的對局。獨立手寫，不經過語意層。 */
 const minuteTop = (numerator: string, centers: string[] = []) =>
@@ -701,9 +686,7 @@ test.describe("好友比較頁：單場每分鐘紀錄的中心（選填）", ()
     const me = crewMembers().find((m) => m.is_me === 1)!
     const values = () => p.getByTestId("minute-record-value").allInnerTexts()
 
-    await roster(page)
     await centerBtn(page, me.riot_id).click()
-    await page.keyboard.press("Escape")
     const withCenter = minuteTop("p.kills", [me.puuid]).map((v) => v.toFixed(2))
     await expect(p.getByTestId("minute-record-game")).toHaveCount(withCenter.length)
     expect(await values()).toEqual(withCenter)
@@ -739,10 +722,8 @@ test.describe("好友比較頁：中心可多選（只看這幾位都在場的�
     const p = await peakTop(page)
     const me = crewMembers().find((m) => m.is_me === 1)!
     const other = crewMembers().find((m) => m.is_me !== 1)!
-    await roster(page)
     await centerBtn(page, me.riot_id).click()
     await centerBtn(page, other.riot_id).click()
-    await page.keyboard.press("Escape")
     const want = minuteTop("p.kills", [me.puuid, other.puuid]).map((v) => v.toFixed(2))
     await expect(p.getByTestId("minute-record-game")).toHaveCount(want.length)
     expect(await p.getByTestId("minute-record-value").allInnerTexts()).toEqual(want)

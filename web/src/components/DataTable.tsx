@@ -48,10 +48,7 @@ export function DataTable<T>({
   dense,
   stickyHeader,
   showHelp = true,
-  footer,
 }: {
-  /** 表格最下面固定的一列（合計、平均）：不參與排序，每欄給一格內容 */
-  footer?: (col: DataColumn<T>) => ReactNode
   /** 表格下方那行操作說明；空間小的地方（抽屜裡的小表）可以關掉 */
   showHelp?: boolean
   columns: DataColumn<T>[]
@@ -339,17 +336,6 @@ export function DataTable<T>({
               </tr>
             ))}
           </tbody>
-          {footer && (
-            <tfoot>
-              <tr className="border-t bg-muted/30 text-xs" data-testid="table-footer">
-                {display.map((c) => (
-                  <td key={c.id} data-col={c.id} className={cn(pad, alignCls(c), pinned.has(c.id) ? "sticky z-[1] bg-muted" : "")}>
-                    {footer(c)}
-                  </td>
-                ))}
-              </tr>
-            </tfoot>
-          )}
         </table>
       </div>
       {showHelp && <p className="text-[11px] text-muted-foreground">

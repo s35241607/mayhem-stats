@@ -43,7 +43,7 @@ import {
 } from "@/lib/gap"
 import { participantRows } from "@/lib/who"
 import { BUILD_ROLES, BUILD_SHORT, MIN_GAMES, NO_LIMIT, round0, splitRiotId } from "./shared"
-import { listCodec, oneOf, stringCodec, useUrlParam, useUrlState, writeParams } from "@/lib/urlState"
+import { oneOf, stringCodec, useUrlState } from "@/lib/urlState"
 
 // ── 判斷：和陣容、敗因、節奏三頁同一套「區間」講法 ─────────────────────────────
 // 判斷用本場貢獻（contribution.work，v5.4 / v5-B 修訂版）：九個計分基因（輸出、承傷、擊殺、參團、治療護盾、控場、推塔、清兵、功能裝）
@@ -739,12 +739,12 @@ function RowLegend() {
 }
 
 /** 全員一覽的「怎麼判斷的」：預設收起，標題列只留一句話 */
-function HowWeJudge({ open, onClose, children }: { open: boolean; onClose: () => void; children: ReactNode }) {
-  // 說明收進右側抽屜：原本是表格下面一塊展開區，四段長文把頁面撐得很長，要看的時候又得捲到最底
+function HowWeJudge({ children }: { children: ReactNode }) {
   return (
-    <DetailDrawer open={open} onClose={onClose} title="怎麼判定的" subtitle="本場貢獻、誤差範圍，以及為什麼不再用「適合／不適合」">
-      <div className="space-y-3 text-sm leading-relaxed text-muted-foreground" data-testid="crew-how">{children}</div>
-    </DetailDrawer>
+    <details className="rounded-lg border bg-muted/10 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+      <summary className="cursor-pointer text-xs font-medium text-foreground">怎麼判斷的、為什麼不再用「適合／不適合」</summary>
+      <div className="mt-2 space-y-1.5">{children}</div>
+    </details>
   )
 }
 
@@ -1131,23 +1131,7 @@ type GamesSource = { puuid: string; filters: CubeFilter[]; recordMetric?: string
 type GamesFocus = { title: string; note: string; cell?: { puuid: string; key: string }; source: GamesSource }
 
 /** 右側抽屜同一時間只開一個：一位好友（總覽、出裝與英雄），或一串對局（數字、英雄、增幅、單場紀錄） */
-type Focus =
-  | { kind: "player"; puuid: string; role: string | null; tab: DrawerTab; champ?: string }
-  | { kind: "vs"; a: string; b: string }
-  | ({ kind: "games" } & GamesFocus)
-const drawerTabCodec = oneOf<DrawerTab>("overview", "picks", "stats")
-/** 網址裡的人只放 puuid 前 8 碼 */
-const short = (puuid: string) => puuid.slice(0, 8)
-const DENSITY_KEY = "mayhem-crew-rows"
-
-/** 跟著勾選名單重查的查詢：新的還沒回來時留著上一份（refreshing），只有從來沒拿到過才算 first。
- *  useCube 在「問的東西變了」時會清掉舊列——那是為了不把別人的數字當成現在的；這裡問的是同一群人增減一位，留著上一份淡化比整塊閃掉好。 */
-function useKeptRows(res: { rows: CubeRow[]; loading: boolean }) {
-  const [kept, setKept] = useState<CubeRow[] | null>(null)
-  // 渲染中依輸入更新狀態（React 允許的寫法）：useCube 的 rows 在結果沒變時是同一個陣列，不會一直重設
-  if (!res.loading && res.rows.length && kept !== res.rows) setKept(res.rows)
-  return { rows: res.loading ? (kept ?? []) : res.rows, first: res.loading && !kept, refreshing: res.loading && !!kept }
-}
+type Focus = { kind: "player"; puuid: string; role: string | null; tab: DrawerTab; champ?: string } | ({ kind: "games" } & GamesFocus)
 
 /** 總覽分頁上的一張數字卡：主數字、區間、判定與一句說明 */
 function SummaryCard({ title, main, sub, strength, label, note, cls }: { title: string; main: string; sub: string; strength: Strength; label: string; note: string; cls?: string }) {
@@ -1934,7 +1918,7 @@ function DuoMatrix({ people, pairs, onOpen }: { people: Player[]; pairs: DuoPair
                   data-testid="crew-duo-cell"
                   data-pair={`${nameOf(a)}|${nameOf(b)}`}
                   onClick={() => onOpen(d)}
-                  data-tip={`${nameOf(a)}＋${nameOf(b)} 同隊 ${d.games} 場、${d.wins} 勝 ${d.games - d.wins} 敗（${wr.toFixed(1)}%）\n95% 區間 ${lo.toFixed(0)}～${hi.toFixed(0)}%${enough ? (clear ? "，看得出和 50% 不同" : "，還在誤差內") : `；不到 ${DUO_MIN_GAMES} 場，不上色`}\n點一下看兩人對決`}
+                  data-tip={`${nameOf(a)}＋${nameOf(b)} 同隊 ${d.games} 場、${d.wins} 勝 ${d.games - d.wins} 敗（${wr.toFixed(1)}%）\n95% 區間 ${lo.toFixed(0)}～${hi.toFixed(0)}%${enough ? (clear ? "，看得出和 50% 不同" : "，還在誤差內") : `；不到 ${DUO_MIN_GAMES} 場，不上色`}\n點一下看這幾場`}
                   style={enough ? { background: `color-mix(in oklab, ${tone} ${Math.round(14 + strength * 40)}%, transparent)` } : undefined}
                   className={cn(
                     "flex h-9 flex-col items-center justify-center rounded-md border leading-tight transition hover:brightness-125",
@@ -4050,11 +4034,7 @@ const ITEM_LOOKUP: LookupKind = {
 type StatCol = { key: string; label: string; fmt: (v: number) => string; hint: string; lower?: boolean; record?: boolean }
 const int = (v: number) => Math.round(v).toLocaleString()
 const pctFmt = (v: number) => `${v.toFixed(1)}%`
-// 先整個四捨五入到秒再拆：分開捨入的話 239.6 秒會變成「3:60」
-const mmssFmt = (v: number) => {
-  const s = Math.round(v)
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`
-}
+const mmssFmt = (v: number) => `${Math.floor(v / 60)}:${String(Math.round(v % 60)).padStart(2, "0")}`
 /** matches.avg_duration 的單位是分鐘；畫面統一顯示成遊戲內時鐘 mm:ss。 */
 const durationFmt = (minutes: number) => {
   const seconds = Math.round(minutes * 60)
@@ -4259,12 +4239,7 @@ function StatsPanel({
   centers,
   active,
   onOpen,
-  total,
-  totalRefreshing,
 }: {
-  /** 名單合計那一列（語意層對整份勾選名單重算的） */
-  total: CubeRow | undefined
-  totalRefreshing: boolean
   people: Player[]
   rows: CubeRow[]
   loading: boolean
@@ -4275,10 +4250,7 @@ function StatsPanel({
   active: { puuid: string; key: string } | null
   onOpen: (games: GamesFocus) => void
 }) {
-  const [setId, setSetId] = useUrlState<string>("set", "overview", stringCodec)
-  // 基準：選一位，其他人每一格多一行「和他差多少」
-  const [baseShort, setBaseShort] = useUrlState<string | null>("base", null, stringCodec)
-  const base = people.find((p) => short(p.puuid) === baseShort) ?? null
+  const [setId, setSetId] = useState<string>("overview")
   const isMix = setId === "mix"
   // 「單場前 10 場」用的是單場巔峰那一組的指標，只是換成每場一列的看法
   const isTop = setId === "top"
@@ -4300,26 +4272,11 @@ function StatsPanel({
       return [c.key, isMix || c.record || !vals.length ? null : c.lower ? Math.min(...vals) : Math.max(...vals)]
     }),
   )
-  // 每欄的橫條共用一把尺：這群人裡絕對值最大的那個
-  const reach = new Map(
-    cols.map((c) => [c.key, Math.max(0, ...people.map((p) => Math.abs(valueOf(p.puuid, c.key) ?? 0)))]),
-  )
-  // 名單合計的出裝比例：場次可以相加（每人的比例 × 他的場次），比例本身不行
-  const totalGames = people.reduce((a, p) => a + n0(rowOf(p.puuid), "participants.games"), 0)
-  const totalOf = (key: string): number | null => {
-    if (key.startsWith("mix:")) return totalGames ? people.reduce((a, p) => a + (valueOf(p.puuid, key) ?? 0) * n0(rowOf(p.puuid), "participants.games"), 0) / totalGames : null
-    return opt(total, key)
-  }
-  /** 和基準的差寫成和這一欄同樣的格式；時間（mm:ss）這種帶冒號的格式改寫成秒數差會誤導，直接不寫 */
-  const diffText = (c: StatCol, d: number) => {
-    const body = c.fmt(Math.abs(d))
-    return body.includes(":") ? null : `${d > 0 ? "+" : d < 0 ? "−" : "±"}${body}`
-  }
   return (
     <Panel
       title="數據總表"
       caption="每個人的各項平均與單場巔峰；點數字看算進去的每一場"
-      hint={"每個人的各項平均（每場先算再平均），另有單場巔峰紀錄。切換上方的分組看不同面向；點欄位標題換排序，點數字開抽屜看算進去的每一場；平均表現的最佳值標綠，單場紀錄維持中性。\n數字下的橫條是這一欄裡的相對大小（同一欄共用一把尺）。選了「基準」之後，每格多一行和那個人的差，比他好的是勝色、比他差的是敗色（越少越好的欄已經反過來算）。\n最下面「名單合計」是把勾選的人當成一群重算的，不是每個人平均的平均。\n比人時記得出裝不同：射手天生打塔快、坦克天生承傷多，可以對照「出裝比例」"}
+      hint={"每個人的各項平均（每場先算再平均），另有單場巔峰紀錄。切換上方的分組看不同面向；點欄位標題換排序，點數字開抽屜看算進去的每一場；平均表現的最佳值標綠，單場紀錄維持中性。\n比人時記得出裝不同：射手天生打塔快、坦克天生承傷多，可以對照「出裝比例」"}
     >
       {loading ? (
         <LoadingBlock height={300} label="載入數據中…" />
@@ -4337,24 +4294,6 @@ function StatsPanel({
             <ToggleGroupItem value="mix">出裝比例</ToggleGroupItem>
           </ToggleGroup>
           <Hint text={isMix ? "六種出裝各占他場次的幾成。不是好壞，是拿來對照其他數字的；點數字開抽屜看那種出裝的每一場" : (set?.caption ?? "")} />
-          {!isTop && (
-            <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
-              基準
-              <Select value={base ? short(base.puuid) : "none"} onValueChange={(v) => setBaseShort(v === "none" ? null : v)}>
-                <SelectTrigger className="!h-7 w-36 px-2 text-xs" aria-label="比較基準" data-testid="crew-stats-base">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">不設基準</SelectItem>
-                  {people.map((p) => (
-                    <SelectItem key={p.puuid} value={short(p.puuid)}>
-                      {nameOf(p)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </span>
-          )}
           </div>
           {isTop ? (
             <PeakTop scoped={scoped} cols={cols} centers={centers} onOpen={onOpen} />
@@ -4365,18 +4304,6 @@ function StatsPanel({
                 rows={people}
                 rowKey={(p) => p.puuid}
                 rowProps={() => ({ "data-testid": "crew-stats-row" })}
-                rowClassName={(p) => p.puuid === base?.puuid && "bg-primary/5"}
-                footer={(col) => {
-                  if (col.id === "player") return <span className="font-medium" data-tip="勾選的人當成一群，由語意層重算；不是每個人平均的平均">名單合計</span>
-                  if (col.id === "games") return <span className="font-mono tabular-nums text-muted-foreground">{totalGames}</span>
-                  const c = cols.find((x) => x.key === col.id)
-                  const v = c ? totalOf(c.key) : null
-                  return (
-                    <span className={cn("refreshable font-mono tabular-nums")} aria-busy={totalRefreshing} data-key={col.id}>
-                      {c && v !== null ? c.fmt(v) : totalRefreshing ? "…" : "—"}
-                    </span>
-                  )
-                }}
                 tableClassName="min-w-[860px]"
                 defaultSort={defaultCol ? { key: defaultCol.key, dir: defaultCol.lower ? "asc" : "desc" } : null}
                 columns={[
@@ -4387,12 +4314,7 @@ function StatsPanel({
                     locked: true,
                     descFirst: false,
                     sortValue: (p) => splitId(p.riot_id, p.puuid).name,
-                    cell: (p) => (
-                      <span className="flex items-center gap-1.5">
-                        <PlayerName player={p} className="text-sm" />
-                        {p.puuid === base?.puuid && <span className={cn(CHIP, "border-primary/50 bg-primary/10 text-foreground")}>基準</span>}
-                      </span>
-                    ),
+                    cell: (p) => <PlayerName player={p} className="text-sm" />,
                   },
                   {
                     id: "games",
@@ -4449,27 +4371,6 @@ function StatsPanel({
                           {(c.key === "participants.avg_time_dead" || c.key === "participants.time_dead_share") && v !== null && (
                             <span className="ml-1 text-[10px] font-normal text-muted-foreground">{n0(r, "participants.time_dead_games")} 場</span>
                           )}
-                          {(() => {
-                            if (v === null) return null
-                            const bv = base && base.puuid !== p.puuid ? valueOf(base.puuid, c.key) : null
-                            const d = bv === null ? null : v - bv
-                            const text = d === null ? null : diffText(c, d)
-                            // 好壞只在「平均表現」的欄位上色；出裝比例與單場紀錄不是好壞
-                            const good = d === null || d === 0 || isMix || c.record ? null : c.lower ? d < 0 : d > 0
-                            const max = reach.get(c.key) ?? 0
-                            return (
-                              <>
-                                {text && (
-                                  <span className={cn("block text-[10px] font-normal leading-tight", good === null ? "text-muted-foreground" : good ? "text-win" : "text-loss")} data-testid="crew-stats-diff">
-                                    {text}
-                                  </span>
-                                )}
-                                <span className="mt-0.5 ml-auto block h-[3px] w-full min-w-10 overflow-hidden rounded-full bg-muted/60" aria-hidden="true">
-                                  {max > 0 && <span className="bar-grow ml-auto block h-full rounded-full bg-data/70" style={{ width: `${(100 * Math.abs(v)) / max}%` }} />}
-                                </span>
-                              </>
-                            )
-                          })()}
                         </span>
                       )
                     },
@@ -4632,240 +4533,6 @@ function PeakTop({
   )
 }
 
-// ── 兩人對決：挑兩個人左右對照 ─────────────────────────────────────────────
-// 全頁其他地方都是多人並排，要比兩個人得自己在表格裡來回找。這裡把同一份數字（一覽表的判定、數據總表的平均、搭檔的同隊戰績）
-// 排成左右對稱：左邊是 A、右邊是 B，中間是項目名稱。不另外查新的指標，數字和原本那幾張表逐字相同。
-
-/** 對決裡的一列：左值｜項目｜右值。better 是哪一邊比較好（null＝不分好壞或一樣） */
-function VsRow({ label, hint, left, right, better }: { label: ReactNode; hint?: string; left: ReactNode; right: ReactNode; better: "a" | "b" | null }) {
-  return (
-    <div className="grid grid-cols-[minmax(0,1fr)_minmax(7rem,auto)_minmax(0,1fr)] items-center gap-x-3 border-b border-border/50 py-1 text-sm last:border-b-0" data-testid="crew-vs-row">
-      <span className={cn("text-right font-mono tabular-nums", better === "a" ? "font-semibold text-win" : better === "b" && "text-muted-foreground")}>{left}</span>
-      <span className="text-center text-[11px] text-muted-foreground" data-tip={hint}>{label}</span>
-      <span className={cn("font-mono tabular-nums", better === "b" ? "font-semibold text-win" : better === "a" && "text-muted-foreground")}>{right}</span>
-    </div>
-  )
-}
-
-function VsBody({
-  a,
-  b,
-  people,
-  profiles,
-  sumOf,
-  board,
-  boardLoading,
-  pair,
-  centered,
-  onPick,
-  onGames,
-  onPlayer,
-}: {
-  a: Player
-  b: Player
-  people: Player[]
-  profiles: Map<string, Profile>
-  sumOf: (puuid: string) => CubeRow | undefined
-  board: CubeRow[]
-  boardLoading: boolean
-  /** 兩人同隊的場次與勝場；沒有同隊過是 undefined */
-  pair: DuoPair | undefined
-  /** 整頁有設中心：同隊戰績不套用，要講清楚 */
-  centered: boolean
-  onPick: (a: string, b: string) => void
-  onGames: () => void
-  onPlayer: (puuid: string) => void
-}) {
-  const pa = profiles.get(a.puuid)
-  const pb = profiles.get(b.puuid)
-  const ra = sumOf(a.puuid)
-  const rb = sumOf(b.puuid)
-  const boardOf = (p: Player) => board.find((r) => r["participants.puuid"] === p.puuid)
-  const higher = (x: number | null, y: number | null, lower = false): "a" | "b" | null =>
-    x === null || y === null || x === y ? null : (lower ? x < y : x > y) ? "a" : "b"
-  const picker = (value: Player, other: Player, set: (puuid: string) => void, label: string) => (
-    <Select value={value.puuid} onValueChange={set}>
-      <SelectTrigger className="!h-8 w-full min-w-0 px-2 text-sm" aria-label={label}>
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {people.filter((p) => p.puuid !== other.puuid).map((p) => (
-          <SelectItem key={p.puuid} value={p.puuid}>
-            {nameOf(p)}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  )
-  // 貢獻分解：九個基因加兩個修正項的平均加減分；兩邊共用一把尺
-  const parts = [...WORK_PARTS.map((c) => ({ key: c.pts, label: c.label, hint: c.hint })), ...WORK_MODS.map((m) => ({ key: m.pts, label: m.label, hint: m.hint }))]
-  const partReach = Math.max(1, ...parts.flatMap((c) => [Math.abs(opt(ra, c.key) ?? 0), Math.abs(opt(rb, c.key) ?? 0)]))
-  const partBar = (v: number | null, side: "a" | "b") => (
-    <span className={cn("flex h-2 overflow-hidden rounded-full bg-muted/50", side === "a" && "justify-end")} aria-hidden="true">
-      {v !== null && v !== 0 && (
-        <span
-          className={cn("bar-grow block h-full rounded-full", v > 0 ? "bg-win" : "bg-loss")}
-          style={{ width: `${(100 * Math.abs(v)) / partReach}%`, transformOrigin: side === "a" ? "right center" : "left center" }}
-        />
-      )}
-    </span>
-  )
-  // 共同玩過的英雄：兩人都有場次的，依兩人裡比較少的那個場次排（兩邊都有樣本的排前面）
-  const shared = (pa?.champs ?? [])
-    .filter((j) => j.games > 0)
-    .flatMap((j) => {
-      const other = pb?.champs.find((x) => x.label === j.label && x.games > 0)
-      return other ? [{ label: j.label, icon: j.icon, a: j, b: other }] : []
-    })
-    .sort((x, y) => Math.min(y.a.games, y.b.games) - Math.min(x.a.games, x.b.games) || x.label.localeCompare(y.label, "zh-Hant"))
-  const scoreChip = (j: Judged | undefined) =>
-    j?.g?.interval ? <span className={cn(CHIP, "font-sans font-normal", levelClass(j))}>{labelOf(j)}</span> : null
-  const champSide = (j: Judged) => (
-    <span className="inline-flex items-center gap-1.5">
-      <span>{j.score === null ? "—" : Math.round(j.score)}</span>
-      <span className="text-[10px] font-normal text-muted-foreground">{j.games} 場</span>
-    </span>
-  )
-
-  return (
-    <div className="space-y-4" data-testid="crew-vs">
-      <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
-        {picker(a, b, (id) => onPick(id, b.puuid), "左邊的人")}
-        <Button size="icon-sm" variant="ghost" aria-label="左右對調" data-tip="左右對調" onClick={() => onPick(b.puuid, a.puuid)}>
-          <Swords className="size-4" />
-        </Button>
-        {picker(b, a, (id) => onPick(a.puuid, id), "右邊的人")}
-      </div>
-
-      <section className="rounded-lg border p-3">
-        <h3 className="mb-1 text-sm font-semibold">整體</h3>
-        <VsRow label="場次" left={pa?.overall.games ?? 0} right={pb?.overall.games ?? 0} better={null} />
-        <VsRow
-          label="勝率"
-          hint="好友多半一起打、勝率互相牽動，當作描述看"
-          left={pa?.overall.winrate == null ? "—" : `${pa.overall.winrate.toFixed(1)}%`}
-          right={pb?.overall.winrate == null ? "—" : `${pb.overall.winrate.toFixed(1)}%`}
-          better={higher(pa?.overall.winrate ?? null, pb?.overall.winrate ?? null)}
-        />
-        <VsRow
-          label="本場貢獻"
-          hint="50＝校準時的整體基準；標籤是和 50 比的判定（含誤差範圍）"
-          left={<span className="inline-flex items-center gap-1.5">{scoreChip(pa?.overall)}{pa?.overall.score == null ? "—" : pa.overall.score.toFixed(1)}</span>}
-          right={<span className="inline-flex items-center gap-1.5">{pb?.overall.score == null ? "—" : pb.overall.score.toFixed(1)}{scoreChip(pb?.overall)}</span>}
-          better={higher(pa?.overall.score ?? null, pb?.overall.score ?? null)}
-        />
-        <VsRow
-          label="KDA"
-          left={opt(ra, "participants.kda")?.toFixed(2) ?? "—"}
-          right={opt(rb, "participants.kda")?.toFixed(2) ?? "—"}
-          better={higher(opt(ra, "participants.kda"), opt(rb, "participants.kda"))}
-        />
-        <VsRow label="打法" left={<span className="font-sans text-xs">{pa ? styleLine(pa.style) : "—"}</span>} right={<span className="font-sans text-xs">{pb ? styleLine(pb.style) : "—"}</span>} better={null} />
-        <div className="mt-2 flex justify-between gap-2">
-          <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => onPlayer(a.puuid)}>看 {nameOf(a)} 的完整分析</Button>
-          <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => onPlayer(b.puuid)}>看 {nameOf(b)} 的完整分析</Button>
-        </div>
-      </section>
-
-      <section className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border p-3 text-sm" data-testid="crew-vs-duo">
-        <h3 className="font-semibold">兩人同隊</h3>
-        {pair?.games ? (
-          <>
-            <span className="font-mono tabular-nums">
-              {pair.games} 場・{pair.wins} 勝 {pair.games - pair.wins} 敗・{((100 * pair.wins) / pair.games).toFixed(1)}%
-            </span>
-            <Button size="sm" variant="outline" className="ml-auto h-7 text-xs" onClick={onGames}>
-              看這幾場
-              <ChevronRight className="size-3.5" />
-            </Button>
-          </>
-        ) : (
-          <span className="text-muted-foreground">目前的模式、版本與期間裡沒有同隊的場次</span>
-        )}
-        {centered && <span className="w-full text-[11px] text-muted-foreground">同隊戰績不套用「中心」；其餘數字照整頁的中心。</span>}
-      </section>
-
-      <section className="rounded-lg border p-3">
-        <h3 className="mb-1 flex items-center gap-1 text-sm font-semibold">
-          貢獻分解
-          <Hint text={"每一項是平均加減分（加起來再加全域校正就是本場貢獻 − 50）。橫條長度是分數大小、兩邊共用一把尺；勝色是加分、敗色是扣分。\n比人時記得出裝不同：坦克的分數多半來自承傷與控場，射手來自輸出。"} />
-        </h3>
-        {parts.map((c) => {
-          const va = opt(ra, c.key)
-          const vb = opt(rb, c.key)
-          const win = higher(va, vb)
-          return (
-            <div key={c.key} className="grid grid-cols-[3rem_minmax(0,1fr)_4.5rem_minmax(0,1fr)_3rem] items-center gap-x-2 py-0.5 text-xs" data-testid="crew-vs-part">
-              <span className={cn("text-right font-mono tabular-nums", win === "a" && "font-semibold")}>{va === null ? "—" : signed(va)}</span>
-              {partBar(va, "a")}
-              <span className="text-center text-[11px] text-muted-foreground" data-tip={c.hint}>{c.label}</span>
-              {partBar(vb, "b")}
-              <span className={cn("font-mono tabular-nums", win === "b" && "font-semibold")}>{vb === null ? "—" : signed(vb)}</span>
-            </div>
-          )
-        })}
-      </section>
-
-      <section className="rounded-lg border p-3">
-        <h3 className="mb-1 text-sm font-semibold">各項數據</h3>
-        {boardLoading ? (
-          <LoadingBlock height={420} label="載入兩人的數據…" />
-        ) : (
-          <div className="reveal gap-x-6 lg:columns-2">
-            {STAT_SETS.map((g) => (
-              <div key={g.id} className="mb-3 break-inside-avoid">
-                <div className="mb-0.5 text-center text-[11px] font-medium text-foreground/80" data-tip={g.caption}>{g.label}</div>
-                {g.cols.map((c) => {
-                  const va = opt(boardOf(a), c.key)
-                  const vb = opt(boardOf(b), c.key)
-                  return (
-                    <VsRow
-                      key={c.key}
-                      label={c.label}
-                      hint={c.hint}
-                      left={va === null ? "—" : c.fmt(va)}
-                      right={vb === null ? "—" : c.fmt(vb)}
-                      better={c.record ? null : higher(va, vb, c.lower)}
-                    />
-                  )
-                })}
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="rounded-lg border p-3">
-        <h3 className="mb-1 flex items-center gap-1 text-sm font-semibold">
-          共同玩過的英雄
-          <span className="text-[11px] font-normal text-muted-foreground">{shared.length} 隻・數字是本場貢獻</span>
-          <Hint text="兩個人都玩過的英雄，依兩人裡比較少的那個場次排。只有一兩場的差距多半是運氣，要搭配場次看。" />
-        </h3>
-        {shared.length ? (
-          <div className="max-h-[420px] overflow-y-auto">
-            {shared.map((s) => (
-              <VsRow
-                key={s.label}
-                label={
-                  <span className="inline-flex items-center gap-1.5 text-foreground">
-                    {s.icon && <img loading="lazy" decoding="async" src={iconUrl(s.icon)} alt="" className="size-5 rounded bg-icon-tile" />}
-                    {s.label}
-                  </span>
-                }
-                left={champSide(s.a)}
-                right={champSide(s.b)}
-                better={Math.min(s.a.scored, s.b.scored) >= MIN_N ? higher(s.a.score, s.b.score) : null}
-              />
-            ))}
-          </div>
-        ) : (
-          <p className="text-xs text-muted-foreground">沒有兩個人都玩過的英雄。</p>
-        )}
-      </section>
-    </div>
-  )
-}
-
 /** 頁首（AppShell 的 sticky 標題列）實際有多高。標題列會依說明文字與視窗寬度換行，所以量實際值，分頁列才能正好貼在它下面。 */
 function useHeaderHeight() {
   const [height, setHeight] = useState(0)
@@ -4882,78 +4549,29 @@ function useHeaderHeight() {
 }
 
 type RowSort = "games" | "score" | "winrate" | "titles"
-const rowSortCodec = oneOf<RowSort>("games", "score", "winrate", "titles")
 
 export function Crew() {
   const { players, apply, queueId, activeVersions, timeFilter, matchParams } = useFilters()
   const crew = useMemo(() => players.filter((p) => p.crew), [players])
   // 預設全部人都比；點名字可以拿掉（至少留一個）
-  // 網址裡的人一律只放 puuid 前 8 碼（和全域的 acct 一樣），再對回名單
-  const [outIds, setOutIds] = useUrlState<string[]>("out", [], listCodec)
-  const excluded = useMemo(() => new Set(crew.filter((p) => outIds.includes(short(p.puuid))).map((p) => p.puuid)), [crew, outIds])
-  const setExcluded = (next: Set<string>) => setOutIds([...next].map(short))
+  const [excluded, setExcluded] = useState<Set<string>>(new Set())
   const chosen = crew.filter((p) => !excluded.has(p.puuid))
   const puuids = chosen.map((p) => p.puuid)
-  const allIds = useMemo(() => crew.map((p) => p.puuid), [crew])
-  const byShort = (id: string | null | undefined) => (id ? crew.find((p) => short(p.puuid) === id) : undefined)
-  // 右側抽屜同一時間只開一個：一位好友、兩人對決，或一串對局（點數字、英雄、增幅、單場紀錄）。
-  // 好友與對決寫在網址（p／ptab／prole、vs），打開是 push，上一頁就是關掉。
-  // 一串對局的條件太長（一批 game_id、完整 puuid）不進網址：網址只放 g=1 讓上一頁關得掉，內容留在記憶體，重新整理就收起來
-  const [pParam] = useUrlParam("p")
-  const [ptabParam] = useUrlParam("ptab")
-  const [proleParam] = useUrlParam("prole")
-  const [vsParam] = useUrlParam("vs")
-  const [gParam] = useUrlParam("g")
-  const [gamesFocus, setGamesFocus] = useState<GamesFocus | null>(null)
-  const [jumpChamp, setJumpChamp] = useState<string | undefined>(undefined)
-  const vsPair = (vsParam ?? "").split(",").map(byShort)
-  const focus: Focus | null =
-    gParam && gamesFocus
-      ? { kind: "games", ...gamesFocus }
-      : vsPair.length === 2 && vsPair[0] && vsPair[1] && vsPair[0] !== vsPair[1]
-        ? { kind: "vs", a: vsPair[0].puuid, b: vsPair[1].puuid }
-        : byShort(pParam)
-          ? { kind: "player", puuid: byShort(pParam)!.puuid, role: proleParam, tab: drawerTabCodec.parse(ptabParam ?? "") ?? "overview", champ: jumpChamp }
-          : null
-  const anyOpen = !!(pParam || vsParam || gParam)
-  // 已經有抽屜開著時換內容用 replace，免得上一頁要按好幾次
-  const writeFocus = (patch: Record<string, string | null>) =>
-    writeParams({ p: null, ptab: null, prole: null, vs: null, g: null, ...patch }, anyOpen && Object.values(patch).some(Boolean) ? "replace" : "push")
-  const closeFocus = () => writeFocus({})
-  useEffect(() => {
-    // 重新整理或貼連結時 g=1 還在但內容沒了：拿掉它
-    if (gParam && !gamesFocus) writeParams({ g: null })
-  }, [gParam, gamesFocus])
+  // 右側抽屜同一時間只開一個：一位好友，或一串對局（點數字、英雄、增幅、單場紀錄）
+  const [focus, setFocus] = useState<Focus | null>(null)
   // 數據分頁點開一項時抽屜放寬成兩欄，由 DrawerStats 回報
   const [drawerWide, setDrawerWide] = useState(false)
   // 頂層分頁：一次只看一段
   const [section, setSection] = useUrlState<Section>("tab", "matrix", sectionCodec)
   const [recentSize, setRecentSize] = useUrlState<string>("recent", "10", stringCodec)
   // 查英雄／增幅／裝備各自選中的東西；互搭清單點一列會改另一頁的並切過去
-  const [pickChamp, setPickChamp] = useUrlState<string | null>("lc", null, stringCodec)
-  const [pickAugment, setPickAugment] = useUrlState<string | null>("la", null, stringCodec)
-  const [pickItem, setPickItem] = useUrlState<string | null>("li", null, stringCodec)
-  const lookupPick: Record<LookupId, string | null> = { champ: pickChamp, augment: pickAugment, item: pickItem }
-  const pickFor = (id: LookupId) => (id === "champ" ? setPickChamp : id === "augment" ? setPickAugment : setPickItem)
-  const jumpTo = (id: LookupId, name: string) => writeParams({ [id === "champ" ? "lc" : id === "augment" ? "la" : "li"]: name, tab: id })
-  const headerHeight = useHeaderHeight()
-  // 玩家欄預設精簡（名字、打法、貢獻、近期）；完整再多 MVP／ACE、賽後平均與徽章。偏好記在這台瀏覽器
-  const [density, setDensityState] = useState<"compact" | "full">(() => {
-    try {
-      return localStorage.getItem(DENSITY_KEY) === "full" ? "full" : "compact"
-    } catch {
-      return "compact"
-    }
-  })
-  const setDensity = (next: "compact" | "full") => {
-    setDensityState(next)
-    try {
-      localStorage.setItem(DENSITY_KEY, next)
-    } catch {
-      /* 私密視窗寫不進去就只在這次有效 */
-    }
+  const [lookupPick, setLookupPick] = useState<Record<LookupId, string | null>>({ champ: null, augment: null, item: null })
+  const pickFor = (id: LookupId) => (name: string) => setLookupPick((p) => ({ ...p, [id]: name }))
+  const jumpTo = (id: LookupId, name: string) => {
+    setLookupPick((p) => ({ ...p, [id]: name }))
+    setSection(id)
   }
-  const [helpOpen, setHelpOpen] = useState(false)
+  const headerHeight = useHeaderHeight()
 
   const byId = useMemo(() => new Map(crew.map((p) => [p.puuid, p])), [crew])
   const focusPlayer = focus?.kind === "player" ? byId.get(focus.puuid) : undefined
@@ -4965,17 +4583,13 @@ export function Crew() {
       ? focus.title
       : focusPlayer
         ? `${splitId(focusPlayer.riot_id, focusPlayer.puuid).name}${focus?.kind === "player" && focus.role ? `・${focus.role}` : ""}`
-        : focus?.kind === "vs"
-          ? `${nameOf(byId.get(focus.a)!)} 對 ${nameOf(byId.get(focus.b)!)}`
-          : null,
-    closeFocus,
+        : null,
+    () => setFocus(null),
   )
 
   // 中心（選填，可多選）：只看這幾位都在場的場次。沒設就是整群比較對象的每一場。
-  const [centerShort, setCenterShort] = useUrlState<string[]>("center", [], listCodec)
-  const centers = crew.filter((p) => centerShort.includes(short(p.puuid)) && !excluded.has(p.puuid))
-  const centerIds = centers.map((p) => p.puuid)
-  const setCenterIds = (ids: string[]) => setCenterShort(ids.map(short))
+  const [centerIds, setCenterIds] = useState<string[]>([])
+  const centers = crew.filter((p) => centerIds.includes(p.puuid))
   const centerNames = centers.map((p) => splitId(p.riot_id, p.puuid).name).join("、")
   // 兩位以上：每一場裡被選中的人有幾位在場（一場一列），之後只留下人數等於選取人數的那些場
   const together = useCube(
@@ -5031,47 +4645,36 @@ export function Crew() {
     if (!excluded.has(puuid) && crew.length - excluded.size <= 1) return // 至少留一個
     const next = new Set(excluded)
     if (next.has(puuid)) next.delete(puuid)
-    else next.add(puuid)
-    // 兩個參數一次寫：被拿掉的人若是中心也一起取消
-    writeParams({
-      out: [...next].map(short).join(",") || null,
-      center: centerIds.filter((id) => !next.has(id)).map(short).join(",") || null,
-    })
+    else {
+      next.add(puuid)
+      setCenterIds((ids) => ids.filter((id) => id !== puuid))
+    }
+    setExcluded(next)
   }
   const toggleCenter = (puuid: string) =>
-    setCenterIds(centerIds.includes(puuid) ? centerIds.filter((id) => id !== puuid) : [...centerIds, puuid])
+    setCenterIds((ids) => (ids.includes(puuid) ? ids.filter((id) => id !== puuid) : [...ids, puuid]))
 
   // 全域條件（模式、期間、下鑽）照套，但不鎖定帳號（scope "all"），改成鎖定這群人。equals 給多個值就是 IN。
   const crewFilter = (ids: string[]): CubeFilter => ({ member: "participants.puuid", operator: "equals", values: ids })
-  // q：鎖定「勾選中的人」。只給不依人分列的查詢用（各定位平均、名單合計、查詢頁的細項）
   const q = (query: CubeQuery): CubeQuery | null =>
     puuids.length && centerFilters ? apply({ ...query, filters: [crewFilter(puuids), ...centerFilters, ...(query.filters ?? [])] }, "all") : null
-  // qAll：鎖定整份名單。每人一列的查詢都用它，勾掉一個人只是前端少畫一列，不重查——
-  //   原本名單一變所有查詢的條件都變，整頁退回骨架。每人一列的數字不受別人在不在名單影響，兩種查法結果相同。
-  const qAll = (query: CubeQuery): CubeQuery | null =>
-    allIds.length && centerFilters ? apply({ ...query, filters: [crewFilter(allIds), ...centerFilters, ...(query.filters ?? [])] }, "all") : null
-  const chosenKey = puuids.join()
-  const onlyChosen = (rows: CubeRow[]) => (excluded.size ? rows.filter((r) => !excluded.has(String(r["participants.puuid"]))) : rows)
 
   const summary = useCube(
-    qAll({ measures: ROSTER_MEASURES, dimensions: ["participants.puuid"], limit: NO_LIMIT }),
+    q({ measures: ROSTER_MEASURES, dimensions: ["participants.puuid"], limit: NO_LIMIT }),
   )
-  const roles = useCube(qAll({
+  const roles = useCube(q({
     measures: STAT_MEASURES,
     dimensions: ["participants.puuid", "builds.build_role"],
     limit: NO_LIMIT,
   }))
   const champs = useCube(
-    qAll({ measures: STAT_MEASURES, dimensions: ["participants.puuid", "champions.name", "champions.icon_path"], limit: NO_LIMIT }),
+    q({ measures: STAT_MEASURES, dimensions: ["participants.puuid", "champions.name", "champions.icon_path"], limit: NO_LIMIT }),
   )
   // 出裝傷害類型用於一覽的玩法標籤。
-  const dmgTypes = useCube(qAll({ measures: ["participants.games"], dimensions: ["participants.puuid", "builds.damage_type"], limit: NO_LIMIT }))
+  const dmgTypes = useCube(q({ measures: ["participants.games"], dimensions: ["participants.puuid", "builds.damage_type"], limit: NO_LIMIT }))
   // 同一場兩個人都在就算兩人次，仍由 Cube 算合計，不能直接平均每個人的平均。
-  //   它跟著勾選名單重查；重查時留著上一份（淡化），不讓整張一覽退回骨架
-  const teamRolesRes = useCube(section === "matrix" ? q({ measures: [...WORK_MEASURES, WORK_GAMES], dimensions: ["builds.build_role"], limit: NO_LIMIT }) : null)
-  const teamRoles = useKeptRows(teamRolesRes)
+  const teamRoles = useCube(section === "matrix" ? q({ measures: [...WORK_MEASURES, WORK_GAMES], dimensions: ["builds.build_role"], limit: NO_LIMIT }) : null)
   const drawerTab = focus?.kind === "player" ? focus.tab : null
-  const vsOpen = focus?.kind === "vs"
   // 一般玩家（所有參賽者）的出裝比例與各定位基因平均：「打法」用來比較玩家和同定位基準的差別
   const everyoneRoles = useCube(
     centerFilters === null || (section !== "matrix" && drawerTab !== "overview")
@@ -5086,20 +4689,18 @@ export function Crew() {
           "all",
         ),
   )
-  const matrixLoading = summary.loading || roles.loading || champs.loading || dmgTypes.loading || teamRoles.first || everyoneRoles.loading
+  const matrixLoading = summary.loading || roles.loading || champs.loading || dmgTypes.loading || teamRoles.loading || everyoneRoles.loading
   const board = useCube(
-    section === "stats" || drawerTab === "stats" || vsOpen
-      ? qAll({ measures: BOARD_MEASURES, dimensions: ["participants.puuid"], limit: NO_LIMIT })
+    section === "stats" || drawerTab === "stats"
+      ? q({ measures: BOARD_MEASURES, dimensions: ["participants.puuid"], limit: NO_LIMIT })
       : null,
   )
-  // 數據總表最下面那列「名單合計」：整份勾選名單當成一群，由語意層重算（平均的平均不等於合起來的平均）
-  const boardTotal = useKeptRows(useCube(section === "stats" ? q({ measures: BOARD_MEASURES, limit: 1 }) : null))
   // 增幅是一場多列的維度：查 winrate 會讓 Cube 走「撈主鍵再 join 回來」的慢路徑（實測 2.0 秒，不查 0.5 秒），
   // 所以只查 games 與 wins，勝率由 LookupPanel 自己除（定義就是 100 × wins / games）
   //   只有「查增幅裝置」分頁用得到，切過去才查：冷快取時這支要 2.6 秒，原本會把一進頁面的全員一覽也卡住
   const augments = useCube(
     section === "augment"
-      ? qAll({
+      ? q({
           measures: ["participants.games", "participants.wins", "participants.losses", WORK, WORK_GAMES],
           dimensions: ["participants.puuid", "augments.name", "augments.icon_path"],
           limit: NO_LIMIT,
@@ -5109,7 +4710,7 @@ export function Crew() {
   // 裝備同樣是一場多列（一件一列），理由同上只查 games 與 wins；排除第 7 格飾品（每場都有，選項裡沒意義）。切到「查裝備」才查
   const items = useCube(
     section === "item"
-      ? qAll({
+      ? q({
           measures: ["participants.games", "participants.wins", "participants.losses", WORK, WORK_GAMES],
           dimensions: ["participants.puuid", "items.name", "items.icon_path"],
           filters: ITEM_LOOKUP.filters,
@@ -5120,10 +4721,10 @@ export function Crew() {
   // 徽章與搭檔先讓出首屏的連線。直接打開徽章分頁或好友總覽時，徽章立即查。
   const loadMatrixExtras = section === "matrix" && !matrixLoading
   const loadBadges = loadMatrixExtras || section === "badges" || drawerTab === "overview"
-  const titleStats = useCube(loadBadges ? qAll({ measures: TITLE_MEASURES, dimensions: ["participants.puuid"], limit: NO_LIMIT }) : null)
-  const lossStats = useCube(loadBadges ? qAll({ measures: [WORK, WORK_GAMES], dimensions: ["participants.puuid"], segments: ["participants.losses_only"], limit: NO_LIMIT }) : null)
+  const titleStats = useCube(loadBadges ? q({ measures: TITLE_MEASURES, dimensions: ["participants.puuid"], limit: NO_LIMIT }) : null)
+  const lossStats = useCube(loadBadges ? q({ measures: [WORK, WORK_GAMES], dimensions: ["participants.puuid"], segments: ["participants.losses_only"], limit: NO_LIMIT }) : null)
   // 近期貢獻、連勝與連敗共用逐場資料，沿用全員一覽的篩選條件。
-  const gameRows = useCube(loadBadges ? qAll({
+  const gameRows = useCube(loadBadges ? q({
     measures: ["participants.wins", WORK],
     dimensions: ["participants.puuid", "participants.game_key", "matches.played_at", WORK_STATUS],
     limit: NO_LIMIT,
@@ -5163,17 +4764,17 @@ export function Crew() {
       }),
     ), [gamesByPlayer])
   const nightStats = useCube(
-    loadBadges ? qAll({ measures: ["participants.games"], dimensions: ["participants.puuid"], filters: [{ member: "matches.hour_of_day", operator: "lt", values: ["6"] }], limit: NO_LIMIT }) : null,
+    loadBadges ? q({ measures: ["participants.games"], dimensions: ["participants.puuid"], filters: [{ member: "matches.hour_of_day", operator: "lt", values: ["6"] }], limit: NO_LIMIT }) : null,
   )
   const badgesLoading = !loadBadges || champs.loading || titleStats.loading || lossStats.loading || nightStats.loading || gameRows.loading
   const badgeError = loadBadges ? titleStats.error ?? lossStats.error ?? nightStats.error ?? gameRows.error : null
   // 搭檔：兩人同隊的場次與勝場。teammates 和 participants 沒有 join 路徑，不能走 apply()——
   // 模式、版本、期間照全域條件自己帶（都是 matches 的欄位），「中心」不套用（中心是 participants 那邊的條件）
   const duoQuery = useMemo<CubeQuery | null>(() => {
-    if (allIds.length < 2) return null
+    if (puuids.length < 2) return null
     const filters: CubeFilter[] = [
-      { member: "teammates.subject_puuid", operator: "equals", values: allIds },
-      { member: "teammates.puuid", operator: "equals", values: allIds },
+      { member: "teammates.subject_puuid", operator: "equals", values: puuids },
+      { member: "teammates.puuid", operator: "equals", values: puuids },
       { member: "teammates.relation", operator: "equals", values: ["teammate"] },
     ]
     if (queueId) filters.push({ member: "matches.queue_id", operator: "equals", values: [queueId] })
@@ -5186,10 +4787,10 @@ export function Crew() {
       limit: NO_LIMIT,
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allIds, queueId, activeVersions.join(), timeFilter])
-  const duo = useCube(loadMatrixExtras || vsOpen ? duoQuery : null)
+  }, [puuids.join(), queueId, activeVersions.join(), timeFilter])
+  const duo = useCube(loadMatrixExtras ? duoQuery : null)
   const error = summary.error ?? roles.error ?? champs.error ?? board.error ?? augments.error ?? items.error ??
-    teamRolesRes.error ?? everyoneRoles.error ?? dmgTypes.error ?? badgeError ?? duo.error ?? together.error
+    teamRoles.error ?? everyoneRoles.error ?? dmgTypes.error ?? badgeError ?? duo.error ?? together.error
 
   const sumOf = (puuid: string) => summary.rows.find((r) => r["participants.puuid"] === puuid)
   const gamesOf = (puuid: string) => n0(sumOf(puuid), "participants.games")
@@ -5267,12 +4868,12 @@ export function Crew() {
   }, [titleStats.rows, lossStats.rows, nightStats.rows, champs.rows, streaks])
   // 徽章：數字達到門檻就有，不跟別人比（門檻見 T 與各階梯）；名字底下、抽屜、徽章頁同一份
   const badges = useMemo(
-    () => badgesOf(ordered, onlyChosen(titleRows)),
+    () => badgesOf(ordered, titleRows),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [chosenKey, titleRows],
+    [puuids.join(), titleRows],
   )
   // D：全員一覽的排序。預設依場次（場次多的判斷比較可信）
-  const [rowSort, setRowSort] = useUrlState<RowSort>("sort", "games", rowSortCodec)
+  const [rowSort, setRowSort] = useState<RowSort>("games")
   const [expandedBadges, setExpandedBadges] = useState<string | null>(null)
   const matrixRows = useMemo(() => {
     const key = (p: Player) => {
@@ -5313,26 +4914,76 @@ export function Crew() {
     )
   }
 
-  const open = (puuid: string, role: string | null, tab: DrawerTab, champ?: string) => {
-    setJumpChamp(champ)
-    writeFocus({ p: short(puuid), ptab: tab === "overview" ? null : tab, prole: role })
-  }
-  const openGames = (games: GamesFocus) => {
-    setGamesFocus(games)
-    writeFocus({ g: "1" })
-  }
-  const openVs = (a: string, b: string) => writeFocus({ vs: `${short(a)},${short(b)}` })
-  // 分頁列上的「兩人對決」：預設拿場次最多的兩位
-  const openVsDefault = () => ordered.length >= 2 && openVs(ordered[0].puuid, ordered[1].puuid)
-  const lookupId: LookupId | null = section === "champ" || section === "augment" || section === "item" ? section : null
+  const open = (puuid: string, role: string | null, tab: DrawerTab, champ?: string) => setFocus({ kind: "player", puuid, role, tab, champ })
+  const openGames = (games: GamesFocus) => setFocus({ kind: "games", ...games })
+  const scrollToTop = () => window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" })
 
   return (
     <CenterFilterContext.Provider value={centerFilters}>
     <div className="space-y-4">
       {error && <QueryError error={error} />}
 
-      <Tabs value={lookupId ? "lookup" : section} onValueChange={(v) => setSection(v === "lookup" ? "champ" : (v as Section))} className="gap-4">
-        {/* 分頁列貼在頁首下面：捲到哪一段都看得到分頁、比較範圍，也能直接調整比較對象（原本名單是頁面最上面的一塊，要捲回去才改得到） */}
+      <Panel
+        title="比較對象"
+        caption="點名字拿掉或加回來；★ 設為中心"
+        hint="你和追蹤中的好友。點名字可以拿掉或加回來；點 ★ 設為中心，整頁只看中心都在場的場次。模式、期間與上方的篩選照常套用。大部分場次是一起打的，勝率會互相牽動，差距要搭配場次看"
+      >
+        <div className="flex flex-wrap gap-2">
+          {crew.map((p) => {
+            const on = !excluded.has(p.puuid)
+            const isCenter = centerIds.includes(p.puuid)
+            const name = splitId(p.riot_id, p.puuid).name
+            return (
+              <span
+                key={p.puuid}
+                data-testid="crew-chip"
+                className={cn(
+                  "flex max-w-[16rem] items-center rounded-full border text-sm transition",
+                  on ? (isCenter ? "border-primary bg-primary/20" : "border-primary/50 bg-primary/10") : "text-muted-foreground opacity-60 hover:opacity-100",
+                )}
+              >
+                <button
+                  type="button"
+                  onClick={() => toggleIncluded(p.puuid)}
+                  data-tip={on ? `拿掉 ${name}（不納入比較）` : `加回 ${name}`}
+                  className="flex min-w-0 items-center gap-1.5 py-1 pl-3 pr-2"
+                >
+                  <Check className={cn("size-3.5 shrink-0", on ? "text-primary" : "opacity-0")} />
+                  <PlayerName player={p} />
+                </button>
+                <button
+                  type="button"
+                  data-testid="crew-center"
+                  aria-pressed={isCenter}
+                  disabled={!on}
+                  onClick={() => toggleCenter(p.puuid)}
+                  data-tip={!on ? "先加回來才能設為中心" : isCenter ? `取消中心：${name}` : `設為中心：只看 ${name} 也在場的場次`}
+                  aria-label={isCenter ? `取消中心：${name}` : `設為中心：${name}`}
+                  className="flex h-full items-center rounded-r-full border-l border-border px-2 py-1 transition hover:bg-accent disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                >
+                  <Star className={cn("size-3.5", isCenter ? "fill-primary text-primary" : "text-muted-foreground")} />
+                </button>
+              </span>
+            )
+          })}
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
+          <span className="text-xs text-muted-foreground">★ 中心（選填，可多選）</span>
+          <Button
+            size="sm"
+            variant={centers.length ? "outline" : "secondary"}
+            className="h-7 text-xs"
+            disabled={!centers.length}
+            onClick={() => setCenterIds([])}
+          >
+            不設中心
+          </Button>
+          <span className="text-[11px] text-muted-foreground">{centerNote}</span>
+        </div>
+      </Panel>
+
+      <Tabs value={section} onValueChange={(v) => setSection(v as Section)} className="gap-4">
+        {/* 分頁列貼在頁首下面：捲到哪一段都看得到分頁與目前的比較範圍；「調整比較對象」回到最上面的名單 */}
         <div
           data-testid="crew-sticky"
           style={{ top: headerHeight }}
@@ -5341,100 +4992,32 @@ export function Crew() {
           <TabsList className="h-auto max-w-full flex-wrap justify-start">
             <TabsTrigger value="matrix">全員一覽</TabsTrigger>
             <TabsTrigger value="stats">數據總表</TabsTrigger>
-            <TabsTrigger value="lookup">查詢</TabsTrigger>
+            <TabsTrigger value="champ">查英雄</TabsTrigger>
+            <TabsTrigger value="augment">查增幅裝置</TabsTrigger>
+            <TabsTrigger value="item">查裝備</TabsTrigger>
             <TabsTrigger value="badges">徽章</TabsTrigger>
           </TabsList>
-          <div className="flex w-full min-w-0 items-center justify-between gap-2 text-xs sm:w-auto sm:flex-1 sm:justify-end">
-            <Button size="sm" variant="ghost" className="h-7 shrink-0 text-xs" onClick={openVsDefault} data-testid="crew-vs-open" data-tip="挑兩個人左右對照：貢獻分解、各項數據、共同玩過的英雄">
-              <Swords className="size-3.5" />
-              兩人對決
+          <div className="flex w-full min-w-0 items-center justify-between gap-2 text-xs text-muted-foreground sm:w-auto sm:flex-1 sm:justify-end">
+            <span className="min-w-0 truncate" data-testid="crew-scope">
+              比較 {chosen.length} 人・{scopeShort}
+            </span>
+            <Button size="sm" variant="ghost" className="h-7 shrink-0 text-xs" onClick={scrollToTop}>
+              調整比較對象
             </Button>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button size="sm" variant="outline" className="h-7 min-w-0 max-w-full text-xs" data-testid="crew-roster-open" aria-label="調整比較對象">
-                  <Users className="size-3.5 shrink-0" />
-                  <span className="min-w-0 truncate" data-testid="crew-scope">
-                    比較 {chosen.length}／{crew.length} 人・{scopeShort}
-                  </span>
-                  <ChevronDown className="size-3.5 shrink-0 opacity-60" />
-                </Button>
-              </PopoverTrigger>
-              {/* 不自動聚焦：第一個可聚焦的是 ⓘ，一打開它的提示就跳出來蓋住名單 */}
-              <PopoverContent align="end" className="w-[min(34rem,92vw)] space-y-3" data-testid="crew-roster" onOpenAutoFocus={(e) => e.preventDefault()}>
-                <div className="flex items-center gap-1 text-sm font-semibold">
-                  比較對象
-                  <Hint text={"你和追蹤中的好友。點名字可以拿掉或加回來；點 ★ 設為中心，整頁只看中心都在場的場次。模式、期間與上方的篩選照常套用。\n大部分場次是一起打的，勝率會互相牽動，差距要搭配場次看"} />
-                  <span className="ml-auto text-[11px] font-normal text-muted-foreground">點名字拿掉或加回來；★ 設為中心</span>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {crew.map((p) => {
-                    const on = !excluded.has(p.puuid)
-                    const isCenter = centerIds.includes(p.puuid)
-                    const name = splitId(p.riot_id, p.puuid).name
-                    return (
-                      <span
-                        key={p.puuid}
-                        data-testid="crew-chip"
-                        className={cn(
-                          "flex max-w-[16rem] items-center rounded-full border text-sm transition",
-                          on ? (isCenter ? "border-primary bg-primary/20" : "border-primary/50 bg-primary/10") : "text-muted-foreground opacity-60 hover:opacity-100",
-                        )}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => toggleIncluded(p.puuid)}
-                          data-tip={on ? `拿掉 ${name}（不納入比較）` : `加回 ${name}`}
-                          className="flex min-w-0 items-center gap-1.5 py-1 pl-3 pr-2"
-                        >
-                          <Check className={cn("size-3.5 shrink-0", on ? "text-primary" : "opacity-0")} />
-                          <PlayerName player={p} />
-                        </button>
-                        <button
-                          type="button"
-                          data-testid="crew-center"
-                          aria-pressed={isCenter}
-                          disabled={!on}
-                          onClick={() => toggleCenter(p.puuid)}
-                          data-tip={!on ? "先加回來才能設為中心" : isCenter ? `取消中心：${name}` : `設為中心：只看 ${name} 也在場的場次`}
-                          aria-label={isCenter ? `取消中心：${name}` : `設為中心：${name}`}
-                          className="flex h-full items-center rounded-r-full border-l border-border px-2 py-1 transition hover:bg-accent disabled:cursor-not-allowed disabled:hover:bg-transparent"
-                        >
-                          <Star className={cn("size-3.5", isCenter ? "fill-primary text-primary" : "text-muted-foreground")} />
-                        </button>
-                      </span>
-                    )
-                  })}
-                </div>
-                <div className="flex flex-wrap items-center gap-2 border-t pt-3">
-                  <Button size="sm" variant="outline" className="h-7 text-xs" disabled={!excluded.size} onClick={() => setExcluded(new Set())}>
-                    全部加回
-                  </Button>
-                  <Button size="sm" variant="outline" className="h-7 text-xs" disabled={!centers.length} onClick={() => setCenterIds([])}>
-                    不設中心
-                  </Button>
-                  <span className="min-w-0 flex-1 text-[11px] text-muted-foreground">{centerNote}</span>
-                </div>
-              </PopoverContent>
-            </Popover>
           </div>
         </div>
+
         <TabsContent value="matrix">
           {/* ── 全員一覽：每人一列，迷你雷達 + 出裝與英雄的判定 ── */}
           <Panel
             title="全員一覽"
             action={
-              <div className="flex flex-wrap items-center justify-end gap-2">
-              <ToggleGroup type="single" size="sm" variant="outline" value={density} onValueChange={(v) => v && setDensity(v as "compact" | "full")} data-testid="crew-density">
-                <ToggleGroupItem value="compact" className="h-7 px-2 text-xs" data-tip="玩家欄只留名字、打法、場次與貢獻">精簡</ToggleGroupItem>
-                <ToggleGroupItem value="full" className="h-7 px-2 text-xs" data-tip="再加上 MVP／ACE、賽後平均與徽章">完整</ToggleGroupItem>
-              </ToggleGroup>
               <ToggleGroup type="single" size="sm" variant="outline" value={rowSort} onValueChange={(v) => v && setRowSort(v as RowSort)} data-testid="crew-row-sort">
                 <ToggleGroupItem value="games" className="h-7 px-2 text-xs">依場次</ToggleGroupItem>
                 <ToggleGroupItem value="score" className="h-7 px-2 text-xs">依貢獻</ToggleGroupItem>
                 <ToggleGroupItem value="winrate" className="h-7 px-2 text-xs">依勝率</ToggleGroupItem>
                 <ToggleGroupItem value="titles" className="h-7 px-2 text-xs" disabled={badgesLoading || !!badgeError}>依成就點數</ToggleGroupItem>
               </ToggleGroup>
-              </div>
             }
             caption="每人一列；滑過看數字，點一列看完整分析"
             hint={"判定看本場貢獻（50＝校準時的整體基準）的誤差範圍：整段高於 50 是得心應手以上（拿手、招牌、傳奇）、整段低於 50 是潛力股或璞玉，還在誤差內的依差距細分（虛線框）；滑過圖例看每一級的切點。\n雷達是各出裝佔他場次的比例；出裝欄每種出裝一條，所有人同一把尺，點是本場貢獻和 50 的差、橫線是誤差範圍（實心＝看得出）。\n英雄的數字是名次，看得出的排前面。"}
@@ -5459,16 +5042,10 @@ export function Crew() {
                     </Select>
                   </div>
                 </div>
-                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                  <RowLegend />
-                  <Button size="sm" variant="ghost" className="h-7 shrink-0 text-xs" onClick={() => setHelpOpen(true)} data-testid="crew-how-open">
-                    <BookOpen className="size-3.5" />
-                    怎麼判定的
-                  </Button>
-                </div>
+                <RowLegend />
                 <div className="@container">
                   <div>
-                    <section className="refreshable mb-2 rounded-md border bg-muted/20 px-2 py-2" aria-busy={teamRoles.refreshing} data-testid="crew-team-row">
+                    <section className="mb-2 rounded-md border bg-muted/20 px-2 py-2" data-testid="crew-team-row">
                       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-2 text-xs">
                         <h3 className="font-semibold">各定位平均貢獻</h3>
                         <span className="text-[11px] text-muted-foreground">比較名單 {chosen.length} 人・依計分人次平均・分解顯示平均加減分</span>
@@ -5561,7 +5138,6 @@ export function Crew() {
                                 })}
                               />
                             </span>
-                            {density === "full" && (<>
                             <span className="flex flex-wrap gap-x-3 gap-y-1" data-testid="crew-row-awards">
                               {[
                                 { label: "MVP", key: "participants.mvp_games", icon: Trophy, tone: "text-primary", tip: "獲勝隊伍中本場貢獻最高的場次" },
@@ -5586,7 +5162,6 @@ export function Crew() {
                                 toggle: () => setExpandedBadges(badgesExpanded ? null : p.puuid),
                               }} />
                             )}
-                            </>)}
                           </span>
                           <MiniHex data={prof.roles.map((j) => ({ label: j.label, games: j.games, strength: j.strength }))} total={ov.games} />
                           <span className={SECTION_SPAN}>
@@ -5623,7 +5198,7 @@ export function Crew() {
                     })}
                   </div>
                 </div>
-                <HowWeJudge open={helpOpen} onClose={() => setHelpOpen(false)}>
+                <HowWeJudge>
                   <p>
                     本場貢獻（v5.4 / v5-B 修訂版）：九個基因——輸出（依敵方前排數與血腥度校正，非主 C 高傷享動態轉型加成）、承傷（0.62×減免＋0.38×承受，高傷享以攻代守免扣）、擊殺（與輸出上限連動，坦／輔高傷解鎖有效擊殺）、參團（依前排與血腥度校正，含 65% 後期參團；輔助 70% 同定位＋30% 全局）、治療護盾隊友、控場（次數／時長混合，高傷／高坦享負分豁免）、推塔（turret_dmg）、清兵、功能裝——
                     以 100% 跨場絕對尺度與時長冪次校正計分，不再強制各定位或各玩家趨近於 50。{WORK_WEIGHTS_TEXT}
@@ -5650,8 +5225,7 @@ export function Crew() {
           <Panel refreshing={duo.refreshing}
             className="mt-4"
             title="搭檔"
-            caption="兩人同隊時的勝率；點一格看兩人對決"
-            action={centers.length > 0 ? <span className={cn(CHIP, "border-border bg-muted/40 text-muted-foreground")} data-testid="crew-duo-nocenter">不套用中心</span> : undefined}
+            caption="兩人同隊時的勝率；點一格看那幾場"
             hint={`兩人同隊的場次與勝率（同一場、同一隊）。顏色是勝率比 50% 高或低，越深差越多；外框加粗的是誤差範圍整段在一邊、看得出差別的。不到 ${DUO_MIN_GAMES} 場只寫場次。\n好友多半一起打，勝率互相牽動，當作描述看。模式、版本、期間照上方篩選，「中心」不套用。`}
           >
             {!loadMatrixExtras || duo.loading ? (
@@ -5660,7 +5234,13 @@ export function Crew() {
               <DuoMatrix
                 people={matrixRows}
                 pairs={duoPairs}
-                onOpen={(d) => openVs(d.a.puuid, d.b.puuid)}
+                onOpen={(d) =>
+                  openGames({
+                    title: `${nameOf(d.a)}＋${nameOf(d.b)} 同隊`,
+                    note: `${d.games} 場・${d.wins} 勝 ${d.games - d.wins} 敗`,
+                    source: { params: { ...matchParams(), puuid: d.a.puuid, with_puuid: d.b.puuid, relation: "teammate" } },
+                  })
+                }
               />
             )}
           </Panel>
@@ -5670,8 +5250,6 @@ export function Crew() {
           <StatsPanel
             people={ordered}
             rows={board.rows}
-            total={boardTotal.rows[0]}
-            totalRefreshing={boardTotal.refreshing || boardTotal.first}
             loading={board.loading || summary.loading || roles.loading}
             profiles={profiles}
             scoped={q}
@@ -5681,83 +5259,74 @@ export function Crew() {
           />
         </TabsContent>
 
-        {/* 查英雄、查增幅裝置、查裝備：同一個元件，只差查哪個維度。合成一個分頁，裡面再選查什麼 */}
-        <TabsContent value="lookup" className="space-y-3">
-          {lookupId && (
-            <>
-              <ToggleGroup type="single" size="sm" variant="outline" value={lookupId} onValueChange={(v) => v && setSection(v as Section)} data-testid="crew-lookup-kind">
-                <ToggleGroupItem value="champ" className="h-7 px-3 text-xs">英雄</ToggleGroupItem>
-                <ToggleGroupItem value="augment" className="h-7 px-3 text-xs">增幅裝置</ToggleGroupItem>
-                <ToggleGroupItem value="item" className="h-7 px-3 text-xs">裝備</ToggleGroupItem>
-              </ToggleGroup>
-              <LookupPanel
-                key={lookupId}
-                kind={lookupId === "champ" ? CHAMPION_LOOKUP : lookupId === "augment" ? AUGMENT_LOOKUP : ITEM_LOOKUP}
-                picked={lookupPick[lookupId]}
-                onPicked={pickFor(lookupId)}
-                onJump={jumpTo}
-                rows={onlyChosen((lookupId === "champ" ? champs : lookupId === "augment" ? augments : items).rows)}
-                loading={summary.loading || (lookupId === "champ" ? champs : lookupId === "augment" ? augments : items).loading}
-                people={ordered}
-                puuids={puuids}
-                wrOf={wrOf}
-                active={focusCell}
-                onOpen={openGames}
-                detail={q}
-              />
-            </>
-          )}
+        {/* 查英雄、查增幅裝置：同一個元件，只差查哪個維度 */}
+        <TabsContent value="champ">
+          <LookupPanel
+            kind={CHAMPION_LOOKUP}
+            picked={lookupPick.champ}
+            onPicked={pickFor("champ")}
+            onJump={jumpTo}
+            rows={champs.rows}
+            loading={summary.loading || champs.loading}
+            people={ordered}
+            puuids={puuids}
+            wrOf={wrOf}
+            active={focusCell}
+            onOpen={openGames}
+            detail={q}
+          />
+        </TabsContent>
+        <TabsContent value="augment">
+          <LookupPanel
+            kind={AUGMENT_LOOKUP}
+            picked={lookupPick.augment}
+            onPicked={pickFor("augment")}
+            onJump={jumpTo}
+            rows={augments.rows}
+            loading={summary.loading || augments.loading}
+            people={ordered}
+            puuids={puuids}
+            wrOf={wrOf}
+            active={focusCell}
+            onOpen={openGames}
+            detail={q}
+          />
+        </TabsContent>
+        <TabsContent value="item">
+          <LookupPanel
+            kind={ITEM_LOOKUP}
+            picked={lookupPick.item}
+            onPicked={pickFor("item")}
+            onJump={jumpTo}
+            rows={items.rows}
+            loading={summary.loading || items.loading}
+            people={ordered}
+            puuids={puuids}
+            wrOf={wrOf}
+            active={focusCell}
+            onOpen={openGames}
+            detail={q}
+          />
         </TabsContent>
         <TabsContent value="badges">
-          {!badgeError && <BadgesPanel people={ordered} rows={onlyChosen(titleRows)} loading={summary.loading || badgesLoading} />}
+          {!badgeError && <BadgesPanel people={ordered} rows={titleRows} loading={summary.loading || badgesLoading} />}
         </TabsContent>
       </Tabs>
 
       <DetailDrawer
-        wide={(drawerWide && focus?.kind === "player") || focus?.kind === "vs"}
+        wide={drawerWide && focus?.kind === "player"}
         open={!!focus}
-        onClose={closeFocus}
-        title={focus?.kind === "games" ? focus.title : focus?.kind === "vs" ? `${nameOf(byId.get(focus.a)!)} 對 ${nameOf(byId.get(focus.b)!)}` : focusPlayer ? <PlayerName player={focusPlayer} /> : ""}
+        onClose={() => setFocus(null)}
+        title={focus?.kind === "games" ? focus.title : focusPlayer ? <PlayerName player={focusPlayer} /> : ""}
         subtitle={
           focus?.kind === "games"
             ? focus.note
-            : focus?.kind === "vs"
-              ? `兩人對決・${scopeShort}`
-              : focusPlayer
+            : focusPlayer
               ? `整體 ${wrOf(focusPlayer.puuid)?.toFixed(1) ?? "—"}%・${round0(gamesOf(focusPlayer.puuid))} 場・KDA ${opt(sumOf(focusPlayer.puuid), "participants.kda")?.toFixed(2) ?? "—"}`
               : undefined
         }
       >
         {focus?.kind === "games" && <GamesBody key={focus.title} source={focus.source} />}
-        {focus?.kind === "vs" && (() => {
-          const a = byId.get(focus.a)!
-          const b = byId.get(focus.b)!
-          const r = duo.rows.find((x) => x["teammates.subject_puuid"] === a.puuid && x["teammates.puuid"] === b.puuid)
-          const pair = r ? { a, b, games: n0(r, "teammates.games"), wins: n0(r, "teammates.wins") } : undefined
-          return (
-            <VsBody
-              a={a}
-              b={b}
-              people={crew}
-              profiles={profiles}
-              sumOf={sumOf}
-              board={board.rows}
-              boardLoading={board.loading}
-              pair={pair}
-              centered={centers.length > 0}
-              onPick={openVs}
-              onPlayer={(puuid) => open(puuid, null, "overview")}
-              onGames={() =>
-                pair &&
-                openGames({
-                  title: `${nameOf(a)}＋${nameOf(b)} 同隊`,
-                  note: `${pair.games} 場・${pair.wins} 勝 ${pair.games - pair.wins} 敗`,
-                  source: { params: { ...matchParams(), puuid: a.puuid, with_puuid: b.puuid, relation: "teammate" } },
-                })
-              }
-            />
-          )
-        })()}
         {focus?.kind === "player" && focusPlayer && profiles.get(focusPlayer.puuid) && (
           <PlayerDrawerBody
             key={focusPlayer.puuid}
@@ -5765,9 +5334,9 @@ export function Crew() {
             profile={profiles.get(focusPlayer.puuid)!}
             summaryRow={sumOf(focusPlayer.puuid)}
             role={focus.role}
-            onRole={(role) => writeParams({ prole: role })}
+            onRole={(role) => setFocus((f) => (f?.kind === "player" ? { ...f, role } : f))}
             tab={focus.tab}
-            onTab={(tab) => writeParams({ ptab: tab === "overview" ? null : tab })}
+            onTab={(tab) => setFocus((f) => (f?.kind === "player" ? { ...f, tab } : f))}
             jumpChamp={focus.champ}
             crewFilter={crewFilter}
             titles={badgesLoading || badgeError ? undefined : badges.get(focusPlayer.puuid)?.items}
