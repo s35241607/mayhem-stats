@@ -17,6 +17,7 @@ import {
   Blocks,
   GitFork,
   Grid2x2,
+  ListVideo,
 } from "lucide-react"
 import { motion, AnimatePresence } from "motion/react"
 import { Badge } from "@/components/ui/badge"
@@ -31,7 +32,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { Panel, EmptyState } from "@/components/primitives"
+import { Panel, EmptyState, QueryError } from "@/components/primitives"
+import { DrillPanel, MAX_GAME_IDS } from "@/components/MatchList"
 import { AgTable, type GridColumn } from "@/components/AgTable"
 import { FieldBuilder } from "@/components/FieldBuilder"
 import { DrillPath } from "@/components/DrillPath"
@@ -297,6 +299,21 @@ export function Explore() {
     [dims, activeMeasures, byDay, meta],
   )
 
+  // 圖表點下去是加篩選；要走到逐場，按結果標題列的「看這幾場」：用同一組條件向 Cube 查是哪幾場。
+  // 只在「看目前帳號、欄位是個人／對局表現那一家」時提供——跨玩家或增幅組合的列對不回單一玩家的對局卡片
+  const [showGames, setShowGames] = useState(false)
+  const canListGames = mode === "free" && scope === "account" && queryFamily === "participants" && !queryFamilyError
+  const gamesQuery = apply({
+    measures: ["participants.games"],
+    dimensions: ["matches.game_id"],
+    ...(segments.length ? { segments } : {}),
+    ...(extraFilters.length ? { filters: extraFilters } : {}),
+    limit: MAX_GAME_IDS,
+  })
+  const gamesTitle = extraFilters.length
+    ? extraFilters.map((f) => `${label(meta.byName.get(f.member), f.member)} ${f.values.join("、")}`).join("・")
+    : "目前條件"
+
   /** 圖表或表格點下去就把該項目變成篩選，跟儀表板的下鑽一致。 */
   const drillInto = (member: string, value: string) => {
     setExtraFilters((prev) =>
@@ -373,7 +390,7 @@ export function Explore() {
       )
     }
     if (loading) return <Skeleton className="h-[340px] w-full" />
-    if (error) return <div className="text-sm text-destructive">{error}</div>
+    if (error) return <QueryError error={error} />
     if (!rows.length) return <EmptyState>這個條件下沒有資料。</EmptyState>
 
     const firstMeasure = meta.byName.get(activeMeasures[0])
@@ -754,6 +771,17 @@ export function Explore() {
                   </ToggleGroupItem>
                 ))}
               </ToggleGroup>
+              {canListGames && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowGames(true)}
+                  data-tip={"列出符合目前條件的每一場。\n想只看某一根長條的場次：先點它（會變成一個篩選），再按這裡。"}
+                >
+                  <ListVideo className="size-3.5" />
+                  看這幾場
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="ghost"
@@ -803,6 +831,9 @@ export function Explore() {
         </>
         )}
       </div>
+      {showGames && canListGames && (
+        <DrillPanel title={gamesTitle} gameIdKey="matches.game_id" query={gamesQuery} onClose={() => setShowGames(false)} />
+      )}
     </div>
   )
 }

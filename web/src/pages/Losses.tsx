@@ -12,8 +12,11 @@ import { useFilters } from "@/lib/filters"
 import { useCrumb } from "@/lib/breadcrumb"
 import { WhoSwitch } from "@/components/WhoSwitch"
 import { usePageWho } from "@/lib/whoState"
-import { useWhoScope, type Who } from "@/lib/who"
-import { stringCodec, useUrlState } from "@/lib/urlState"
+import { participantRows, useWhoScope, type Who } from "@/lib/who"
+import { oneOf, stringCodec, useUrlState } from "@/lib/urlState"
+import { Button } from "@/components/ui/button"
+
+const sideCodec = oneOf<"勝" | "敗">("勝", "敗")
 
 /** 拿來做勝負對照的指標。higherIsBetter 只影響顏色，不影響數字。 */
 type Metric = {
@@ -125,6 +128,8 @@ export function Losses() {
   const scope = useWhoScope(who)
   const apply = scope.q
   const [bucket, setBucket] = useUrlState<string | null>("bucket", null, stringCodec, "push")
+  // 比較表本身是兩組的平均，點不到場次；給兩個入口直接看是哪幾場
+  const [side, setSide] = useUrlState<"勝" | "敗" | null>("side", null, sideCodec, "push")
   useCrumb(10, bucket ? `對局長度 ${bucket}` : null, () => setBucket(null))
   const setWho = (next: Who) => {
     setWhoState(next)
@@ -261,6 +266,14 @@ export function Losses() {
 
       <Panel refreshing={byResult.refreshing}
         title="勝局與敗局，數字差在哪"
+        action={
+          win && loss ? (
+            <div className="flex shrink-0 gap-1.5">
+              <Button size="sm" variant="outline" onClick={() => setSide("敗")}>看敗局每一場</Button>
+              <Button size="sm" variant="outline" onClick={() => setSide("勝")}>看勝局每一場</Button>
+            </div>
+          ) : undefined
+        }
         caption={`「敗局相差」= 敗局比勝局高或低幾 %。勝方色代表往好的方向、敗方色代表往壞的方向，差不到 3% 不上色；可以點欄位標題排序。${
           who === "all"
             ? "「所有人」是每場兩隊十位都算：隊內佔比（5 人分 100%）與敵方數字（就是對面那隊的本隊數字）不列。"
@@ -335,6 +348,24 @@ export function Losses() {
           <EmptyState>還沒有資料。</EmptyState>
         )}
       </Panel>
+      )}
+
+      {side && (
+        <DrillPanel
+          title={`${side}局`}
+          gameIdKey={who === "account" ? "matches.game_id" : "participants.participant_key"}
+          query={apply({
+            measures: ["participants.games"],
+            dimensions: [who === "account" ? "matches.game_id" : "participants.participant_key"],
+            filters: [{ member: "participants.result", operator: "equals", values: [side] }],
+            limit: MAX_GAME_IDS,
+          })}
+          // 目前帳號以外：一場裡可能有人贏有人輸，要逐個參賽者列，不能整場列
+          rowsToParams={who === "account" ? undefined : participantRows}
+          matchParams={scope.matchParams({})}
+          showPlayer={who !== "account"}
+          onClose={() => setSide(null)}
+        />
       )}
 
       {bucket && (

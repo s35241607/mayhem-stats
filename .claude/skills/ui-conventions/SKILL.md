@@ -208,11 +208,12 @@ description: 這個專案前端的主題與動畫規範。只要動到 web/src �
 
 **詳細抽屜**：點了「一個東西」要看它的細節（一隻英雄、一天、一場對局），用 `components/DetailDrawer.tsx`
 從右邊滑出，原頁面留在原位；抽屜裡的重內容（逐場卡片、戰報）用 `useDrawerSettled()` 等滑完再掛。
-英雄頁、儀表板已改用；其他頁的 `DrillPanel` 還是頁內展開，之後要統一時照這個改。
+`DrillPanel` 本身就是包著 `DetailDrawer` 的抽屜，所有頁的「XX 的每一場」都走它。
+**規則只有一條：單擊＝本頁聚焦／交叉篩選；看明細一律開右側抽屜。** 聚合的數字（比較表、KPI）點不到場次時，給一個明確的按鈕或可點的段落通往抽屜（儀表板的勝／敗段、敗因分析的「看敗局每一場」、自由探索的「看這幾場」），不要留死路。
 **不要**再用「在頁面頂端插一塊 Panel + `scrollTo`」——剛點的東西會瞬間不見。
 
 **下鑽**：點圖表的一組 → 列出組成它的每一場 → 點一場看戰報。一律用 `components/MatchList.tsx`：
-- `<DrillPanel title params onClose />`：「XX 的每一場」面板，出現時自動捲到看得到的位置。
+- `<DrillPanel title params onClose />`：「XX 的每一場」抽屜。呼叫端「有聚焦才渲染」，聚焦狀態用 `useUrlState(…, "push")`，上一頁就是關掉。
 - `params` 直接送 `/api/matches`，先展開 `matchParams()`（帳號、模式、期間），再加這一組的條件。
 - 後端的分組條件（`duration`、`prev_result`、`session_stage`…）**標籤必須和 Cube 模型裡的字串一字不差**，
   在 `app.py` 查白名單換成 SQL 條件，不認得回 400，**不准把標籤拼進 SQL**。

@@ -1,9 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
-import { X } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { DetailDrawer, useDrawerSettled } from "@/components/DetailDrawer"
 import { Skeleton } from "@/components/ui/skeleton"
-import { EmptyState, Panel } from "@/components/primitives"
-import { prefersReducedMotion } from "@/lib/motion"
+import { EmptyState, QueryError } from "@/components/primitives"
 import { useCrumb } from "@/lib/breadcrumb"
 import { useDataRevision } from "@/lib/revision"
 import { useUrlParam, writeParams } from "@/lib/urlState"
@@ -47,7 +46,7 @@ export function CubeMatchList({
   const { matchParams, account } = useFilters()
   const ids = useCube(query)
   if (ids.loading) return <Skeleton className="h-40 w-full" />
-  if (ids.error) return <div className="text-sm text-destructive">{ids.error}</div>
+  if (ids.error) return <QueryError error={ids.error} />
   const built = rowsToParams
     ? rowsToParams(ids.rows)
     : ids.rows.length
@@ -71,7 +70,10 @@ export function CubeMatchList({
   )
 }
 
-/** 從圖表下鑽出來的「XX 的每一場」面板。各頁共用，行為一致：出現時捲到看得到的位置、收起就清掉聚焦。
+/** 從圖表下鑽出來的「XX 的每一場」。各頁共用，一律從右邊滑出抽屜（DetailDrawer）：
+ *  原頁面留在原位，剛點的那根長條還看得到；關掉（ESC、點遮罩、右上角）就清掉聚焦。
+ *  以前是在頁面下方插一塊面板再把頁面捲過去，點了之後畫面整片跳走。
+ *  呼叫端照舊「有聚焦才渲染」：`{focus && <DrillPanel … onClose={() => setFocus(null)} />}`。
  *
  *  兩種取得方式擇一：`params` 直接送 /api/matches（帳號、模式、期間、英雄這類後端認得的條件），
  *  或 `query` 先讓 Cube 依語意層的定義查出是哪幾場。新的可下鑽維度一律用後者。 */
@@ -97,22 +99,9 @@ export function DrillPanel({
   rowsToParams?: (rows: CubeRow[]) => { params: Record<string, string>; count: number } | null
   onClose: () => void
 }) {
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    // nearest：已經在畫面裡就不動，只有在畫面外才捲過去
-    ref.current?.scrollIntoView({ block: "nearest", behavior: prefersReducedMotion() ? "auto" : "smooth" })
-  }, [title])
   return (
-    <div ref={ref} className="scroll-mt-40">
-      <Panel
-        title={`${title} 的每一場`}
-        action={
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            <X className="size-3.5" />
-            收起
-          </Button>
-        }
-      >
+    <DetailDrawer open onClose={onClose} title={`${title} 的每一場`}>
+      <DrillBody>
         {query !== undefined ? (
           <CubeMatchList
             query={query}
@@ -125,9 +114,14 @@ export function DrillPanel({
         ) : (
           <MatchList params={params!} puuid={puuid} />
         )}
-      </Panel>
-    </div>
+      </DrillBody>
+    </DetailDrawer>
   )
+}
+
+/** 逐場卡片等抽屜滑完再掛（和換頁一樣，重的東西不和進場動畫搶主執行緒） */
+function DrillBody({ children }: { children: ReactNode }) {
+  return useDrawerSettled() ? children : <Skeleton className="h-40 w-full" />
 }
 
 type Loaded = { matches: MatchRow[]; total: number; wins: number; key: string }
@@ -281,7 +275,7 @@ export function MatchList({
       />
     )
   } else if (error && !data) {
-    body = <div className="text-sm text-destructive">{error}</div>
+    body = <QueryError error={error} />
   } else if (!data) {
     body = (
       <div className="space-y-2">

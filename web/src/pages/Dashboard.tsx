@@ -12,6 +12,7 @@ import { useCube } from "@/hooks/useCube"
 import { MAX_GAME_IDS, iconUrl, num, type CubeRow } from "@/lib/cube"
 import { useFilters, type Drill } from "@/lib/filters"
 import { useCrumb } from "@/lib/breadcrumb"
+import { oneOf, useUrlState } from "@/lib/urlState"
 import { useNavigate } from "@/lib/nav"
 import { useWhoScope } from "@/lib/who"
 import { cn } from "@/lib/utils"
@@ -22,7 +23,9 @@ import { ROLE_SPEC } from "@/lib/roleBasis"
 /** 逐場列表與單場戰報只有點了才用得到，延後載入：儀表板是首屏，
  *  直接靜態引入會把對局卡片與戰報（約 20KB）併進主程式。
  *  那個 chunk 本來就會在瀏覽器閒下來時預先抓好（App 的 usePrefetchPages）。 */
+const resultCodec = oneOf<"勝" | "敗">("勝", "敗")
 const CubeMatchList = lazy(() => import("@/components/MatchList").then((m) => ({ default: m.CubeMatchList })))
+const DrillPanel = lazy(() => import("@/components/MatchList").then((m) => ({ default: m.DrillPanel })))
 const MatchDetail = lazy(() => import("./Matches").then((m) => ({ default: m.MatchDetail })))
 
 const REF_MEASURES = [
@@ -123,6 +126,7 @@ function RecordHero({
   recent,
   previous,
   loading,
+  onPick,
 }: {
   winrate: number | null
   wins: number
@@ -130,6 +134,8 @@ function RecordHero({
   recent: PeriodSummary
   previous: PeriodSummary
   loading: boolean
+  /** 點勝段或敗段：列出那幾場 */
+  onPick: (result: "勝" | "敗") => void
 }) {
   const delta = recent.winrate !== null && previous.winrate !== null ? recent.winrate - previous.winrate : null
   return (
@@ -158,8 +164,26 @@ function RecordHero({
 
       {/* 勝／敗兩段，勝段的比例就是勝率；下方小刻度是 50%，和表格裡的戰績條同一種讀法 */}
       <div className="relative flex h-2.5 gap-0.5">
-        {wins > 0 && <span className="bar-grow rounded-full bg-win" style={{ flexGrow: wins }} />}
-        {losses > 0 && <span className="bar-grow rounded-full bg-loss" style={{ flexGrow: losses }} />}
+        {wins > 0 && (
+          <button
+            type="button"
+            className="bar-grow rounded-full bg-win outline-offset-2 transition-opacity hover:opacity-80"
+            style={{ flexGrow: wins }}
+            onClick={() => onPick("勝")}
+            aria-label={`看 ${wins} 場勝局`}
+            data-tip={`${wins} 場勝局・點一下列出每一場`}
+          />
+        )}
+        {losses > 0 && (
+          <button
+            type="button"
+            className="bar-grow rounded-full bg-loss outline-offset-2 transition-opacity hover:opacity-80"
+            style={{ flexGrow: losses }}
+            onClick={() => onPick("敗")}
+            aria-label={`看 ${losses} 場敗局`}
+            data-tip={`${losses} 場敗局・點一下列出每一場`}
+          />
+        )}
         <span
           aria-hidden
           className="pointer-events-none absolute left-1/2 top-full mt-0.5 h-1.5 w-0.5 -translate-x-1/2 rounded-full bg-muted-foreground"
@@ -327,6 +351,9 @@ export function Dashboard() {
   const [day, setDay] = useState<string | null>(null)
   const [match, setMatch] = useState<MatchRow | null>(null)
   useCrumb(10, day, () => setDay(null))
+  // 整體戰績的勝段／敗段點下去：那幾場的逐場抽屜
+  const [result, setResult] = useUrlState<"勝" | "敗" | null>("result", null, resultCodec, "push")
+  useCrumb(10, result ? `${result}局` : null, () => setResult(null))
 
   const totals = useCube(
     apply({
@@ -480,6 +507,7 @@ export function Dashboard() {
             recent={recentPeriod}
             previous={previousPeriod}
             loading={totals.loading || daily.loading}
+            onPick={setResult}
           />
         </Panel>
         <Panel className="xl:col-span-7" title="最近戰績" index={1} action={<SeeAll page="matches" label="對局紀錄" />}>
@@ -622,6 +650,22 @@ export function Dashboard() {
           )}
         </Panel>
       </div>
+
+      {result && (
+        <Suspense fallback={null}>
+          <DrillPanel
+            title={`${result}局`}
+            gameIdKey="matches.game_id"
+            query={apply({
+              measures: ["participants.games"],
+              dimensions: ["matches.game_id"],
+              filters: [{ member: "participants.result", operator: "equals", values: [result] }],
+              limit: MAX_GAME_IDS,
+            })}
+            onClose={() => setResult(null)}
+          />
+        </Suspense>
+      )}
 
       <DetailDrawer
         open={!!day}
