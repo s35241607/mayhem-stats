@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   Table2,
   BarChart3,
@@ -18,8 +18,8 @@ import {
   GitFork,
   Grid2x2,
   ListVideo,
+  ImageDown,
 } from "lucide-react"
-import { motion, AnimatePresence } from "motion/react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -55,6 +55,7 @@ import { num, type CubeFilter, type CubeQuery } from "@/lib/cube"
 import { COMPANION, MAX_LEVELS, familyOf, type DrillPick } from "@/lib/drill"
 import { useFilters } from "@/lib/filters"
 import { cn } from "@/lib/utils"
+import { jsonCodec, useUrlState } from "@/lib/urlState"
 
 const VIZ = [
   { value: "table", label: "表格", icon: Table2 },
@@ -85,9 +86,10 @@ type Mode = (typeof MODES)[number]["value"]
 
 const DEFAULT_PIVOT = { rows: "champions.name", cols: "matches.duration_bucket" }
 
-type SavedView = {
-  id: string
-  name: string
+type SavedView = UrlView & { id: string; name: string }
+
+/** 一份配置（不含名字）。存檔與網址共用同一個形狀 */
+type UrlView = {
   dims: string[]
   measures: string[]
   segments: string[]
@@ -108,6 +110,7 @@ type SavedView = {
 }
 
 const STORAGE_KEY = "mayhem.explore.views"
+const viewCodec = jsonCodec<UrlView>()
 
 function loadViews(): SavedView[] {
   try {
@@ -131,7 +134,7 @@ function Chip({
   return (
     <button
       onClick={onClick}
-      title={title}
+      data-tip={title}
       className={cn(
         "rounded-md border px-2 py-1 text-xs font-medium transition-all duration-150",
         active
@@ -225,6 +228,23 @@ export function Explore() {
   }
 
   useEffect(() => setViews(loadViews()), [])
+
+  // 圖表存成圖片。ResponsiveChart 把 ECharts 實例掛在圖表容器上（__chart）。
+  // 底色要先轉成 rgb：主題色可能是 oklch()，直接交給 ECharts 會解析失敗（見 charts.tsx 的 cssVar）
+  const vizRef = useRef<HTMLDivElement>(null)
+  const downloadPng = () => {
+    const el = vizRef.current?.querySelector<HTMLElement>("div[_echarts_instance_]")
+    const chart = (el?.parentElement as (HTMLElement & { __chart?: { getDataURL: (o: object) => string } }) | null | undefined)?.__chart
+    if (!el || !chart) return
+    const ctx = document.createElement("canvas").getContext("2d")!
+    ctx.fillStyle = getComputedStyle(el.closest<HTMLElement>('[data-slot="card"]') ?? document.body).backgroundColor
+    ctx.fillRect(0, 0, 1, 1)
+    const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data
+    const link = document.createElement("a")
+    link.href = chart.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: `rgb(${r}, ${g}, ${b})` })
+    link.download = `explore-${viz}-${new Date().toISOString().slice(0, 10)}.png`
+    link.click()
+  }
 
   const toggle = (list: string[], set: (v: string[]) => void) => (name: string) =>
     set(list.includes(name) ? list.filter((k) => k !== name) : [...list, name])
@@ -351,7 +371,18 @@ export function Explore() {
     setViewName("")
   }
 
-  const applyView = (v: SavedView) => {
+  // 目前的配置放進網址（x=）：重新整理還在、複製網址就能把這張圖連同全域篩選一起給別人。
+  // 這頁的狀態很多又互相牽動，所以不是逐個換成 useUrlState，而是整包同步：
+  // 進頁時若網址有帶就套用一次，之後每次配置變了就寫回去（等於預設時把參數拿掉）。
+  const [urlView, setUrlView] = useUrlState<UrlView | null>("x", null, viewCodec)
+  const hydrated = useRef(false)
+  const snapshot: UrlView = {
+    dims, measures, segments, filters: extraFilters, viz, byDay, scope, limit, sortBy, sortDir,
+    extraMeasure, mode, path: path ?? undefined, pivotRows: pivot.rows, pivotCols: pivot.cols, pivotMetric,
+  }
+  const snapshotKey = JSON.stringify(snapshot)
+
+  const applyView = (v: UrlView) => {
     setDims(v.dims)
     setMeasures(v.measures)
     setSegments(v.segments ?? [])
@@ -369,6 +400,20 @@ export function Explore() {
     if (v.pivotRows && v.pivotCols) setPivot({ rows: v.pivotRows, cols: v.pivotCols })
     setPivotMetric(v.pivotMetric ?? "")
   }
+
+  const defaultKey = useRef(snapshotKey)
+  useEffect(() => {
+    if (!hydrated.current) {
+      hydrated.current = true
+      if (urlView) {
+        applyView(urlView)
+        return
+      }
+    }
+    setUrlView(snapshotKey === defaultKey.current ? null : snapshot)
+    // snapshot 的內容就是 snapshotKey；urlView 只在進頁那一次讀
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshotKey])
 
   const removeView = (id: string) => {
     const next = views.filter((v) => v.id !== id)
@@ -639,7 +684,7 @@ export function Explore() {
                 size="sm"
                 variant="outline"
                 onClick={() => setSortDir(sortDir === "desc" ? "asc" : "desc")}
-                title={sortDir === "desc" ? "由大到小" : "由小到大"}
+                data-tip={sortDir === "desc" ? "由大到小" : "由小到大"}
               >
                 <ArrowUpDown className="size-3.5" />
                 {sortDir === "desc" ? "降冪" : "升冪"}
@@ -771,6 +816,11 @@ export function Explore() {
                   </ToggleGroupItem>
                 ))}
               </ToggleGroup>
+              {viz !== "table" && rows.length > 0 && (
+                <Button size="sm" variant="ghost" onClick={downloadPng} aria-label="下載圖表圖片" data-tip="把這張圖存成 PNG（兩倍解析度，底色用目前主題的卡片色）">
+                  <ImageDown className="size-3.5" />
+                </Button>
+              )}
               {canListGames && (
                 <Button
                   size="sm"
@@ -787,7 +837,7 @@ export function Explore() {
                 variant="ghost"
                 onClick={() => setShowQuery((v) => !v)}
                 aria-label={showQuery ? "隱藏 Cube 查詢" : "顯示 Cube 查詢"}
-                title={showQuery ? "隱藏 Cube 查詢" : "顯示 Cube 查詢"}
+                data-tip={showQuery ? "隱藏 Cube 查詢" : "顯示 Cube 查詢"}
               >
                 <Code2 className="size-3.5" />
               </Button>
@@ -797,26 +847,17 @@ export function Explore() {
           {!dims.length && !byDay ? (
             <EmptyState>至少選一個分組維度，或開啟「按日期分組」。</EmptyState>
           ) : (
-            <motion.div
-              key={`${viz}-${dims.join()}-${activeMeasures.join()}`}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.22, ease: "easeOut" }}
-            >
+            // 換圖表種類或欄位時整塊重新浮現。用 index.css 的 rise（CSS、只動 opacity／transform），
+            // 不用 motion：JS 逐幀的動畫會被同時掛載的表格卡住（ui-conventions 動畫規則 1）
+            <div key={`${viz}-${dims.join()}-${activeMeasures.join()}`} ref={vizRef} className="rise">
               {renderViz()}
-            </motion.div>
+            </div>
           )}
         </Panel>
 
-        <AnimatePresence>
+          {/* 只淡入：原本用 motion 推高度並做離場動畫，兩樣都不在允許的範圍（高度會觸發排版、不做離場） */}
           {showQuery && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.2 }}
-              className="overflow-hidden"
-            >
+            <div className="reveal">
               <Panel
                 title="送給 Cube 的查詢"
                 caption="前端只送成員名稱，SQL 由 Cube 依模型產生"
@@ -825,9 +866,8 @@ export function Explore() {
                   {JSON.stringify(query, null, 2)}
                 </pre>
               </Panel>
-            </motion.div>
+            </div>
           )}
-        </AnimatePresence>
         </>
         )}
       </div>

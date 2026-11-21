@@ -43,7 +43,7 @@ function DraggableField({
           onActivate()
         }
       }}
-      title={member.description}
+      data-tip={member.description || undefined}
       className={cn(
         "inline-flex cursor-grab items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium transition-colors active:cursor-grabbing",
         zone === "pool"
