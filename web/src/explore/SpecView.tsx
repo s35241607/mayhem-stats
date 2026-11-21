@@ -137,7 +137,8 @@ export function SpecView({
     body = <EmptyState>這個條件下沒有資料。</EmptyState>
   } else if (spec.viz === "kpi") {
     body = (
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      // 四個以內排成一列；class 寫成完整字串，Tailwind 才掃得到
+      <div className={cn("grid gap-3 sm:grid-cols-2", spec.values.length === 4 ? "lg:grid-cols-4" : "lg:grid-cols-3")}>
         {spec.values.map((v) => (
           <div key={v} className="rounded-lg border bg-secondary/30 px-4 py-3">
             <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{valueTitle(spec, meta, v)}</div>

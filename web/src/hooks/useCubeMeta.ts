@@ -59,7 +59,8 @@ const HIDDEN_CUBE = /^game_players\./
  *  暴露出來只會讓人選到看不懂的東西。 */
 function isPresentable(m: { shortTitle?: string; title?: string }) {
   const text = m.shortTitle || m.title || ""
-  return /[一-鿿]/.test(text)
+  // 全大寫的縮寫也算有標題（KDA、DPM）：自動產生的標題是「Kda」這種首字大寫，不會誤放
+  return /[一-鿿]/.test(text) || /^[A-Z][A-Z0-9/ ]+$/.test(text)
 }
 
 /** 模型只在改 yml（熱重載）時才變，一次開啟期間抓一次就好；每次進自由探索都重抓會先閃一輪載入。
