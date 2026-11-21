@@ -14,6 +14,7 @@ import { MAYHEM_QUEUE_ID, num, type CubeFilter } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 import { useCrumb } from "@/lib/breadcrumb"
 import { MIN_GAMES, NO_LIMIT, round0 } from "./shared"
+import { oneOf, useUrlState } from "@/lib/urlState"
 
 type Relation = "teammate" | "opponent"
 const REL_LABEL: Record<Relation, string> = { teammate: "同隊", opponent: "敵對" }
@@ -483,6 +484,7 @@ function PersonDetail({
 }
 
 type Scope = "all" | "teammate" | "opponent" | "both"
+const scopeCodec = oneOf<Scope>("all", "teammate", "opponent", "both")
 
 const emptyPerson = (puuid: string, player: string): Person => ({
   puuid,
@@ -515,7 +517,7 @@ function PeopleTable({
 }) {
   const columns = useMemo(() => peopleColumns(myWinrate), [myWinrate])
   const { timeFilter } = useFilters()
-  const [scope, setScope] = useState<Scope>("all")
+  const [scope, setScope] = useUrlState<Scope>("scope", "all", scopeCodec)
   // teammates 是自己的 cube，沒有 participants.is_me，所以不套 apply()。
   // subject 指定要以誰為視角——少了它，所有人的視角會混在一起。
   const filters: CubeFilter[] = [...subject, { member: "matches.queue_id", operator: "equals", values: [queueId] }]

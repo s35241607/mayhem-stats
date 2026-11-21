@@ -43,6 +43,7 @@ import {
 } from "@/lib/gap"
 import { participantRows } from "@/lib/who"
 import { BUILD_ROLES, BUILD_SHORT, MIN_GAMES, NO_LIMIT, round0, splitRiotId } from "./shared"
+import { oneOf, stringCodec, useUrlState } from "@/lib/urlState"
 
 // ── 判斷：和陣容、敗因、節奏三頁同一套「區間」講法 ─────────────────────────────
 // 判斷用本場貢獻（contribution.work，v5.4 / v5-B 修訂版）：九個計分基因（輸出、承傷、擊殺、參團、治療護盾、控場、推塔、清兵、功能裝）
@@ -1121,6 +1122,7 @@ type DrawerTab = "overview" | "picks" | "stats"
 
 /** 頂層分頁：全員一覽、數據總表、查英雄、查增幅裝置。一次只看一段，分頁列貼在頁首下面。 */
 type Section = "matrix" | "stats" | "champ" | "augment" | "item" | "badges"
+const sectionCodec = oneOf<Section>("matrix", "stats", "champ", "augment", "item", "badges")
 
 /** 抽屜裡的一串對局：範圍條件交給 Cube 找出是哪幾場（PlayerMatches），或現成的列表參數（單場紀錄） */
 type GamesSource = { puuid: string; filters: CubeFilter[]; recordMetric?: string; champion?: string } | { params: Record<string, string> }
@@ -4560,8 +4562,8 @@ export function Crew() {
   // 數據分頁點開一項時抽屜放寬成兩欄，由 DrawerStats 回報
   const [drawerWide, setDrawerWide] = useState(false)
   // 頂層分頁：一次只看一段
-  const [section, setSection] = useState<Section>("matrix")
-  const [recentSize, setRecentSize] = useState("10")
+  const [section, setSection] = useUrlState<Section>("tab", "matrix", sectionCodec)
+  const [recentSize, setRecentSize] = useUrlState<string>("recent", "10", stringCodec)
   // 查英雄／增幅／裝備各自選中的東西；互搭清單點一列會改另一頁的並切過去
   const [lookupPick, setLookupPick] = useState<Record<LookupId, string | null>>({ champ: null, augment: null, item: null })
   const pickFor = (id: LookupId) => (name: string) => setLookupPick((p) => ({ ...p, [id]: name }))

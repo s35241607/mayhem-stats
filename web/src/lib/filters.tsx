@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react"
 import { MAYHEM_QUEUE_ID, bumpScope, cubeQuery, type CubeFilter, type CubeQuery } from "@/lib/cube"
+import { useUrlParam, useUrlState, writeParams, type Codec } from "@/lib/urlState"
 
 export type Drill = CubeFilter & { label: string }
 
@@ -37,7 +38,37 @@ export const DATE_RANGES = [
   { value: "last 90 days", label: "最近 90 天", days: 90 },
 ] as const
 
-const localDate = (d: Date) =>
+/** 自訂區間的寫法：「起..迄」，兩端都含。和預設期間共用 dateRange 這個字串欄位 */
+const CUSTOM_RANGE = /^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/
+export const isCustomRange = (range: string) => CUSTOM_RANGE.test(range)
+export const customRange = (from: string, to: string) => (from <= to ? `${from}..${to}` : `${to}..${from}`)
+
+/** 網址裡的期間寫短一點：all、7d、30d，自訂區間照原樣 */
+const encodeRange = (range: string) => {
+  const preset = DATE_RANGES.find((r) => r.value === range)
+  return preset ? (preset.days ? `${preset.days}d` : "all") : range
+}
+const decodeRange = (raw: string): string | null => {
+  if (isCustomRange(raw)) return raw
+  const preset = DATE_RANGES.find((r) => (r.days ? `${r.days}d` : "all") === raw)
+  return preset?.value ?? null
+}
+
+const NO_DRILLS: Drill[] = []
+/** 全域下鑽放進網址：[[欄位, 運算子, 值[], 標籤], …] */
+const drillCodec: Codec<Drill[]> = {
+  parse: (raw) => {
+    try {
+      const list = JSON.parse(raw) as [string, string, string[], string][]
+      return list.map(([member, operator, values, label]) => ({ member, operator, values, label }))
+    } catch {
+      return undefined
+    }
+  },
+  format: (drills) => JSON.stringify(drills.map((d) => [d.member, d.operator, d.values, d.label])),
+}
+
+export const localDate = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 
 /** 期間換成「含今天」的本地日期區間 [起, 迄]。
@@ -46,6 +77,8 @@ const localDate = (d: Date) =>
  *  （實測 9/13 查到的是 9/6～9/12）——今天剛打完的場次在任何期間篩選下都會消失。
  *  每次呼叫都重算，畫面開著跨過午夜也不會停在前一天。 */
 export function dateBounds(range: string): [string, string] | null {
+  const custom = CUSTOM_RANGE.exec(range)
+  if (custom) return [custom[1], custom[2]]
   const days = DATE_RANGES.find((r) => r.value === range)?.days ?? 0
   if (!days) return null
   const today = new Date()
@@ -119,17 +152,19 @@ const FilterContext = createContext<FilterState | null>(null)
 
 export function FilterProvider({ children }: { children: ReactNode }) {
   const [players, setPlayers] = useState<Player[]>([])
-  const [account, setAccount] = useState<Player | null>(null)
-  const [queueId, setQueueId] = useState<string | null>(MAYHEM_QUEUE_ID)
-  const [dateRange, setDateRange] = useState<string>("all")
-  const [versions, setVersions] = useState<string[]>([])
-  const [versionFrom, setVersionFrom] = useState<string | null>(null)
+  // 篩選條件的真相在網址（lib/urlState）：重新整理、複製連結、上一頁都還原得回來。
+  // 網址沒寫的就用站台預設；所以「改回預設」是把參數拿掉，不是寫一個和預設一樣的值。
+  const [acctParam] = useUrlParam("acct")
+  const [modeParam, setModeParam] = useUrlParam("mode")
+  const [rangeParam, setRangeParam] = useUrlParam("range")
+  const [vParam] = useUrlParam("v")
+  const [vfParam] = useUrlParam("vf")
+  const [drills, setDrills] = useUrlState<Drill[]>("drill", NO_DRILLS, drillCodec)
   const [versionOptions, setVersionOptions] = useState<VersionOption[]>([])
   const [versionsLoaded, setVersionsLoaded] = useState(false)
   const [siteDefaults, setSiteDefaults] = useState<SiteDefaults>(BUILTIN_DEFAULTS)
   const [canEditDefaults, setCanEditDefaults] = useState(false)
   const [configLoaded, setConfigLoaded] = useState(false)
-  const [drills, setDrills] = useState<Drill[]>([])
   const [playersLoaded, setPlayersLoaded] = useState(false)
   const [viewer, setViewer] = useState<Viewer | null>(null)
 
@@ -140,9 +175,6 @@ export function FilterProvider({ children }: { children: ReactNode }) {
       .then((d: { defaults: SiteDefaults; canEdit: boolean }) => {
         setSiteDefaults(d.defaults)
         setCanEditDefaults(d.canEdit)
-        setQueueId(d.defaults.queue)
-        setDateRange(d.defaults.dateRange)
-        setVersionFrom(d.defaults.versionFrom)
       })
       .catch(() => undefined)
       .finally(() => setConfigLoaded(true))
@@ -180,6 +212,22 @@ export function FilterProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  // 網址用 puuid 前 8 碼認人（完整的不放進會被貼出去的連結）；沒寫或找不到就是自己的帳號。
+  // 帳號是從清單算出來的，資料更新後清單重載，正在看的人自然留著、場次與追蹤標記也是最新的。
+  const defaultAccount = useMemo(() => players.find((p) => p.is_me) ?? players[0] ?? null, [players])
+  const account = useMemo(
+    () => (acctParam ? players.find((p) => p.puuid.startsWith(acctParam)) : undefined) ?? defaultAccount,
+    [players, acctParam, defaultAccount],
+  )
+  const queueId = modeParam === null ? siteDefaults.queue : modeParam === "all" ? null : modeParam
+  const setQueueId = (id: string | null) => setModeParam(id === siteDefaults.queue ? null : (id ?? "all"))
+  const dateRange = (rangeParam && decodeRange(rangeParam)) || siteDefaults.dateRange
+  const setDateRange = (range: string) => setRangeParam(range === siteDefaults.dateRange ? null : encodeRange(range))
+  const versions = useMemo(() => (vParam ? vParam.split(",") : []), [vParam])
+  // vf=none：站台預設有「某版本之後」，但這個人選了全部版本
+  const versionFrom = vParam ? null : vfParam === "none" ? null : (vfParam ?? siteDefaults.versionFrom)
+  const noVersionFrom = siteDefaults.versionFrom ? "none" : null
+
   // 「某版本之後」還沒拿到版本清單時展開不出條件，先等，不要用「全部版本」查一輪
   const ready = playersLoaded && configLoaded && (!versionFrom || versionsLoaded)
   const activeVersions = useMemo(() => {
@@ -206,9 +254,6 @@ export function FilterProvider({ children }: { children: ReactNode }) {
       .then((r) => r.json())
       .then((d: { players: Player[] }) => {
         setPlayers(d.players)
-        // 資料更新後保留正在看的帳號，並取回最新場次與追蹤標記。
-        setAccount((current) => d.players.find((p) => p.puuid === current?.puuid)
-          ?? d.players.find((p) => p.is_me) ?? d.players[0] ?? null)
       })
       .catch(() => undefined)
       // 載不到也要放行，否則後端一掛整個畫面就永遠停在骨架
@@ -237,7 +282,6 @@ export function FilterProvider({ children }: { children: ReactNode }) {
       .map((p) => ({ ...p, is_me: mine.has(p.puuid) ? 1 : 0 }))
       .sort((a, b) => b.is_me - a.is_me)
     setPlayers(next)
-    setAccount((current) => (current ? (next.find((p) => p.puuid === current.puuid) ?? current) : current))
     return null
   }
 
@@ -263,8 +307,8 @@ export function FilterProvider({ children }: { children: ReactNode }) {
       setAccount: (player) => {
         // 換人看：各個查詢不能把前一個人的結果留在畫面上等新的（見 useCube）
         if (player.puuid !== account?.puuid) bumpScope()
-        setAccount(player)
-        setDrills([]) // 換人看的時候，前一個人的下鑽條件留著只會造成誤解
+        // 換人看的時候，前一個人的下鑽條件留著只會造成誤解
+        writeParams({ acct: player.puuid === defaultAccount?.puuid ? null : player.puuid.slice(0, 8), drill: null })
       },
       players,
       isMe: !!account?.is_me,
@@ -276,29 +320,21 @@ export function FilterProvider({ children }: { children: ReactNode }) {
       setDateRange,
       versions,
       // 手動勾選和「某版本之後」互斥：勾了就是在指定版本，起點清掉
-      setVersions: (next) => {
-        setVersions(next)
-        setVersionFrom(null)
-      },
+      setVersions: (next) => writeParams({ v: next.length ? next.join(",") : null, vf: next.length ? null : noVersionFrom }),
       versionFrom,
-      setVersionFrom: (patch) => {
-        setVersionFrom(patch)
-        setVersions([])
-      },
+      setVersionFrom: (patch) =>
+        writeParams({ v: null, vf: patch === siteDefaults.versionFrom ? null : (patch ?? noVersionFrom) }),
       versionOptions,
       activeVersions,
       siteDefaults,
       canEditDefaults,
       saveSiteDefaults,
       drills,
-      addDrill: (drill) =>
-        setDrills((prev) =>
-          prev.some((d) => d.member === drill.member && d.values[0] === drill.values[0])
-            ? prev
-            : [...prev, drill],
-        ),
-      removeDrill: (index) => setDrills((prev) => prev.filter((_, i) => i !== index)),
-      clearDrills: () => setDrills([]),
+      addDrill: (drill) => {
+        if (!drills.some((d) => d.member === drill.member && d.values[0] === drill.values[0])) setDrills([...drills, drill])
+      },
+      removeDrill: (index) => setDrills(drills.filter((_, i) => i !== index)),
+      clearDrills: () => setDrills(NO_DRILLS),
 
       subjectFilter: (member) =>
         account ? [{ member, operator: "equals", values: [account.puuid] }] : [],
@@ -358,7 +394,7 @@ export function FilterProvider({ children }: { children: ReactNode }) {
     }
     // setLinked 每次渲染都是新函式，但它讀的 players 已經在依賴裡
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, account, players, viewer, queueId, dateRange, versions, versionFrom, versionOptions, activeVersions, siteDefaults, canEditDefaults, drills])
+  }, [ready, account, defaultAccount, players, viewer, queueId, dateRange, versions, versionFrom, versionOptions, activeVersions, siteDefaults, canEditDefaults, drills])
 
   return <FilterContext.Provider value={value}>{children}</FilterContext.Provider>
 }

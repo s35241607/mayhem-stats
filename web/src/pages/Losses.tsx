@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useMemo } from "react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { DrillPanel, MAX_GAME_IDS } from "@/components/MatchList"
 import { Kpi, Panel, EmptyState, QueryError } from "@/components/primitives"
@@ -13,6 +13,7 @@ import { useCrumb } from "@/lib/breadcrumb"
 import { WhoSwitch } from "@/components/WhoSwitch"
 import { usePageWho } from "@/lib/whoState"
 import { useWhoScope, type Who } from "@/lib/who"
+import { stringCodec, useUrlState } from "@/lib/urlState"
 
 /** 拿來做勝負對照的指標。higherIsBetter 只影響顏色，不影響數字。 */
 type Metric = {
@@ -123,7 +124,7 @@ export function Losses() {
   const [who, setWhoState] = usePageWho()
   const scope = useWhoScope(who)
   const apply = scope.q
-  const [bucket, setBucket] = useState<string | null>(null)
+  const [bucket, setBucket] = useUrlState<string | null>("bucket", null, stringCodec, "push")
   useCrumb(10, bucket ? `對局長度 ${bucket}` : null, () => setBucket(null))
   const setWho = (next: Who) => {
     setWhoState(next)
@@ -317,7 +318,7 @@ export function Losses() {
               reach={reachOf(durationRows, overallWr)}
               selected={bucket}
               labelWidth="minmax(0,8.5rem)"
-              onPick={(row) => setBucket((cur) => (cur === row.key ? null : row.key))}
+              onPick={(row) => setBucket(bucket === row.key ? null : row.key)}
             />
             <details className="text-[11px] leading-relaxed text-muted-foreground">
               <summary className="cursor-pointer select-none font-medium text-foreground">這幾段怎麼切的、怎麼讀</summary>

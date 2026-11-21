@@ -225,6 +225,15 @@ description: 這個專案前端的主題與動畫規範。只要動到 web/src �
 - 點某一層清掉比它深的所有層；點頁名清掉這頁所有聚焦；離開頁面自動清空，不用手動處理。
 - 頁面內原本的「收起」「清除」按鈕保留，麵包屑是額外的統一入口，不是取代。
 
+**狀態放網址**（`lib/urlState.ts`）：使用者選的東西——篩選、排序、分頁、點開的那一個——用 `useUrlState(key, 預設, codec, mode)`
+取代 `useState`，重新整理、貼連結、上一頁才還原得回來。
+- 預設值不寫進網址；codec 要定義在模組層（`oneOf(...)`、`stringCodec`），不要寫在元件裡每次渲染新建。
+- 篩選、排序用 `replace`（預設）；「進到更細一層」（開抽屜、看單場）用 `"push"`，上一頁就是退一層。
+- 換頁只帶 `GLOBAL_KEYS`（帳號、模式、期間、版本、全域下鑽、看誰）；頁內的鍵各頁自己取短名，換頁就丟。
+  新增全站參數要加進 `GLOBAL_KEYS`。
+- 全域篩選的真相就在網址（`filters.tsx`），沒寫的用站台預設；帳號只放 puuid 前 8 碼。
+- 純暫時的 UI 狀態（展開收合、hover、輸入到一半的文字）留在 `useState`。
+
 **自由探索的下鑽路徑與交叉矩陣**（`components/DrillPath.tsx`、`PivotMatrix.tsx`，共用規則在 `lib/drill.ts`）：
 - 預設路徑寫在 `cube/model/cubes/*.yml` 的 `hierarchies`，前端從 `/meta` 讀，不要在前端另寫一份。
 - 維度分兩家：participants 與 teammates 之間沒有 join 路徑，一條路徑／一張矩陣只能用同一家（`dimensionsOf`）。

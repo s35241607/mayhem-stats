@@ -9,6 +9,7 @@ import { BreadcrumbProvider } from "@/lib/breadcrumb"
 import { WhoProvider } from "@/lib/whoState"
 import { ThemeProvider } from "@/lib/theme"
 import { markNavigation } from "@/lib/motion"
+import { notifyUrlChanged, pageHref } from "@/lib/urlState"
 import { Dashboard } from "@/pages/Dashboard"
 
 // 每頁各自成為一個 chunk。表格頁才會載入 AG Grid、圖表頁才會載入 ECharts，
@@ -72,7 +73,9 @@ export default function App() {
   const setPage = (next: PageId) => {
     if (next === page) return
     markNavigation()
-    window.history.pushState(null, "", `/${next}`)
+    // 只帶全站的篩選過去，上一頁的頁內狀態留在它自己那一格歷史裡
+    window.history.pushState(null, "", pageHref(next))
+    notifyUrlChanged()
     setPageState(next)
   }
   useEffect(() => {

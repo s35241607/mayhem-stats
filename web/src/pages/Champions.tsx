@@ -22,6 +22,7 @@ import { RoleChip } from "@/components/RoleChip"
 import { WhoSwitch } from "@/components/WhoSwitch"
 import { usePageWho } from "@/lib/whoState"
 import { WHO_LABEL, useWhoScope, type Who, type WhoScope } from "@/lib/who"
+import { stringCodec, useUrlState } from "@/lib/urlState"
 
 const WhoContext = createContext<WhoScope | null>(null)
 const useWho = () => {
@@ -528,8 +529,9 @@ export function Champions() {
 
 function ChampionsBody({ onWho }: { onWho: (who: Who) => void }) {
   const { q: apply, who, baselineLabel, trackedCount } = useWho()
-  const [picked, setPicked] = useState<string | null>(null)
-  const [role, setRoleState] = useState<string | null>(null)
+  // 點開的英雄用 push：上一頁就是關掉抽屜。定位是篩選，用 replace
+  const [picked, setPicked] = useUrlState<string | null>("champ", null, stringCodec, "push")
+  const [role, setRoleState] = useUrlState<string | null>("role", null, stringCodec)
   const spec = ROLE_SPEC
   // 定位是比英雄高一層的聚焦：換定位時，原本點開的那隻英雄可能已經不在這一類裡
   const setRole = (next: string | null) => {

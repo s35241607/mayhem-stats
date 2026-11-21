@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -6,6 +6,7 @@ import { EmptyState, Panel } from "@/components/primitives"
 import { prefersReducedMotion } from "@/lib/motion"
 import { useCrumb } from "@/lib/breadcrumb"
 import { useDataRevision } from "@/lib/revision"
+import { useUrlParam, writeParams } from "@/lib/urlState"
 import { useCube } from "@/hooks/useCube"
 import { useFilters } from "@/lib/filters"
 import { MAX_GAME_IDS, type CubeQuery, type CubeRow } from "@/lib/cube"
@@ -152,7 +153,15 @@ export function MatchList({
   const [data, setData] = useState<Loaded | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
-  const [picked, setPicked] = useState<MatchPick | null>(null)
+  // 點開的那一場記在網址（match=平台.對局.參賽者）：上一頁就是回到列表，重新整理、貼連結也還在那一場。
+  // 只記是哪一列，不放 puuid；主角從列上讀，列還沒載到就先用呼叫端給的
+  const [matchParam] = useUrlParam("match")
+  const picked = useMemo<MatchPick | null>(() => {
+    const [platformId, gameId, participantId] = (matchParam ?? "").split(".")
+    return platformId && Number(gameId) ? { platformId, gameId: Number(gameId), participantId: Number(participantId) } : null
+  }, [matchParam])
+  const setPicked = (m: MatchPick | null) =>
+    writeParams({ match: m ? `${m.platformId}.${m.gameId}.${m.participantId}` : null }, m ? "push" : "replace")
   const pickedRow = picked
     ? data?.matches.find((m) => m.platform_id === picked.platformId && m.game_id === picked.gameId && m.participant_id === picked.participantId)
     : undefined
@@ -181,8 +190,9 @@ export function MatchList({
   useEffect(() => {
     // 同一組條件、只是採集到新對局：不清畫面、不關戰報，把新的幾場接到最前面
     const sameKey = loaded.current?.key === key
-    if (!sameKey) {
-      if (loaded.current && loaded.current.puuid !== params.puuid) setData(null)
+    // 第一次掛載不算「換條件」：網址帶著 match 進來時要留著它
+    if (!sameKey && loaded.current) {
+      if (loaded.current.puuid !== params.puuid) setData(null)
       setPicked(null)
     }
     setError(null)
@@ -266,7 +276,7 @@ export function MatchList({
       <MatchDetail
         platformId={picked.platformId}
         gameId={picked.gameId}
-        puuid={picked.puuid ?? puuid}
+        puuid={pickedRow?.puuid ?? puuid}
         onBack={() => setPicked(null)}
       />
     )

@@ -14,8 +14,10 @@ import { cn } from "@/lib/utils"
 import { ForestAxis, ForestLegend, ForestTrack } from "@/components/GapForest"
 import { DrillPanel } from "@/components/MatchList"
 import { MIN_GAMES, NO_LIMIT, splitRiotId } from "./shared"
+import { oneOf, useUrlState } from "@/lib/urlState"
 
 /** 下鑽的分組。kind 同時是 participant_context 的維度名。 */
+const grainCodec = oneOf<"stage" | "index">("stage", "index")
 type TiltFocus = { kind: "prev_result" | "session_stage" | "game_in_session"; value: string; label: string }
 
 const STAGE_ORDER = ["第 1-2 場", "第 3-5 場", "第 6-9 場", "第 10 場以後"]
@@ -139,7 +141,7 @@ export function Tilt() {
   }
   const noTracked = who === "tracked" && !scope.trackedCount
   // 「一輪打到第幾場」同一個維度的粗細兩種，和時段頁「四時段／逐小時」一樣用切換鈕。
-  const [grain, setGrain] = useState<"stage" | "index">("stage")
+  const [grain, setGrain] = useUrlState<"stage" | "index">("grain", "stage", grainCodec)
 
   // participant_context 和 participants 一對一，所以直接走 apply()：
   // 帳號、模式、期間、全域下鑽（例如某隻英雄）都會一起套上。

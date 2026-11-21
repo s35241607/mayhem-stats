@@ -13,6 +13,7 @@ import { usePageWho } from "@/lib/whoState"
 import { participantRows, useWhoScope, type Who, type WhoScope } from "@/lib/who"
 import { BUILD_ROLES, NO_LIMIT } from "./shared"
 import { cn } from "@/lib/utils"
+import { oneOf, useUrlState } from "@/lib/urlState"
 
 // 陣容是「整隊」的屬性，場次一律用隊伍粒度（participants.team_games）：
 // 所有人模式下一隊五人各是一列，用 games 會把同一隊算五次。只看一個帳號時兩者相同。
@@ -254,6 +255,8 @@ const BUILD_CONTEXTS = {
   enemy_damage_mix: { label: "敵方輸出組成", dim: "comp_context.enemy_damage_mix", buckets: MIX, name: (b: string) => `敵方${b}` },
 } as const
 type BuildContextId = keyof typeof BUILD_CONTEXTS
+const facetCodec = oneOf<FacetId>(...(Object.keys(FACETS) as FacetId[]))
+const buildCtxCodec = oneOf<BuildContextId>(...(Object.keys(BUILD_CONTEXTS) as BuildContextId[]))
 
 /** 一邊（我方或敵方）的三種因素，各自是一組森林圖的列 */
 const SIDE_FACETS: FacetId[] = ["front", "mix", "support"]
@@ -580,9 +583,9 @@ export function Lineups() {
   const [who, setWhoState] = usePageWho()
   const scope = useWhoScope(who)
   const apply = scope.q
-  const [facet, setFacet] = useState<FacetId>("front")
+  const [facet, setFacet] = useUrlState<FacetId>("facet", "front", facetCodec)
   const [showMatrix, setShowMatrix] = useState(false)
-  const [buildCtx, setBuildCtx] = useState<BuildContextId>("ally_frontline")
+  const [buildCtx, setBuildCtx] = useUrlState<BuildContextId>("ctx", "ally_frontline", buildCtxCodec)
   const [focus, setFocus] = useState<Focus | null>(null)
   const setWho = (next: Who) => {
     setWhoState(next)

@@ -22,8 +22,10 @@ import { useWhoScope, type Who } from "@/lib/who"
 import { MIN_GAMES, NO_LIMIT, round0, round1 } from "./shared"
 import { empiricalBayes, shrinkRate } from "@/lib/gap"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { oneOf, stringCodec, useUrlState } from "@/lib/urlState"
 
 const ALL = "__all__"
+const rankCodec = oneOf<"eb" | "raw">("eb", "raw")
 
 const G = "participants.games"
 
@@ -139,7 +141,7 @@ export function Augments() {
   const [who, setWhoState] = usePageWho()
   const scope = useWhoScope(who)
   const apply = scope.q
-  const [picked, setPicked] = useState<string>(ALL)
+  const [picked, setPicked] = useUrlState<string>("champ", ALL, stringCodec)
   // 交叉篩選：點長條 → 表格選取並捲到那一列；點表格一列 → 長條亮起那一根。再點一次取消
   const [focus, setFocus] = useState<string | null>(null)
   const toggleFocus = (name: string) => setFocus((cur) => (cur === name ? null : name))
@@ -229,7 +231,7 @@ export function Augments() {
       ),
     [everyone.rows],
   )
-  const [rankBy, setRankBy] = useState<"eb" | "raw">("eb")
+  const [rankBy, setRankBy] = useUrlState<"eb" | "raw">("rank", "eb", rankCodec)
 
   // 資料沒變就回傳同一個陣列：欄位定義跟著它重建，每次都換新的話 AG Grid 會把使用者點的排序重設
   const tableRows = useMemo(() => {

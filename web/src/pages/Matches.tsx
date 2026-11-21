@@ -25,6 +25,7 @@ import { participantKey, useBuildRoles } from "@/hooks/useBuildRoles"
 import { cn } from "@/lib/utils"
 import { useCrumb } from "@/lib/breadcrumb"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { oneOf, useUrlState } from "@/lib/urlState"
 
 type Item = { slot: number; item_id: number; name: string | null; icon_path: string | null }
 /** 同場十個人裡的一個，只要英雄（不帶名稱，列表不列出其他玩家的帳號）。 */
@@ -57,6 +58,10 @@ type MetricRange = { metric: MatchMetric; min: number | null; max: number | null
 type MatchSort = "newest" | MatchMetric
 type SortDirection = "asc" | "desc"
 type MatchResult = "all" | "win" | "loss"
+const sortCodec = oneOf<MatchSort>("newest", ...MATCH_METRICS.map((m) => m.id))
+const directionCodec = oneOf<SortDirection>("asc", "desc")
+const resultCodec = oneOf<MatchResult>("all", "win", "loss")
+const swingCodec = oneOf<SwingLabel>(...SWING_LABELS)
 const metricLabel = (id: MatchMetric) => MATCH_METRICS.find((m) => m.id === id)!
 
 function SwingChip({ label, className }: { label: SwingLabel; className?: string }) {
@@ -1103,9 +1108,10 @@ function TrackedMatches({ scope, listParams }: { scope: WhoScope; listParams: Re
 export function Matches() {
   const { account, matchParams, drills, apply } = useFilters()
   const [who, setWho] = usePageWho(NO_ALL)
-  const [sort, setSort] = useState<MatchSort>("newest")
-  const [direction, setDirection] = useState<SortDirection>("desc")
-  const [result, setResult] = useState<MatchResult>("all")
+  // 排序與篩選放在網址：重新整理、貼連結都還在（lib/urlState）
+  const [sort, setSort] = useUrlState<MatchSort>("sort", "newest", sortCodec)
+  const [direction, setDirection] = useUrlState<SortDirection>("dir", "desc", directionCodec)
+  const [result, setResult] = useUrlState<MatchResult>("result", "all", resultCodec)
   const [range, setRange] = useState<MetricRange | null>(null)
   const scope = useWhoScope(who)
   const listParams: Record<string, string> = { sort, direction }
@@ -1116,7 +1122,7 @@ export function Matches() {
     if (range.max !== null) listParams.max_value = String(range.max)
   }
   const drillKey = drills.map((d) => `${d.member}=${d.values.join(",")}`).join("&")
-  const [swingPick, setSwingPick] = useState<SwingLabel | null>(null)
+  const [swingPick, setSwingPick] = useUrlState<SwingLabel | null>("swing", null, swingCodec)
   useCrumb(10, swingPick ? `翻盤：${swingPick}` : null, () => setSwingPick(null))
   // 括號只在沒有額外數值或勝敗條件時顯示，避免把全域範圍的數字當成當前結果。
   const showSwingCounts = result === "all" && !range

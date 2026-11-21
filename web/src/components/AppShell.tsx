@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react"
+import { useEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react"
 import {
   Calculator,
   LayoutDashboard,
@@ -63,7 +63,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useCollectorStatus } from "@/hooks/useCube"
-import { DATE_RANGES, comparePatch, useFilters } from "@/lib/filters"
+import { DATE_RANGES, comparePatch, customRange, dateBounds, isCustomRange, localDate, useFilters } from "@/lib/filters"
 import { MAYHEM_QUEUE_ID, inflightCount, subscribeInflight } from "@/lib/cube"
 import { AccountSwitcher, ViewingOtherBanner } from "@/components/AccountSwitcher"
 import { ThemeSwitcher } from "@/components/ThemeSwitcher"
@@ -283,8 +283,24 @@ function QueryProgress() {
   )
 }
 
+/** 自訂區間的起迄日。用原生的日期輸入：鍵盤可以直接打、各平台都有自己的日曆，不必再帶一套日期元件。
+ *  兩端都含；起迄填反了會自動對調（customRange）。 */
+function CustomRange({ range, onChange }: { range: string; onChange: (range: string) => void }) {
+  const [from, to] = dateBounds(range)!
+  const today = localDate(new Date())
+  const field = "h-8 rounded-md border bg-secondary/50 px-2 text-xs tabular-nums outline-none transition focus-visible:border-primary"
+  return (
+    <div className="reveal flex items-center gap-1 text-xs text-muted-foreground">
+      <input type="date" aria-label="起始日" className={field} value={from} max={today} onChange={(e) => e.target.value && onChange(customRange(e.target.value, to))} />
+      <span>–</span>
+      <input type="date" aria-label="結束日" className={field} value={to} max={today} onChange={(e) => e.target.value && onChange(customRange(from, e.target.value))} />
+    </div>
+  )
+}
+
 function GlobalFilters() {
   const { queueId, setQueueId, dateRange, setDateRange } = useFilters()
+  const custom = isCustomRange(dateRange)
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -299,7 +315,15 @@ function GlobalFilters() {
         </SelectContent>
       </Select>
 
-      <Select value={dateRange} onValueChange={setDateRange}>
+      <Select
+        value={custom ? "custom" : dateRange}
+        onValueChange={(v) => {
+          if (v !== "custom") return setDateRange(v)
+          // 從目前看的那段開始改（全部期間沒有邊界，就先給最近 30 天）
+          const [from, to] = dateBounds(dateRange) ?? dateBounds("last 30 days")!
+          setDateRange(customRange(from, to))
+        }}
+      >
         <SelectTrigger size="sm" className="w-[128px]">
           <SelectValue />
         </SelectTrigger>
@@ -309,8 +333,10 @@ function GlobalFilters() {
               {range.label}
             </SelectItem>
           ))}
+          <SelectItem value="custom">自訂區間</SelectItem>
         </SelectContent>
       </Select>
+      {custom && <CustomRange range={dateRange} onChange={setDateRange} />}
 
       <VersionFilter />
 
@@ -448,6 +474,12 @@ export function AppShell({
 }) {
   const meta = PAGE_TITLES[page]
   const { ready, canEditDefaults } = useFilters()
+  // 分頁標題跟著「現在在看什麼」：頁名加上最深的一層（某隻英雄、某一場），開好幾個分頁時分得出來
+  const crumbs = useCrumbs()
+  const deepest = crumbs[crumbs.length - 1]?.label
+  useEffect(() => {
+    document.title = [deepest, meta.title, "Mayhem 戰績"].filter(Boolean).join("｜")
+  }, [deepest, meta.title])
   // 權限要等 /api/config 回來才知道（ready 包含它）；在那之前不掛 ADMIN 頁，免得非管理員先看到一閃、頁面先打了 API
   const adminPage = ADMIN_PAGES.has(page)
   const content = !adminPage || canEditDefaults

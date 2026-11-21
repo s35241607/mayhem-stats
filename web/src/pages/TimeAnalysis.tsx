@@ -23,8 +23,10 @@ import { useWhoScope, type Who } from "@/lib/who"
 import { WhoSwitch } from "@/components/WhoSwitch"
 import { useCrumb } from "@/lib/breadcrumb"
 import { BLOCKS, MIN_GAMES, NO_LIMIT, WEEKDAYS, splitRiotId, toBlocks } from "./shared"
+import { oneOf, useUrlState } from "@/lib/urlState"
 
 type Grain = "hour" | "block"
+const grainCodec = oneOf<Grain>("hour", "block")
 
 /** 目前下鑽到哪一塊。date 是某一天，slot 是某個星期幾的某段時間。 */
 type Slice =
@@ -183,7 +185,7 @@ export function TimeAnalysis() {
   const scope = useWhoScope(who)
   const apply = scope.q
   const [slice, setSlice] = useState<Slice | null>(null)
-  const [grain, setGrain] = useState<Grain>("block")
+  const [grain, setGrain] = useUrlState<Grain>("grain", "block", grainCodec)
   useCrumb(10, slice ? sliceLabel(slice) : null, () => setSlice(null))
 
   const daily = useCube(
