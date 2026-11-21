@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useId, useMemo, useRef, useState } from "react"
 import {
   Table2,
   BarChart3,
@@ -19,6 +19,7 @@ import {
   Grid2x2,
   ListVideo,
   ImageDown,
+  Pencil,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -72,7 +73,9 @@ const OPERATORS = [
   { value: "notEquals", label: "不等於" },
   { value: "contains", label: "包含" },
   { value: "gt", label: "大於" },
+  { value: "gte", label: "至少" },
   { value: "lt", label: "小於" },
+  { value: "lte", label: "至多" },
   { value: "set", label: "有值" },
 ]
 
@@ -110,6 +113,8 @@ type UrlView = {
 }
 
 const STORAGE_KEY = "mayhem.explore.views"
+/** 長條圖兩個維度時最多並排幾張小圖 */
+const SMALL_MULTIPLES = 6
 const viewCodec = jsonCodec<UrlView>()
 
 function loadViews(): SavedView[] {
@@ -415,6 +420,19 @@ export function Explore() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshotKey])
 
+  // 改名：點鉛筆把那一列換成輸入框，Enter 或離開就存；清空等於不改
+  const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null)
+  const commitRename = () => {
+    if (!renaming) return
+    const name = renaming.name.trim()
+    if (name) {
+      const next = views.map((v) => (v.id === renaming.id ? { ...v, name } : v))
+      setViews(next)
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+    }
+    setRenaming(null)
+  }
+
   const removeView = (id: string) => {
     const next = views.filter((v) => v.id !== id)
     setViews(next)
@@ -442,8 +460,47 @@ export function Explore() {
     const suffix = firstMeasure?.meta?.unit ?? ""
 
     if (viz === "bar") {
+      if (dims.length === 2) {
+        // 兩個維度：依第二個維度拆成並排的小圖，每張的長條是第一個維度。
+        // 不做同一張圖裡多種顏色的分組長條——那需要一組另外驗證過的類別色，小圖並排用單一資料色就讀得出來
+        const [inner, outer] = dims
+        const groups = new Map<string, typeof rows>()
+        for (const r of rows) {
+          const key = String(r[outer] ?? "—")
+          groups.set(key, [...(groups.get(key) ?? []), r])
+        }
+        const size = (list: typeof rows) => list.reduce((a, r) => a + (num(r["participants.games"]) ?? num(r["teammates.games"]) ?? 1), 0)
+        const ordered = [...groups.entries()].sort((a, b) => size(b[1]) - size(a[1]))
+        const shown = ordered.slice(0, SMALL_MULTIPLES)
+        return (
+          <div className="space-y-2">
+            {ordered.length > shown.length && (
+              <p className="text-[11px] text-muted-foreground">
+                「{label(meta.byName.get(outer), outer)}」有 {ordered.length} 種，只畫場次最多的 {shown.length} 種；其餘請看表格，或加一個篩選縮小範圍。
+              </p>
+            )}
+            <div className="grid gap-4 lg:grid-cols-2">
+              {shown.map(([name, list]) => (
+                <div key={name} className="min-w-0">
+                  <div className="mb-1 truncate text-xs font-medium">{name}</div>
+                  <BarChart
+                    data={list.map((r) => ({
+                      label: String(r[inner] ?? "—"),
+                      value: num(r[activeMeasures[0]]) ?? 0,
+                      games: num(r["participants.games"]) ?? num(r["teammates.games"]) ?? 0,
+                    }))}
+                    suffix={suffix}
+                    colorBy={activeMeasures[0].endsWith("winrate") ? "value" : "flat"}
+                    onPick={(v) => drillInto(inner, v)}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      }
       if (dims.length !== 1) {
-        return <EmptyState>長條圖需要剛好一個分組維度（目前 {dims.length} 個）。</EmptyState>
+        return <EmptyState>長條圖需要一或兩個分組維度（目前 {dims.length} 個）。兩個時會依第二個拆成並排的小圖。</EmptyState>
       }
       return (
         <BarChart
@@ -726,11 +783,30 @@ export function Explore() {
             <div className="space-y-1">
               {views.map((v) => (
                 <div key={v.id} className="flex items-center gap-1">
+                  {renaming?.id === v.id ? (
+                    <Input
+                      autoFocus
+                      value={renaming.name}
+                      onChange={(e) => setRenaming({ id: v.id, name: e.target.value })}
+                      onKeyDown={(e) => (e.key === "Enter" ? commitRename() : e.key === "Escape" && setRenaming(null))}
+                      onBlur={commitRename}
+                      aria-label={`重新命名檢視 ${v.name}`}
+                      className="h-7 min-w-0 flex-1 text-xs"
+                    />
+                  ) : (
+                    <button
+                      onClick={() => applyView(v)}
+                      className="min-w-0 flex-1 truncate rounded-md px-2 py-1 text-left text-xs transition hover:bg-accent"
+                    >
+                      {v.name}
+                    </button>
+                  )}
                   <button
-                    onClick={() => applyView(v)}
-                    className="min-w-0 flex-1 truncate rounded-md px-2 py-1 text-left text-xs transition hover:bg-accent"
+                    onClick={() => setRenaming({ id: v.id, name: v.name })}
+                    className="rounded-sm p-1 text-muted-foreground opacity-60 transition hover:text-foreground hover:opacity-100"
+                    aria-label={`重新命名檢視 ${v.name}`}
                   >
-                    {v.name}
+                    <Pencil className="size-3" />
                   </button>
                   <button
                     onClick={() => removeView(v.id)}
@@ -887,18 +963,44 @@ function FilterBuilder({
   filters: CubeFilter[]
   onChange: (f: CubeFilter[]) => void
 }) {
+  const { apply } = useFilters()
   const [member, setMember] = useState("")
   const [operator, setOperator] = useState("equals")
   const [value, setValue] = useState("")
+  const listId = useId()
 
+  // 多值：「等於／不等於／包含」可以一次給好幾個（逗號或頓號分開），也可以同一個欄位再加一次——
+  // 會併進同一個條件（任一個符合就算），不是另開一個互相打架的條件。
+  // 數值區間用「至少」加「至多」兩個條件。
+  const multi = operator === "equals" || operator === "notEquals" || operator === "contains"
   const add = () => {
     if (!member) return
-    if (operator !== "set" && !value.trim()) return
-    onChange([...filters, { member, operator, values: operator === "set" ? [] : [value.trim()] }])
+    if (operator === "set") return onChange([...filters, { member, operator, values: [] }])
+    const typed = (multi ? value.split(/[,，、]/) : [value]).map((v) => v.trim()).filter(Boolean)
+    if (!typed.length) return
+    const same = filters.findIndex((f) => f.member === member && f.operator === operator)
+    onChange(
+      multi && same >= 0
+        ? filters.map((f, i) => (i === same ? { ...f, values: [...new Set([...f.values, ...typed])] } : f))
+        : [...filters, { member, operator, values: typed }],
+    )
     setValue("")
   }
 
   const all = [...meta.dimensions, ...meta.measures]
+
+  // 值的自動完成：選的是文字維度時，向 Cube 查它實際出現過哪些值（跨玩家、套用目前的模式與期間），
+  // 用原生 datalist 顯示——打幾個字就能選，不必背「對局長度」的分組叫什麼。
+  // 查不到（那一家 cube 接不上全域條件）就沒有建議，照樣可以自己打。
+  const picked = meta.byName.get(member)
+  const suggestable = !!picked && picked.type === "string" && meta.dimensions.some((d) => d.name === member) && multi
+  const family = analysisFamily(member)
+  const options = useCube(
+    suggestable && (family === "participants" || family === "augment_pairs")
+      ? apply({ dimensions: [member], limit: 500 }, "all", family)
+      : null,
+  )
+  const suggestions = suggestable && !options.error ? options.rows.map((r) => r[member]).filter((v): v is string => typeof v === "string" && v !== "") : []
 
   return (
     <Panel title="自訂篩選" caption="任何維度或指標都能當條件">
@@ -940,11 +1042,19 @@ function FilterBuilder({
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && add()}
-            placeholder={operator === "set" ? "（不需要值）" : "值…"}
+            placeholder={operator === "set" ? "（不需要值）" : multi ? "值…（多個用逗號分開）" : "值…"}
             disabled={operator === "set"}
             aria-label="篩選值"
+            list={suggestions.length ? listId : undefined}
             className="h-8 flex-1 text-xs"
           />
+          {suggestions.length > 0 && (
+            <datalist id={listId}>
+              {suggestions.map((s) => (
+                <option key={s} value={s} />
+              ))}
+            </datalist>
+          )}
           <Button size="sm" variant="outline" onClick={add} disabled={!member} aria-label="新增篩選">
             <Plus className="size-3.5" />
           </Button>
@@ -955,7 +1065,7 @@ function FilterBuilder({
             {filters.map((f, i) => (
               <Badge key={i} variant="secondary" className="gap-1.5 py-1 pl-2.5 pr-1.5 text-[11px]">
                 {label(meta.byName.get(f.member), f.member)}{" "}
-                {OPERATORS.find((o) => o.value === f.operator)?.label} {f.values.join(", ")}
+                {OPERATORS.find((o) => o.value === f.operator)?.label} {f.values.join("、")}
                 <button
                   onClick={() => onChange(filters.filter((_, j) => j !== i))}
                   className="opacity-60 transition hover:opacity-100"

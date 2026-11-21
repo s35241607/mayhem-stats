@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react"
-import { ArrowLeftRight } from "lucide-react"
+import { ArrowLeftRight, Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -150,6 +150,24 @@ export function PivotMatrix({
   const colTitle = label(meta.byName.get(colsDim), colsDim)
   const metricTitle = metricMember ? label(metricMember, metricMember.name) : "勝率"
 
+  // 匯出查詢回來的每一列（長表）：比畫面上的格子完整，也最好再拿去別的工具樞紐
+  const downloadCsv = () => {
+    const keys = Object.keys(rows[0] ?? {})
+    const title = (k: string) => (k === rowsDim ? rowTitle : k === colsDim ? colTitle : label(meta.byName.get(k), k))
+    const cell = (v: CubeRow[string]) => {
+      const text = v === null || v === undefined ? "" : String(v)
+      return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+    }
+    const lines = [keys.map((k) => cell(title(k))).join(","), ...rows.map((r) => keys.map((k) => cell(r[k])).join(","))]
+    // BOM：Excel 才會把它當 UTF-8，中文不變亂碼
+    const blob = new Blob(["\ufeff" + lines.join("\n")], { type: "text/csv;charset=utf-8" })
+    const link = document.createElement("a")
+    link.href = URL.createObjectURL(blob)
+    link.download = "pivot.csv"
+    link.click()
+    URL.revokeObjectURL(link.href)
+  }
+
   return (
     <Panel
       title="交叉矩陣"
@@ -163,7 +181,7 @@ export function PivotMatrix({
             size="sm"
             variant="ghost"
             onClick={() => onDimsChange(colsDim, rowsDim)}
-            title="列與欄互換"
+            data-tip="列與欄互換"
             aria-label="列與欄互換"
           >
             <ArrowLeftRight className="size-3.5" />
@@ -192,6 +210,18 @@ export function PivotMatrix({
               ))}
             </SelectContent>
           </Select>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto"
+            disabled={!rows.length}
+            onClick={downloadCsv}
+            aria-label="下載 CSV"
+            data-tip={"把這張矩陣的原始資料存成 CSV\n一列是一個「列 × 欄」的組合，欄位是場次、勝場與格子的指標；不受只畫前幾欄的限制"}
+          >
+            <Download className="size-3.5" />
+            CSV
+          </Button>
         </div>
 
         {ignored.length > 0 && (
