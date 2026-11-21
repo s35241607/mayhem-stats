@@ -347,21 +347,21 @@ export function TimeAnalysis() {
         <WhoSwitch who={who} onChange={setWho} trackedCount={scope.trackedCount} disabled={NO_ALL} />
         {queryError && <QueryError error={queryError} />}
         <div className="grid gap-3 sm:grid-cols-3">
-          <Kpi label="總場次" value={String(crewMatches.rows.length)} hint="有你或追蹤對象在場的對局，同一場只算一次" loading={crewMatches.loading} />
+          <Kpi label="總場次" value={String(crewMatches.rows.length)} hint="有你或追蹤對象在場的對局，同一場只算一次" loading={crewMatches.loading} refreshing={crewMatches.refreshing} />
           <Kpi
             label="打過的日子"
             value={String(days.length)}
             hint={days.length ? `${days[0].date} 起` : undefined}
-            loading={daily.loading}
+            loading={daily.loading} refreshing={daily.refreshing}
           />
           <Kpi
             label="最多人會在的時段"
             value={best && best.people ? `${WEEKDAYS[best.weekday]} ${BLOCKS[best.block].label.split(" ")[0]}` : "—"}
             hint={best && best.people ? `${best.people} 人在這個時段打過 ${MIN_GAMES} 場以上` : undefined}
-            loading={byPerson.loading}
+            loading={byPerson.loading} refreshing={byPerson.refreshing}
           />
         </div>
-        <Panel
+        <Panel refreshing={byPerson.refreshing}
           title="每個人在什麼時候打"
           caption="上面是哪些時段湊得齊人，下面是每個人各自的星期 × 時段：同一種格子，欄是星期、列是時段。這裡不畫合併的每日勝率與熱力圖：大家常一起打，同一場會被在場的每個人各算一次，合起來的場次與勝率沒有意義"
         >
@@ -382,12 +382,12 @@ export function TimeAnalysis() {
       <WhoSwitch who={who} onChange={setWho} trackedCount={scope.trackedCount} disabled={NO_ALL} />
       {queryError && <QueryError error={queryError} />}
       <div className="grid gap-3 sm:grid-cols-3">
-        <Kpi label="總場次" value={String(totalGames)} loading={heat.loading} />
+        <Kpi label="總場次" value={String(totalGames)} loading={heat.loading} refreshing={heat.refreshing} />
         <Kpi
           label="打過的日子"
           value={String(days.length)}
           hint={days.length ? `${days[0].date} 起` : undefined}
-          loading={daily.loading}
+          loading={daily.loading} refreshing={daily.refreshing}
         />
         <Kpi
           label="最常打的時段"
@@ -395,7 +395,7 @@ export function TimeAnalysis() {
             busiest ? `${WEEKDAYS[busiest.weekday]} ${String(busiest.hour).padStart(2, "0")}:00` : "—"
           }
           hint={busiest ? `${busiest.games} 場・${activeCells} / ${7 * xLabels.length} 格有資料` : undefined}
-          loading={heat.loading}
+          loading={heat.loading} refreshing={heat.refreshing}
         />
       </div>
 
@@ -435,7 +435,7 @@ export function TimeAnalysis() {
         )}
       </div>
 
-      <Panel title="每天的場次與勝率" caption="折線是累積勝率，虛線是 50%；長條是每天的勝敗場次，上方數字是場次。點一天聚焦">
+      <Panel refreshing={daily.refreshing} title="每天的場次與勝率" caption="折線是累積勝率，虛線是 50%；長條是每天的勝敗場次，上方數字是場次。點一天聚焦">
         {daily.loading ? (
           <Skeleton className="h-[280px] w-full" />
         ) : days.length ? (
@@ -450,7 +450,7 @@ export function TimeAnalysis() {
         )}
       </Panel>
 
-      <Panel
+      <Panel refreshing={heat.refreshing}
         title="星期 × 時段"
         caption={
           grain === "hour"
@@ -496,7 +496,7 @@ export function TimeAnalysis() {
         )}
       </Panel>
 
-      <Panel title="星期別勝率" caption="點一個星期聚焦到那一整天">
+      <Panel refreshing={byWeekday.refreshing} title="星期別勝率" caption="點一個星期聚焦到那一整天">
         {byWeekday.loading ? (
           <Skeleton className="h-[220px] w-full" />
         ) : weekdayBars.length ? (

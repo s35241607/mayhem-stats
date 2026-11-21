@@ -214,21 +214,24 @@ function RecentForm({ onPick }: { onPick: (m: MatchRow) => void }) {
   const ids = useCube(apply({ measures: ["participants.games"], dimensions: ["matches.game_id"], limit: MAX_GAME_IDS }))
   const gameIds = ids.rows.map((r) => String(r["matches.game_id"])).join(",")
   const params = new URLSearchParams({ ...matchParams(), game_ids: gameIds, limit: String(RECENT_FETCHED) }).toString()
-  const [state, setState] = useState<{ key: string; rows: MatchRow[] | null; error: string | null }>({ key: "", rows: null, error: null })
+  const [state, setState] = useState<{ key: string; who: string; rows: MatchRow[] | null; error: string | null }>({ key: "", who: "", rows: null, error: null })
+  const who = matchParams().puuid ?? ""
 
   useEffect(() => {
     if (ids.loading || ids.error || !gameIds) return
     const ctrl = new AbortController()
     fetch(`/api/matches?${params}`, { signal: ctrl.signal })
       .then((r) => r.json())
-      .then((d) => setState({ key: params, rows: d.matches ?? [], error: d.error ?? null }))
-      .catch((e: Error) => e.name !== "AbortError" && setState({ key: params, rows: null, error: e.message }))
+      .then((d) => setState({ key: params, who, rows: d.matches ?? [], error: d.error ?? null }))
+      .catch((e: Error) => e.name !== "AbortError" && setState({ key: params, who, rows: null, error: e.message }))
     return () => ctrl.abort()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- who 已經包在 params 裡
   }, [params, ids.loading, ids.error, gameIds])
 
   if (ids.error || state.error) return <div className="text-sm text-destructive">{ids.error ?? state.error}</div>
   if (!ids.loading && !gameIds) return <EmptyState>這個條件下還沒有對局。</EmptyState>
-  const rows = state.key === params ? state.rows : null
+  // 換期間時上一批先留著等新的（同一個人才留），不退回骨架
+  const rows = state.key === params || state.who === who ? state.rows : null
   if (!rows) return <Skeleton className="h-[176px] w-full" />
 
   const shown = rows.slice(0, RECENT_SHOWN)
@@ -486,19 +489,19 @@ export function Dashboard() {
 
       {/* 次要數字：打法的總量指標，比勝率次要，縮成一排小卡 */}
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-        <Kpi index={2} label="KDA" value={metric("participants.kda", round2)} hint={refHint("participants.kda", round2)} loading={totals.loading} />
-        <Kpi index={3} label="每分鐘傷害" value={metric("participants.dpm", round0)} hint={refHint("participants.dpm", round0)} loading={totals.loading} />
-        <Kpi index={4} label="每分鐘經濟" value={metric("participants.gpm", round0)} hint={refHint("participants.gpm", round0)} loading={totals.loading} />
-        <Kpi index={5} label="參團率" value={metric("participants.kill_participation", round1, "%")} hint={refHint("participants.kill_participation", round1, "%")} loading={totals.loading} />
-        <Kpi index={6} label="對塔平均傷害" value={metric("participants.avg_objective_damage", round0)} hint={refHint("participants.avg_objective_damage", round0)} loading={totals.loading} />
+        <Kpi index={2} label="KDA" value={metric("participants.kda", round2)} hint={refHint("participants.kda", round2)} loading={totals.loading} refreshing={totals.refreshing} />
+        <Kpi index={3} label="每分鐘傷害" value={metric("participants.dpm", round0)} hint={refHint("participants.dpm", round0)} loading={totals.loading} refreshing={totals.refreshing} />
+        <Kpi index={4} label="每分鐘經濟" value={metric("participants.gpm", round0)} hint={refHint("participants.gpm", round0)} loading={totals.loading} refreshing={totals.refreshing} />
+        <Kpi index={5} label="參團率" value={metric("participants.kill_participation", round1, "%")} hint={refHint("participants.kill_participation", round1, "%")} loading={totals.loading} refreshing={totals.refreshing} />
+        <Kpi index={6} label="對塔平均傷害" value={metric("participants.avg_objective_damage", round0)} hint={refHint("participants.avg_objective_damage", round0)} loading={totals.loading} refreshing={totals.refreshing} />
         <Kpi
           index={7}
           label="對小兵平均傷害（估）"
           value={metric("participants.avg_minion_damage", round0)}
           hint={[refHint("participants.avg_minion_damage", round0), "總輸出 − 對英雄 − 對塔"].filter(Boolean).join("・")}
-          loading={totals.loading}
+          loading={totals.loading} refreshing={totals.refreshing}
         />
-        <Kpi index={8} label="平均死亡" value={metric("participants.avg_deaths", round1)} hint={refHint("participants.avg_deaths", round1)} loading={totals.loading} />
+        <Kpi index={8} label="平均死亡" value={metric("participants.avg_deaths", round1)} hint={refHint("participants.avg_deaths", round1)} loading={totals.loading} refreshing={totals.refreshing} />
         <Kpi
           index={9}
           label="平均死亡時間"
@@ -519,7 +522,7 @@ export function Dashboard() {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-12">
-        <Panel
+        <Panel refreshing={daily.refreshing}
           className="xl:col-span-8"
           title="每日勝率趨勢"
           caption="折線是累積勝率，虛線是 50%；長條是每天的勝敗場次，上方數字是場次。點一天看那天的每一場"
@@ -540,7 +543,7 @@ export function Dashboard() {
           )}
         </Panel>
 
-        <Panel
+        <Panel refreshing={champions.refreshing}
           className="xl:col-span-4"
           title="最常用英雄"
           caption={champions.loading ? "點一列可下鑽" : `共用過 ${champions.rows.length} 隻・點一列可下鑽`}
@@ -560,7 +563,7 @@ export function Dashboard() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-        <Panel
+        <Panel refreshing={roles.refreshing || totals.refreshing}
           title="出裝定位"
           caption={
             topRole?.games
@@ -578,7 +581,7 @@ export function Dashboard() {
           )}
         </Panel>
 
-        <Panel title="最常選的增幅" caption="點一列可下鑽" action={<SeeAll page="augments" />}>
+        <Panel refreshing={augments.refreshing} title="最常選的增幅" caption="點一列可下鑽" action={<SeeAll page="augments" />}>
           {augments.loading ? (
             <Skeleton className="h-[300px] w-full" />
           ) : (
@@ -591,7 +594,7 @@ export function Dashboard() {
           )}
         </Panel>
 
-        <Panel
+        <Panel refreshing={heat.refreshing}
           title="什麼時候打"
           caption={`以星期 × 四時段分組；比較好壞只看 ${MIN_GAMES} 場以上的時段`}
           action={<SeeAll page="time" label="看熱力圖" />}

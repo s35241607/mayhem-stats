@@ -5220,7 +5220,7 @@ export function Crew() {
               </div>
             )}
           </Panel>
-          <Panel
+          <Panel refreshing={duo.refreshing}
             className="mt-4"
             title="搭檔"
             caption="兩人同隊時的勝率；點一格看那幾場"

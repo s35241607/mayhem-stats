@@ -5,6 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { EmptyState, Panel } from "@/components/primitives"
 import { prefersReducedMotion } from "@/lib/motion"
 import { useCrumb } from "@/lib/breadcrumb"
+import { useDataRevision } from "@/lib/revision"
 import { useCube } from "@/hooks/useCube"
 import { useFilters } from "@/lib/filters"
 import { MAX_GAME_IDS, type CubeQuery, type CubeRow } from "@/lib/cube"
@@ -128,7 +129,7 @@ export function DrillPanel({
   )
 }
 
-type Loaded = { matches: MatchRow[]; total: number; wins: number }
+type Loaded = { matches: MatchRow[]; total: number; wins: number; key: string }
 
 /** 逐場列表：卡片樣式和「對局紀錄」頁一樣，點一張看完整戰報。
  *  對局紀錄頁、英雄頁（某隻英雄）、時段頁（某天、某個時段）、隊友頁（和某人同場）等共用。
@@ -157,6 +158,10 @@ export function MatchList({
     : undefined
   useCrumb(90, pickedRow ? matchCrumbLabel(pickedRow) : picked ? "單場戰報" : null, () => setPicked(null))
   const key = new URLSearchParams(params).toString()
+  const revision = useDataRevision()
+  // 換條件時舊清單先留著（淡化），新的第一批回來才換；換了人就不留，免得把前一個人的對局當成現在的
+  const stale = !!data && data.key !== key
+  const loaded = useRef<{ key: string; puuid?: string } | null>(null)
 
   const rootRef = useRef<HTMLDivElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
@@ -170,29 +175,40 @@ export function MatchList({
       .then((r) => r.json())
       .then((d: { matches?: MatchRow[]; total?: number; wins?: number }) => {
         if (!d.matches) throw new Error("讀取對局失敗")
-        return d as Loaded
+        return d as Omit<Loaded, "key">
       })
 
   useEffect(() => {
-    setData(null)
+    // 同一組條件、只是採集到新對局：不清畫面、不關戰報，把新的幾場接到最前面
+    const sameKey = loaded.current?.key === key
+    if (!sameKey) {
+      if (loaded.current && loaded.current.puuid !== params.puuid) setData(null)
+      setPicked(null)
+    }
     setError(null)
-    setPicked(null)
     setLoadingMore(false)
     inflight.current?.abort()
     const controller = new AbortController()
     inflight.current = controller
     fetchPage(0, controller.signal)
       .then((d) => {
-        setData({ matches: d.matches, total: d.total ?? d.matches.length, wins: d.wins ?? 0 })
+        loaded.current = { key, puuid: params.puuid }
+        setData((cur) => {
+          const head = { total: d.total ?? d.matches.length, wins: d.wins ?? 0, key }
+          if (!sameKey || !cur || cur.key !== key) return { matches: d.matches, ...head }
+          const rowKey = (m: MatchRow) => `${m.platform_id}:${m.game_id}:${m.participant_id}`
+          const seen = new Set(cur.matches.map(rowKey))
+          return { matches: [...d.matches.filter((m) => !seen.has(rowKey(m))), ...cur.matches], ...head }
+        })
         inflight.current = null
       })
       .catch((e: Error) => e.name !== "AbortError" && setError(e.message))
     return () => controller.abort()
     // fetchPage 只依賴 params，而 key 就是 params 的內容
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key])
+  }, [key, revision])
 
-  const hasMore = !!data && data.matches.length < data.total
+  const hasMore = !!data && !stale && data.matches.length < data.total
 
   const loadMore = () => {
     if (!data || !hasMore || inflight.current) return
@@ -208,7 +224,7 @@ export function MatchList({
           const rowKey = (m: MatchRow) => `${m.platform_id}:${m.game_id}:${m.participant_id}`
           const seen = new Set(cur.matches.map(rowKey))
           const fresh = d.matches.filter((m) => !seen.has(rowKey(m)))
-          return { matches: [...cur.matches, ...fresh], total: d.total ?? cur.total, wins: d.wins ?? cur.wins }
+          return { matches: [...cur.matches, ...fresh], total: d.total ?? cur.total, wins: d.wins ?? cur.wins, key: cur.key }
         })
       })
       .catch((e: Error) => e.name !== "AbortError" && setError(e.message))
@@ -269,7 +285,7 @@ export function MatchList({
   } else {
     const { matches, total, wins } = data
     body = (
-      <div className="reveal space-y-2">
+      <div className="reveal refreshable space-y-2" aria-busy={stale || undefined}>
         <div className="text-xs text-muted-foreground">
           共 {total} 場・{wins} 勝 {total - wins} 敗・勝率 {((wins / total) * 100).toFixed(1)}%・點任一場看完整戰報
         </div>

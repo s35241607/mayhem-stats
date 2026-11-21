@@ -5,6 +5,7 @@ import { EmptyState, Panel, QueryError } from "@/components/primitives"
 import { cubeQuery } from "@/lib/cube"
 import { dateBounds, useFilters } from "@/lib/filters"
 import { useAfterPageEnter } from "@/lib/motion"
+import { useDataRevision } from "@/lib/revision"
 import { Recap as RecapVideo } from "@/recap/Recap"
 import { RECAP_SIZE, recapDuration } from "@/recap/timeline"
 import { loadRecap } from "@/recap/data"
@@ -31,6 +32,7 @@ export function Recap() {
   const { ready, account, queueId, dateRange, viewer } = useFilters()
   const enterDone = useAfterPageEnter()
   const [state, setState] = useState<State>({ key: "", data: null, error: null })
+  const revision = useDataRevision()
 
   const bounds = dateBounds(dateRange)
   const key = account ? JSON.stringify([account.puuid, queueId, bounds]) : null
@@ -49,7 +51,7 @@ export function Recap() {
     return () => controller.abort()
     // bounds 已經包在 key 裡，換一天才重查
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, key])
+  }, [ready, key, revision])
 
   const current = state.key === key ? state : null
   const inputProps = useMemo(

@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react"
-import { MAYHEM_QUEUE_ID, cubeQuery, type CubeFilter, type CubeQuery } from "@/lib/cube"
+import { MAYHEM_QUEUE_ID, bumpScope, cubeQuery, type CubeFilter, type CubeQuery } from "@/lib/cube"
 
 export type Drill = CubeFilter & { label: string }
 
@@ -261,6 +261,8 @@ export function FilterProvider({ children }: { children: ReactNode }) {
       ready,
       account,
       setAccount: (player) => {
+        // 換人看：各個查詢不能把前一個人的結果留在畫面上等新的（見 useCube）
+        if (player.puuid !== account?.puuid) bumpScope()
         setAccount(player)
         setDrills([]) // 換人看的時候，前一個人的下鑽條件留著只會造成誤解
       },

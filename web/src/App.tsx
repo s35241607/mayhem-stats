@@ -69,7 +69,6 @@ function usePrefetchPages() {
 
 export default function App() {
   const [page, setPageState] = useState<PageId>(pageFromPath)
-  const [dataRevision, setDataRevision] = useState(0)
   const setPage = (next: PageId) => {
     if (next === page) return
     markNavigation()
@@ -112,16 +111,11 @@ export default function App() {
     let opened = false
     stream.onopen = () => {
       // 斷線期間可能已經寫入資料；重連後也要重查。
-      if (opened) {
-        setDataRevision((n) => n + 1)
-        window.dispatchEvent(new Event("mayhem:data-changed"))
-      }
+      if (opened) window.dispatchEvent(new Event("mayhem:data-changed"))
       opened = true
     }
-    stream.addEventListener("data-changed", () => {
-      setDataRevision((n) => n + 1)
-      window.dispatchEvent(new Event("mayhem:data-changed"))
-    })
+    // 頁面不重掛：快取（lib/cube）與各個抓資料的地方（lib/revision）各自聽這個事件，在背景重查
+    stream.addEventListener("data-changed", () => window.dispatchEvent(new Event("mayhem:data-changed")))
     return () => stream.close()
   }, [])
   const Page = RESOLVED[page] ?? PAGES[page]
@@ -144,7 +138,7 @@ export default function App() {
           <div key={page} className="page-enter">
             <Suspense fallback={<Skeleton className="h-[420px] w-full" />}>
               <AfterAccountReady>
-                <Page key={dataRevision} />
+                <Page />
               </AfterAccountReady>
             </Suspense>
           </div>

@@ -746,7 +746,7 @@ export function Lineups() {
             )}
           </Panel>
 
-          <Panel
+          <Panel refreshing={builds.refreshing || playerOverall.refreshing}
             title="這種陣容下出什麼裝"
             caption={`選一種陣容分組，每一欄是一種情況，列是出裝定位，點是那樣出的勝率比${who === "account" ? "你" : ""}整體 ${playerBase === null ? "—" : `${playerBase.toFixed(1)}%`} 高或低幾個百分點。隊友前排數不含自己（問的是你進場時隊上已經有什麼）。一個人幾百場攤到這麼多格，大部分會是灰色——那是誠實的「還看不出來」，不是沒有差別。點一列看那些場次`}
             action={

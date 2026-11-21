@@ -292,7 +292,7 @@ export function Augments() {
         <EmptyState>還沒有追蹤任何玩家。到「追蹤對象」頁加人之後，這裡就能看他們的增幅數據。</EmptyState>
       ) : (
       <>
-      <Panel
+      <Panel refreshing={champions.refreshing}
         title="看某隻英雄上的表現"
         caption="選一隻英雄，表格會多出「契合度」：條是這個增幅在這隻英雄上的勝率，刻度線是它在所有英雄上的勝率，差距就是加成"
       >
@@ -379,7 +379,7 @@ export function Augments() {
         />
       )}
 
-      <Panel
+      <Panel refreshing={overall.refreshing || baseline.refreshing}
         title={champion ? `${champion} 的增幅契合度` : "全部增幅"}
         caption={
           champion

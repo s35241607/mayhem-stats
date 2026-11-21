@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type ReactNode } from "react"
+import { useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react"
 import {
   Calculator,
   LayoutDashboard,
@@ -64,7 +64,7 @@ import {
 } from "@/components/ui/select"
 import { useCollectorStatus } from "@/hooks/useCube"
 import { DATE_RANGES, comparePatch, useFilters } from "@/lib/filters"
-import { MAYHEM_QUEUE_ID } from "@/lib/cube"
+import { MAYHEM_QUEUE_ID, inflightCount, subscribeInflight } from "@/lib/cube"
 import { AccountSwitcher, ViewingOtherBanner } from "@/components/AccountSwitcher"
 import { ThemeSwitcher } from "@/components/ThemeSwitcher"
 import { EmptyState } from "@/components/primitives"
@@ -269,6 +269,17 @@ function VersionFilter() {
         {!options.length && <div className="px-2 py-1.5 text-xs text-muted-foreground">資料裡還沒有版本資訊</div>}
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+/** 有 Cube 查詢在跑時，標題列底部滑過一道光。換篩選後內容是淡化等新資料、不再整塊換骨架，
+ *  需要一個全站一致的地方說「還在查」。樣式與「延後 150ms 才出現」在 index.css 的 progress-bar。 */
+function QueryProgress() {
+  const active = useSyncExternalStore(subscribeInflight, () => inflightCount() > 0)
+  return (
+    <div className="progress-bar pointer-events-none absolute inset-x-0 -bottom-px h-0.5 overflow-hidden" data-active={active} aria-hidden>
+      <span />
+    </div>
   )
 }
 
@@ -481,6 +492,7 @@ export function AppShell({
             <GlobalFilters />
             <ThemeSwitcher />
           </div>
+          <QueryProgress />
         </header>
 
         <main className="min-w-0 flex-1 p-5">

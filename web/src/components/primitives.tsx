@@ -21,6 +21,7 @@ export function Kpi({
   hint,
   tone,
   loading,
+  refreshing,
   index = 0,
 }: {
   label: string
@@ -28,6 +29,8 @@ export function Kpi({
   hint?: string
   tone?: "win" | "loss" | "neutral"
   loading?: boolean
+  /** 數字是上一個條件的、新的還在查：淡化（useCube 的 refreshing） */
+  refreshing?: boolean
   index?: number
 }) {
   return (
@@ -42,7 +45,7 @@ export function Kpi({
         {/* 滑過時左上角透出一層極淡的主色，作為觸覺回饋 */}
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary/[0.07] to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
         <EdgeLight />
-        <CardContent className="relative px-4">
+        <CardContent className="refreshable relative px-4" aria-busy={refreshing || undefined}>
           <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
           {loading ? (
             <Skeleton className="mt-2 h-7 w-20" />
@@ -71,8 +74,11 @@ export function Panel({
   action,
   className,
   children,
+  refreshing,
   index = 0,
 }: {
+  /** 內容是上一個條件的、新的還在查：淡化等它（useCube 的 refreshing），不要換回骨架 */
+  refreshing?: boolean
   title?: string
   caption?: string
   /** 標題旁的 ⓘ：版面只留一句 caption，細節收進這裡（components/TipLayer） */
@@ -102,7 +108,7 @@ export function Panel({
             </div>
           </CardHeader>
         )}
-        <CardContent className="min-w-0">{children}</CardContent>
+        <CardContent className="refreshable min-w-0" aria-busy={refreshing || undefined}>{children}</CardContent>
       </Card>
     </div>
   )

@@ -598,7 +598,7 @@ function PeopleTable({
   const highlight = useMemo(() => (picked ? { key: "puuid", value: picked } : null), [picked])
 
   return (
-    <Panel
+    <Panel refreshing={stats.refreshing || names.refreshing}
       title="同場過的人"
       caption={`一個人一列：同隊幾場、敵對幾場，以及各自的時候${who}的戰績。同隊次數特別高的就是固定車隊。Riot 不提供組隊欄位，這是從同場紀錄推出來的。`}
     >
@@ -692,7 +692,7 @@ export function Players() {
 
   return (
     <div className="space-y-4">
-      <Panel
+      <Panel refreshing={byParty.refreshing}
         title="同隊朋友數與勝率"
         caption="我方隊伍裡有幾個追蹤中的朋友。這是開打前就決定的事，比賽中的數字沒辦法反過來影響它，所以這裡的關聯比「敗因分析」那張勝敗對照表可信。"
       >

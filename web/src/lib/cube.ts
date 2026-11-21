@@ -78,7 +78,64 @@ function splitWinrate(query: CubeQuery): { query: CubeQuery; winrates: string[] 
   return { query: { ...query, measures: [...next] }, winrates }
 }
 
+/** 查詢結果的快取。資料只會在採集入庫時改變（後端用 SSE 通知，App 轉成 mayhem:data-changed），
+ *  所以結果可以一路留到那個事件：回訪一頁、換回剛剛看過的條件都不必再問一次。
+ *  事件來時整批標成過期但不刪——畫面先沿用舊的，背景重查完再換上。
+ *  存的是「呼叫端拿到的那份陣列」本身：同一個查詢每次回傳同一個參考，
+ *  頁面拿它當 useMemo 的依賴才不會無故重算（AG Grid 的排序會跟著被重設）。 */
+const RESULT_MAX = 300
+/** 保險：就算漏接了事件（例如追蹤名單這種不經過採集的變更），結果放超過這麼久也當成過期，背景重查一次 */
+const RESULT_MAX_AGE_MS = 5 * 60_000
+type Result = { rows: CubeRow[]; stale: boolean; at: number }
+const results = new Map<string, Result>()
+const isStale = (r: Result) => r.stale || Date.now() - r.at > RESULT_MAX_AGE_MS
+/** 每次資料變更加一。請求送出時記下當時的值，回來時不一樣就代表它查到的可能是舊資料。 */
+let generation = 0
+
+if (typeof window !== "undefined") {
+  window.addEventListener("mayhem:data-changed", () => {
+    generation++
+    for (const entry of results.values()) entry.stale = true
+  })
+}
+
+const resultKey = (query: CubeQuery) => JSON.stringify(query)
+
+function remember(key: string, rows: CubeRow[], stale: boolean) {
+  results.delete(key) // 重新插入排到最後：Map 依插入順序走，最前面的就是最久沒用的
+  results.set(key, { rows, stale, at: Date.now() })
+  if (results.size > RESULT_MAX) results.delete(results.keys().next().value as string)
+}
+
+/** 同步讀快取，沒有就回 null。stale 表示資料在那之後變過，呼叫端可以先顯示、同時重查。 */
+export function peekCached(query: CubeQuery): { rows: CubeRow[]; stale: boolean } | null {
+  const hit = results.get(resultKey(query))
+  return hit ? { rows: hit.rows, stale: isStale(hit) } : null
+}
+
+/** 目前在看誰的「世代」。換帳號時加一：useCube 看到世代變了就不沿用上一份結果，
+ *  避免把前一個人的數字當成現在這個人的顯示出來。 */
+let scope = 0
+export const scopeEpoch = () => scope
+export const bumpScope = () => void scope++
+
 export async function cubeQuery(query: CubeQuery, signal?: AbortSignal): Promise<CubeRow[]> {
+  const key = resultKey(query)
+  const hit = results.get(key)
+  if (hit && !isStale(hit)) {
+    if (signal?.aborted) throw new DOMException("aborted", "AbortError")
+    // 重新插入排到最後（最近用過），但不更新時間：年齡要從查到的那一刻算
+    results.delete(key)
+    results.set(key, hit)
+    return hit.rows
+  }
+  const startedAt = generation
+  const rows = await cubeQueryUncached(query, signal)
+  remember(key, rows, startedAt !== generation)
+  return rows
+}
+
+async function cubeQueryUncached(query: CubeQuery, signal?: AbortSignal): Promise<CubeRow[]> {
   const split = splitWinrate(query)
   if (!split) return fetchShared(query, signal)
 
@@ -105,11 +162,17 @@ export async function cubeQuery(query: CubeQuery, signal?: AbortSignal): Promise
 /** 429（查詢太頻繁）時最多自動重試幾次；每次等後端給的 Retry-After，上限 15 秒 */
 const MAX_RATE_RETRIES = 3
 const MAX_RATE_WAIT_S = 15
-/** 同一個查詢在這段時間內重複發出時，共用上一次的結果（或還在進行的請求） */
-const SHARE_TTL_MS = 10_000
-
-type Shared = { at: number; promise: Promise<CubeRow[]>; controller: AbortController; refs: number }
+type Shared = { promise: Promise<CubeRow[]>; controller: AbortController; refs: number }
 const shared = new Map<string, Shared>()
+
+/** 進行中的查詢數，給標題列的進度條用（useSyncExternalStore）。 */
+const inflightListeners = new Set<() => void>()
+const notifyInflight = () => inflightListeners.forEach((fn) => fn())
+export function subscribeInflight(fn: () => void) {
+  inflightListeners.add(fn)
+  return () => void inflightListeners.delete(fn)
+}
+export const inflightCount = () => shared.size
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -125,18 +188,24 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   })
 }
 
-/** 同一個查詢（參數完全相同）只送一次：進行中的請求或 10 秒內的結果直接共用。
+/** 同一個查詢（參數完全相同）同時只送一次：還在進行的請求直接共用，回來就從這裡移除
+ *  （結果由上面的 results 快取接手）。
  *  每個等待的人離開時只減自己的參考數；全部離開才真的中止 Cube 的輪詢。 */
 function fetchShared(query: CubeQuery, signal?: AbortSignal): Promise<CubeRow[]> {
   const key = JSON.stringify({ timezone: TIMEZONE, ...query })
   let entry = shared.get(key)
-  if (!entry || Date.now() - entry.at > SHARE_TTL_MS) {
+  if (!entry) {
     const controller = new AbortController()
-    const created: Shared = { at: Date.now(), controller, refs: 0, promise: load(query, controller.signal) }
-    created.promise.catch(() => {
-      if (shared.get(key) === created) shared.delete(key)
-    })
+    const created: Shared = { controller, refs: 0, promise: load(query, controller.signal) }
+    const settle = () => {
+      if (shared.get(key) === created) {
+        shared.delete(key)
+        notifyInflight()
+      }
+    }
+    created.promise.then(settle, settle)
     shared.set(key, created)
+    notifyInflight()
     entry = created
   }
   const e = entry
@@ -149,7 +218,10 @@ function fetchShared(query: CubeQuery, signal?: AbortSignal): Promise<CubeRow[]>
       e.refs--
       if (e.refs <= 0) {
         e.controller.abort()
-        if (shared.get(key) === e) shared.delete(key)
+        if (shared.get(key) === e) {
+          shared.delete(key)
+          notifyInflight()
+        }
       }
       reject(new DOMException("aborted", "AbortError"))
     }

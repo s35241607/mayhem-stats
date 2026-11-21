@@ -57,6 +57,23 @@ function isPresentable(m: { shortTitle?: string; title?: string }) {
   return /[一-鿿]/.test(text)
 }
 
+/** 模型只在改 yml（熱重載）時才變，一次開啟期間抓一次就好；每次進自由探索都重抓會先閃一輪載入。
+ *  失敗的不留，下次掛載再試。 */
+let metaRequest: Promise<any> | null = null // eslint-disable-line @typescript-eslint/no-explicit-any
+function loadMeta() {
+  metaRequest ??= fetch("/api/cube/meta")
+    .then((r) => r.json())
+    .then((data) => {
+      if (data.error) metaRequest = null
+      return data
+    })
+    .catch((e) => {
+      metaRequest = null
+      throw e
+    })
+  return metaRequest
+}
+
 export function useCubeMeta(): { meta: CubeMeta; loading: boolean; error: string | null } {
   const [meta, setMeta] = useState<CubeMeta>(EMPTY)
   const [loading, setLoading] = useState(true)
@@ -64,8 +81,7 @@ export function useCubeMeta(): { meta: CubeMeta; loading: boolean; error: string
 
   useEffect(() => {
     let cancelled = false
-    fetch("/api/cube/meta")
-      .then((r) => r.json())
+    loadMeta()
       .then((data) => {
         if (cancelled) return
         if (data.error) {

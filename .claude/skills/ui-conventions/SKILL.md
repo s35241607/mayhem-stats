@@ -95,6 +95,8 @@ description: 這個專案前端的主題與動畫規範。只要動到 web/src �
    | `slide-in` | 清單列由左滑入（對局卡片、最常用清單），每列錯開 30～40ms（上限 400ms） | 320ms |
    | `reveal` | 沒有自己資料動畫的內容（表格、逐場列表外框）從骨架換上時淡入 | 220ms |
    | `bar-grow` | 表格格子裡的迷你資料條從左邊長出（`scaleX`） | 600ms |
+   | `refreshable` | 內容是上一個條件的、新的還在查：`aria-busy="true"` 時淡到 0.45（延後 120ms 才開始，快的查詢不閃）。`Panel`／`Kpi` 的 `refreshing` prop 已內建 | 160ms |
+   | `progress-bar` | 標題列底部的查詢進度條（`AppShell` 的 `QueryProgress`），有 Cube 查詢在跑才亮（延後 150ms） | 1100ms 循環 |
    | `drawer-in` / `drawer-overlay` | 右側詳細抽屜滑入 32px + 淡入／遮罩淡入（英雄頁點一列）。抽屜裡的重元件等滑完（300ms）再掛 | 280ms / 200ms |
    | `title-shine` | 好友比較的稱號徽章出現時掃過一道光（偽元素的 transform），同一列用 `--stagger` 依序閃，只播一次 | 900ms（延遲 300ms 起） |
    不要自己另寫時長。需要新的動畫就加 utility 並更新這張表。
@@ -117,11 +119,22 @@ description: 這個專案前端的主題與動畫規範。只要動到 web/src �
 5. **不做離場動畫。** 新頁要等舊頁離場才掛載，查詢會晚送出（實測回訪一頁 280ms 裡 214ms 在等動畫）。
 6. **重元件等進場動畫結束才掛。** AG Grid、ECharts 已經用 `useAfterPageEnter()`（`lib/motion.ts`）處理。
    新增其他重元件（大型清單、編輯器……）照做，等待期間畫**同高度**的佔位，版面才不會跳。
-7. **骨架與內容等高。** 骨架高度要接近真正內容，否則換上內容時整頁往下推（CLS）。
+7. **換篩選不退回骨架。** `useCube` 回 `{ rows, loading, refreshing, error }`：
+   - `loading` 只在「沒有任何能畫的資料」時為真（第一次查、問的東西變了、換了帳號）——這時才畫骨架。
+   - 只有期間／版本／模式變了（`useCube.ts` 的 `subjectOf`）時，上一份 `rows` 留著、`refreshing` 為真：
+     把它傳給所在的 `<Panel refreshing>`／`<Kpi refreshing>`，內容淡化等新的。圖表沒有被拆掉，
+     所以走的是 ECharts 450ms 的更新過渡，`CountUp` 也是從舊值跑到新值。
+   - 查詢結果快取到下一次採集（`lib/cube.ts`），回訪頁面、換回看過的條件是同一幀就有資料。
+   - 採集到新資料時**頁面不重掛**（以前 App 用 `key={dataRevision}`，排序、選取、捲動全丟）。
+     不走 `useCube` 而直接 `fetch` 的地方，把 `useDataRevision()`（`lib/revision.ts`）放進 effect 的依賴，自己重抓。
+   - 不要為了「重播生長動畫」去換圖表的 key，也不要寫 `refreshing ? <Skeleton/> : …`。
+   - 驗證：換期間時每一幀取樣 `main [data-slot="skeleton"]` 的數量要是 0、`div[_echarts_instance_]` 的 id 不變；
+     回到看過的條件時 `aria-busy` 也不該出現。
+8. **骨架與內容等高。** 骨架高度要接近真正內容，否則換上內容時整頁往下推（CLS）。
    載入中不要只放一塊空的灰底：用 `components/primitives.tsx` 的 `<LoadingBlock height label>`（呼吸的底＋轉圈圈＋一句說明在等什麼）；
    整頁性的列表（像好友比較的全員一覽）畫一份和真正的列同欄位的骨架（`MatrixSkeleton`），換上內容時版面不跳。
    骨架根元素要帶 `data-slot="skeleton"`，e2e 的 `ready()` 才知道還在載入。只有某個分頁用得到的查詢，切到那個分頁才查（傳 null 給 `useCube`），不要讓它卡住第一個畫面。
-8. **尊重「減少動態」。** CSS 那邊由 `index.css` 的 `prefers-reduced-motion` 縮成 1ms；JS 的資料動畫要自己檢查
+9. **尊重「減少動態」。** CSS 那邊由 `index.css` 的 `prefers-reduced-motion` 縮成 1ms；JS 的資料動畫要自己檢查
    `prefersReducedMotion()`（`CountUp` 直接顯示最終值、`ResponsiveChart` 關掉 ECharts 動畫）。新動畫不要繞過它。
 
 ## 三、表格的複合格子

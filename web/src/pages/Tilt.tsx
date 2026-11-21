@@ -250,13 +250,13 @@ export function Tilt() {
           label="前一場輸之後"
           value={lossWr === null ? "—" : `${lossWr.toFixed(1)}%`}
           hint={afterLoss ? `${num(afterLoss[G])} 場` : undefined}
-          loading={byPrev.loading}
+          loading={byPrev.loading} refreshing={byPrev.refreshing}
         />
         <Kpi
           label="前一場贏之後"
           value={winWr === null ? "—" : `${winWr.toFixed(1)}%`}
           hint={afterWin ? `${num(afterWin[G])} 場` : undefined}
-          loading={byPrev.loading}
+          loading={byPrev.loading} refreshing={byPrev.refreshing}
         />
         <Kpi
           label="落差"
@@ -270,12 +270,12 @@ export function Tilt() {
           }
           // 只有區間不跨 0 才上色；跨 0 時再大的落差也只是描述
           tone={clear && delta !== null ? (delta < 0 ? "loss" : "win") : undefined}
-          loading={byPrev.loading}
+          loading={byPrev.loading} refreshing={byPrev.refreshing}
         />
       </div>
 
       {who === "tracked" && (
-        <Panel
+        <Panel refreshing={byPerson.refreshing}
           title="每個人的落差"
           caption="每人一列：點是「前一場輸之後的勝率 − 前一場贏之後的勝率」，線是 95% 區間；區間跨過 0 就分不出是心態還是運氣，畫成灰色。最下面「合併」會被打最多場的人拉著走，而且同場被重複算、區間比實際窄，以逐人為準"
         >
@@ -291,7 +291,7 @@ export function Tilt() {
         </Panel>
       )}
 
-      <Panel
+      <Panel refreshing={byPrev.refreshing}
         title="前一場的結果，和這一場的勝率"
         caption="兩組的勝率並排比較。這是關聯不是因果：連勝連敗也可能來自同一段時間的隊友與對手，不一定是心態。點一根看那些場次"
       >
@@ -313,7 +313,7 @@ export function Tilt() {
         )}
       </Panel>
 
-      <Panel
+      <Panel refreshing={dayChart.refreshing}
         title="同一輪連續打到第幾場"
         caption={
           grain === "stage"

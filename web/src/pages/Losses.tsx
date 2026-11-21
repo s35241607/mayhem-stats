@@ -235,7 +235,7 @@ export function Losses() {
           label="勝率"
           value={total ? `${((winGames / total) * 100).toFixed(1)}%` : "—"}
           hint={total ? `${winGames} 勝 ${lossGames} 敗${who === "all" ? "・每場兩隊都算，所以是 50%" : ""}` : undefined}
-          loading={byResult.loading}
+          loading={byResult.loading} refreshing={byResult.refreshing}
         />
         <Kpi
           label="打不動還是被打爆"
@@ -247,18 +247,18 @@ export function Losses() {
                 ? "兩隊都算，我方和敵方互為鏡像，分不出誰打不動"
                 : undefined
           }
-          loading={byResult.loading}
+          loading={byResult.loading} refreshing={byResult.refreshing}
         />
         <Kpi
           label="平均局長"
           // matches.avg_duration 在模型裡已經除過 60，單位就是分鐘
           value={durWin !== null && durLoss !== null ? `${durLoss.toFixed(1)} / ${durWin.toFixed(1)} 分` : "—"}
           hint="敗局 / 勝局。輸的局通常比較長，所以傷害與經濟用每分鐘比；擊殺、死亡等是每場平均"
-          loading={byResult.loading}
+          loading={byResult.loading} refreshing={byResult.refreshing}
         />
       </div>
 
-      <Panel
+      <Panel refreshing={byResult.refreshing}
         title="勝局與敗局，數字差在哪"
         caption={`「敗局相差」= 敗局比勝局高或低幾 %。勝方色代表往好的方向、敗方色代表往壞的方向，差不到 3% 不上色；可以點欄位標題排序。${
           who === "all"
@@ -297,7 +297,7 @@ export function Losses() {
       </Panel>
 
       {who !== "all" && (
-      <Panel
+      <Panel refreshing={byDuration.refreshing}
         title="對局長度與勝率"
         caption={`每一列是一段對局長度（遊戲內時鐘）：點是那段的勝率比整體 ${overallWr === null ? "—" : `${overallWr.toFixed(1)}%`} 高或低幾個百分點，線是 95% 區間。${
           who === "account" ? "" : "追蹤對象每位玩家每場各算一次，同場多人會重複，區間比實際窄。"

@@ -564,6 +564,35 @@
 .ag-cell.rich-cell {
   line-height: 1.25;
 }
+/* 換篩選、採集到新資料時，舊內容留在原位淡化等新的（aria-busy 由元件給），不退回骨架。
+ * 淡化延後 120ms 才開始：查詢很快回來（快取命中、輕查詢）就完全不閃；恢復不延遲 */
+@utility refreshable {
+  transition: opacity 160ms ease-out;
+  &[aria-busy="true"] {
+    opacity: 0.45;
+    transition-delay: 120ms;
+  }
+}
+/* 標題列底部的查詢進度條：一小段主色來回滑過（只動 transform），有查詢在跑才顯示 */
+@keyframes progress-slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(400%); }
+}
+@utility progress-bar {
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+  &[data-active="true"] {
+    opacity: 1;
+    transition-delay: 150ms;
+  }
+  & > span {
+    display: block;
+    height: 100%;
+    width: 25%;
+    background: linear-gradient(90deg, transparent, var(--primary), transparent);
+    animation: progress-slide 1100ms cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+}
 /* 骨架換成真正內容時淡入，而不是瞬間跳出來 */
 @utility reveal {
   animation: reveal 220ms ease-out both;
@@ -582,6 +611,11 @@
     animation-duration: 1ms !important;
     animation-delay: 0ms !important;
     transition-duration: 1ms !important;
+  }
+  /* 無限循環的動畫縮成 1ms 會變成閃爍，直接停掉：進度條改成一整條靜止的色帶 */
+  .progress-bar > span {
+    animation: none !important;
+    width: 100%;
   }
 }
 
