@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react"
 import {
   Calculator,
   LayoutDashboard,
@@ -22,6 +22,7 @@ import {
   Clapperboard,
   ChevronDown,
   Settings,
+  Link2,
 } from "lucide-react"
 import {
   Sidebar,
@@ -67,6 +68,8 @@ import { DATE_RANGES, comparePatch, customRange, dateBounds, isCustomRange, loca
 import { MAYHEM_QUEUE_ID, inflightCount, subscribeInflight } from "@/lib/cube"
 import { AccountSwitcher, ViewingOtherBanner } from "@/components/AccountSwitcher"
 import { ThemeSwitcher } from "@/components/ThemeSwitcher"
+import { Shortcuts } from "@/components/Shortcuts"
+import { Toaster, toast } from "@/lib/toast"
 import { EmptyState } from "@/components/primitives"
 import { useCrumbs } from "@/lib/breadcrumb"
 
@@ -159,7 +162,12 @@ function CollectorPill() {
   const ingestNow = async () => {
     setIngesting(true)
     try {
-      await fetch("/api/ingest", { method: "POST" })
+      // 以前不看結果：失敗了按鈕轉一下就停，看不出有沒有成功
+      const res = await fetch("/api/ingest", { method: "POST" })
+      if (res.ok) toast("已開始採集，有新對局會自動更新畫面")
+      else toast(`採集沒有啟動（HTTP ${res.status}）`, "error")
+    } catch {
+      toast("連不上伺服器，採集沒有啟動", "error")
     } finally {
       setIngesting(false)
     }
@@ -462,7 +470,6 @@ function NavSections({
               {section.items.map((item) => (
                 <SidebarMenuItem key={item.id}>
                   <SidebarMenuButton
-                    className="nav-mark"
                     isActive={page === item.id}
                     tooltip={item.label}
                     onClick={() => go(item.id)}
@@ -497,6 +504,31 @@ export function AppShell({
   useEffect(() => {
     document.title = [deepest, meta.title, "Mayhem 戰績"].filter(Boolean).join("｜")
   }, [deepest, meta.title])
+
+  // 側欄目前頁的標記：量出選中那一項在側欄裡的位置，寫成 CSS 變數，標記用 transform 滑過去（index.css 的 nav-slider）。
+  // 直接改 style、不走 state：只是把一個元素移到另一個位置，不必讓整個外殼重新渲染
+  const navRef = useRef<HTMLDivElement>(null)
+  const sliderRef = useRef<HTMLSpanElement>(null)
+  useLayoutEffect(() => {
+    const nav = navRef.current
+    const slider = sliderRef.current
+    if (!nav || !slider) return
+    const place = () => {
+      const active = nav.querySelector<HTMLElement>('[data-sidebar="menu-button"][data-active="true"]')
+      if (!active) return void slider.style.setProperty("opacity", "0")
+      const box = active.getBoundingClientRect()
+      const host = nav.getBoundingClientRect()
+      const inset = box.height * 0.22
+      slider.style.setProperty("--nav-y", `${box.top - host.top + nav.scrollTop + inset}px`)
+      slider.style.setProperty("--nav-h", `${box.height - inset * 2}px`)
+      slider.style.setProperty("opacity", "1")
+    }
+    place()
+    // 側欄收合／展開、管理員那組出現時位置會變，重新量
+    const observer = new ResizeObserver(place)
+    observer.observe(nav)
+    return () => observer.disconnect()
+  }, [page, canEditDefaults, ready])
   // 權限要等 /api/config 回來才知道（ready 包含它）；在那之前不掛 ADMIN 頁，免得非管理員先看到一閃、頁面先打了 API
   const adminPage = ADMIN_PAGES.has(page)
   const content = !adminPage || canEditDefaults
@@ -520,7 +552,8 @@ export function AppShell({
           </div>
         </SidebarHeader>
 
-        <SidebarContent>
+        <SidebarContent ref={navRef} className="relative">
+          <span ref={sliderRef} className="nav-slider opacity-0" aria-hidden />
           <NavSections page={page} onNavigate={onNavigate} />
         </SidebarContent>
 
@@ -539,12 +572,28 @@ export function AppShell({
             <Separator orientation="vertical" className="!h-5" />
             <Breadcrumb title={meta.title} caption={meta.caption} />
             <GlobalFilters />
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label="複製這個畫面的連結"
+              data-tip={"複製這個畫面的連結\n篩選、分頁、點開的那一層都在網址裡，貼給別人或自己存書籤都是同一個畫面"}
+              onClick={() =>
+                navigator.clipboard.writeText(window.location.href).then(
+                  () => toast("已複製這個畫面的連結"),
+                  () => toast("複製失敗，請直接複製網址列", "error"),
+                )
+              }
+            >
+              <Link2 className="size-4" />
+            </Button>
             <ThemeSwitcher />
           </div>
           <QueryProgress />
         </header>
 
         <main className="min-w-0 flex-1 p-5">
+          <Shortcuts onNavigate={onNavigate} />
+          <Toaster />
           <ViewingOtherBanner />
           {content}
         </main>

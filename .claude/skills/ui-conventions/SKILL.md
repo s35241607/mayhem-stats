@@ -98,7 +98,8 @@ description: 這個專案前端的主題與動畫規範。只要動到 web/src �
    | `refreshable` | 內容是上一個條件的、新的還在查：`aria-busy="true"` 時淡到 0.45（延後 120ms 才開始，快的查詢不閃）。`Panel`／`Kpi` 的 `refreshing` prop 已內建 | 160ms |
    | `progress-bar` | 標題列底部的查詢進度條（`AppShell` 的 `QueryProgress`），有 Cube 查詢在跑才亮（延後 150ms） | 1100ms 循環 |
    | `shimmer` | 骨架上由左掃到右的淡光（偽元素的 transform）；`ui/skeleton` 已內建，不要再加 `animate-pulse` | 1400ms 循環 |
-   | `nav-mark` | 側欄目前頁左緣的主色標記，換頁時從中間長出（`scaleY`） | 240ms |
+   | `nav-slider` | 側欄目前頁左緣的主色標記，換頁時從上一頁滑到這一頁（`translateY`；位置由 `AppShell` 量好寫進 `--nav-y`／`--nav-h`，直接改 style 不走 state） | 260ms |
+   | `img[loading="lazy"]` | 不是 utility：全站圖示載入完從 0.35 淡入（`main.tsx` 全站聽 load 標 `data-loaded`）；載入前不設透明，圖示自己的底塊就是佔位。`<img>` 一律帶 `loading="lazy" decoding="async"` | 200ms |
    | `pressable` | 可點的卡片與列按下去縮到 0.99 | 120ms |
    | `cv-row` | 不是動畫：長清單的列加 `content-visibility: auto`，畫面外的不排版不繪製。列的內容不能溢出列外（會被裁掉） | — |
    | `drawer-in` / `drawer-overlay` | 右側詳細抽屜滑入 32px + 淡入／遮罩淡入（英雄頁點一列）。抽屜裡的重元件等滑完（300ms）再掛 | 280ms / 200ms |
@@ -239,9 +240,12 @@ description: 這個專案前端的主題與動畫規範。只要動到 web/src �
 - 全域篩選的真相就在網址（`filters.tsx`），沒寫的用站台預設；帳號只放 puuid 前 8 碼。
 - 純暫時的 UI 狀態（展開收合、hover、輸入到一半的文字）留在 `useState`。
 
+**操作回饋與快捷鍵**：按了但畫面上看不出結果的操作（採集、複製連結、下載）用 `toast("…")`（`lib/toast.tsx`，失敗傳 `"error"`），不要另做提示元件。
+全站快捷鍵在 `components/Shortcuts.tsx`（`g`＋字母換頁、`/` 跳到搜尋框、`?` 看清單）；新增頁面記得在 `GO` 補一個字母。Ctrl/⌘+K 是換帳號，只查玩家。
+
 **對照期間**（標題列「對照前期」，`filters.tsx` 的 `compare`／`applyCompare`）：緊接在前、一樣長的一段。
 要接到新的畫面：`useCube(applyCompare(同一個查詢))`（沒開時是 null，不會查），數字卡用 `<Kpi compare>`；
-文字一定要帶 `compare.label` 寫明比的是哪一段。目前只接在儀表板的數字卡與整體戰績。
+文字一定要帶 `compare.label` 寫明比的是哪一段。表格用 `components/compare.tsx` 的 `useComparedRows`＋`compareColumns`（英雄表、增幅表已接；只在看目前帳號時接）。
 
 **自由探索的下鑽路徑與交叉矩陣**（`components/DrillPath.tsx`、`PivotMatrix.tsx`，共用規則在 `lib/drill.ts`）：
 - 預設路徑寫在 `cube/model/cubes/*.yml` 的 `hierarchies`，前端從 `/meta` 讀，不要在前端另寫一份。

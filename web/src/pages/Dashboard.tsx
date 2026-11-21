@@ -12,7 +12,7 @@ import { useCube } from "@/hooks/useCube"
 import { MAX_GAME_IDS, iconUrl, num, type CubeRow } from "@/lib/cube"
 import { useFilters, type Drill } from "@/lib/filters"
 import { useCrumb } from "@/lib/breadcrumb"
-import { oneOf, useUrlState } from "@/lib/urlState"
+import { oneOf, stringCodec, useUrlState } from "@/lib/urlState"
 import { useNavigate } from "@/lib/nav"
 import { useWhoScope } from "@/lib/who"
 import { cn } from "@/lib/utils"
@@ -370,6 +370,9 @@ export function Dashboard() {
   // 整體戰績的勝段／敗段點下去：那幾場的逐場抽屜
   const [result, setResult] = useUrlState<"勝" | "敗" | null>("result", null, resultCodec, "push")
   useCrumb(10, result ? `${result}局` : null, () => setResult(null))
+  // 定位雷達點一個方向：出成那一類的每一場
+  const [role, setRole] = useUrlState<string | null>("role", null, stringCodec, "push")
+  useCrumb(10, role ? `出裝是${role}` : null, () => setRole(null))
 
   const totals = useCube(
     apply({
@@ -644,7 +647,7 @@ export function Dashboard() {
           ) : !games ? (
             <EmptyState>還沒有資料。</EmptyState>
           ) : (
-            <RadarChart data={roleData} mode="games" baseline={winrate} total={games} height={300} />
+            <RadarChart data={roleData} mode="games" baseline={winrate} total={games} height={300} selected={role} onPick={(label) => setRole(role === label ? null : label)} />
           )}
         </Panel>
 
@@ -689,6 +692,22 @@ export function Dashboard() {
           )}
         </Panel>
       </div>
+
+      {role && spec.labels.includes(role) && (
+        <Suspense fallback={null}>
+          <DrillPanel
+            title={`出裝是${role}`}
+            gameIdKey="matches.game_id"
+            query={apply({
+              measures: ["participants.games"],
+              dimensions: ["matches.game_id"],
+              filters: spec.filterFor(role),
+              limit: MAX_GAME_IDS,
+            })}
+            onClose={() => setRole(null)}
+          />
+        </Suspense>
+      )}
 
       {result && (
         <Suspense fallback={null}>

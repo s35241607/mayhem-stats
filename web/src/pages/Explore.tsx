@@ -57,6 +57,7 @@ import { COMPANION, MAX_LEVELS, familyOf, type DrillPick } from "@/lib/drill"
 import { useFilters } from "@/lib/filters"
 import { cn } from "@/lib/utils"
 import { jsonCodec, useUrlState } from "@/lib/urlState"
+import { toast } from "@/lib/toast"
 
 const VIZ = [
   { value: "table", label: "表格", icon: Table2 },
@@ -249,6 +250,7 @@ export function Explore() {
     link.href = chart.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: `rgb(${r}, ${g}, ${b})` })
     link.download = `explore-${viz}-${new Date().toISOString().slice(0, 10)}.png`
     link.click()
+    toast("圖表已存成 PNG")
   }
 
   const toggle = (list: string[], set: (v: string[]) => void) => (name: string) =>
