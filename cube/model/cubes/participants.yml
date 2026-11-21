@@ -1288,11 +1288,11 @@ cubes:
           100.0 * COUNT(DISTINCT CASE
             WHEN {CUBE}.double_kills + {CUBE}.triple_kills
                + {CUBE}.quadra_kills + {CUBE}.penta_kills > 0
-            THEN {CUBE}.platform_id || ':' || {CUBE}.game_id END)
+            THEN {CUBE}.rowid END)
           / NULLIF({games}, 0)
         type: number
         format: percent
-        description: 有拿到多殺的場次佔比
+        description: 有拿到多殺的場次佔比。分子和 games 一樣以玩家對局列去重——用對局鍵去重的話，好幾個人合在一起算時同一場只算一次，分母卻是人次，比例會被壓低（好友比較的名單合計實測 30.9%，每個人都在 50% 以上）。
         meta:
           group: 戰鬥
           unit: "%"
@@ -1304,7 +1304,7 @@ cubes:
         description: "親自拿到首殺的場次佔比（%）。"
         sql: >
           100.0 * COUNT(DISTINCT CASE WHEN {CUBE}.first_blood = 1
-            THEN {CUBE}.platform_id || ':' || {CUBE}.game_id END)
+            THEN {CUBE}.rowid END)
           / NULLIF({games}, 0)
         type: number
         format: percent

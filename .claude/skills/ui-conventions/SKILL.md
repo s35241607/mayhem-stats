@@ -133,6 +133,10 @@ description: 這個專案前端的主題與動畫規範。只要動到 web/src �
    - 採集到新資料時**頁面不重掛**（以前 App 用 `key={dataRevision}`，排序、選取、捲動全丟）。
      不走 `useCube` 而直接 `fetch` 的地方，把 `useDataRevision()`（`lib/revision.ts`）放進 effect 的依賴，自己重抓。
    - 不要為了「重播生長動畫」去換圖表的 key，也不要寫 `refreshing ? <Skeleton/> : …`。
+   - **勾選名單這種「同一批人增減一位」不要放進查詢條件**：條件一變 `subjectOf` 就當成問了別的東西，整頁退回骨架。
+     每人一列的查詢固定查整份名單、前端濾掉沒勾的（好友比較的 `qAll`／`onlyChosen`）；非得跟著名單重查的合計，
+     用 `useKeptRows` 留著上一份淡化。合計一律交給語意層重算，而且要確認指標合起來算是對的——
+     用對局鍵去重的比率（原本的 `multikill_rate`）好幾個人合算時分子被去重、分母是人次，會算錯。
    - 驗證：換期間時每一幀取樣 `main [data-slot="skeleton"]` 的數量要是 0、`div[_echarts_instance_]` 的 id 不變；
      回到看過的條件時 `aria-busy` 也不該出現。
 8. **骨架與內容等高。** 骨架高度要接近真正內容，否則換上內容時整頁往下推（CLS）。
