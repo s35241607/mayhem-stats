@@ -50,3 +50,7 @@ web/playwright-report/
 # 全站預設查詢區間（管理員在畫面上設定，執行期資料）
 .site_config.json
 .site_config.tmp
+
+# 自由探索存下來的分析與儀表板（篩選值可能含玩家名稱）
+.explore_items.json
+.explore_items.tmp

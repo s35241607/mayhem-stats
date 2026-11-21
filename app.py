@@ -23,6 +23,7 @@ import urllib.parse
 import secrets
 import sqlite3
 import sys
+import threading
 import time
 from contextlib import asynccontextmanager, closing
 from pathlib import Path
@@ -1345,6 +1346,87 @@ def set_config(body: ConfigBody, request: Request):
     who = _session(request) if PUBLIC else None
     print(f"{who['name'] if who else '本機'} 把預設查詢區間改成 {cleaned}")
     return get_config(request)
+
+
+# 自由探索存下來的東西：一張「卡片」（一個分析的規格）或一個「儀表板」（幾張卡片怎麼排）。
+# 和 .site_config.json 一樣放成 BASE_DIR 下的一個 JSON 檔：本機服務與唯讀鏡像是兩個行程、
+# 讀同一個檔，鏡像不必建表也看得到。內容可能含玩家名稱當篩選值，不進版控（.gitignore）。
+# spec 的形狀由前端定義（web/src/explore/spec.ts），後端只管存取與大小上限，不解讀內容——
+# 查詢仍然要經過 /api/cube/load，權限與速率限制都在那裡。
+EXPLORE_FILE = BASE_DIR / ".explore_items.json"
+EXPLORE_KINDS = {"card", "board"}
+EXPLORE_MAX_ITEMS = 300
+EXPLORE_MAX_BYTES = 64 * 1024
+EXPLORE_NAME_MAX = 60
+_explore_lock = threading.Lock()
+
+
+def explore_items() -> list:
+    try:
+        items = json.loads(EXPLORE_FILE.read_text(encoding="utf-8")).get("items")
+    except (OSError, ValueError, AttributeError):
+        return []
+    return [i for i in items if isinstance(i, dict) and i.get("kind") in EXPLORE_KINDS] if isinstance(items, list) else []
+
+
+def _write_explore_items(items: list) -> None:
+    # 先寫暫存檔再換名：鏡像同時在讀時不會讀到寫一半的 JSON
+    tmp = EXPLORE_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"items": items}, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(EXPLORE_FILE)
+
+
+class ExploreItemBody(BaseModel):
+    id: Optional[str] = None
+    kind: str
+    name: str
+    spec: dict
+
+
+@app.get("/api/explore/items")
+def list_explore_items(request: Request):
+    return {"items": explore_items(), "canEdit": _is_admin(request)}
+
+
+@app.post("/api/explore/items")
+def save_explore_item(body: ExploreItemBody, request: Request):
+    if not _is_admin(request):
+        return JSONResponse(status_code=403, content={"error": "只有管理員可以儲存分析與儀表板"})
+    name = body.name.strip()
+    if body.kind not in EXPLORE_KINDS or not name or len(name) > EXPLORE_NAME_MAX:
+        return JSONResponse(status_code=400, content={"error": "種類或名稱不合法"})
+    if len(json.dumps(body.spec, ensure_ascii=False).encode("utf-8")) > EXPLORE_MAX_BYTES:
+        return JSONResponse(status_code=400, content={"error": "內容太大，存不下"})
+    if body.id is not None and not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", body.id):
+        return JSONResponse(status_code=400, content={"error": "id 不合法"})
+    with _explore_lock:
+        items = explore_items()
+        item = {"id": body.id or secrets.token_urlsafe(9), "kind": body.kind, "name": name,
+                "spec": body.spec, "updated": int(time.time())}
+        existing = next((i for i, x in enumerate(items) if x.get("id") == item["id"]), None)
+        if existing is None:
+            if len(items) >= EXPLORE_MAX_ITEMS:
+                return JSONResponse(status_code=400, content={"error": f"最多存 {EXPLORE_MAX_ITEMS} 個，請先刪掉一些"})
+            items.append(item)
+        elif items[existing].get("kind") != item["kind"]:
+            return JSONResponse(status_code=400, content={"error": "不能把卡片存成儀表板（或反過來）"})
+        else:
+            items[existing] = item
+        _write_explore_items(items)
+    return {"item": item}
+
+
+@app.delete("/api/explore/items/{item_id}")
+def delete_explore_item(item_id: str, request: Request):
+    if not _is_admin(request):
+        return JSONResponse(status_code=403, content={"error": "只有管理員可以刪除分析與儀表板"})
+    with _explore_lock:
+        items = explore_items()
+        kept = [i for i in items if i.get("id") != item_id]
+        if len(kept) == len(items):
+            return JSONResponse(status_code=404, content={"error": "找不到這個項目"})
+        _write_explore_items(kept)
+    return {"ok": True}
 
 
 def _resolve_puuid(conn, puuid: Optional[str]) -> Optional[str]:

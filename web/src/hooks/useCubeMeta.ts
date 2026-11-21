@@ -23,7 +23,11 @@ export type Segment = { name: string; title: string; shortTitle?: string }
 /** 模型裡定義好的下鑽路徑（cube 的 hierarchies），levels 是由粗到細的維度。 */
 export type Hierarchy = { name: string; title: string; levels: string[] }
 
+/** 一個 cube 的表頭：資料目錄用它說明「這份資料是什麼、一列代表什麼」 */
+export type CubeInfo = { name: string; title: string; description?: string }
+
 export type CubeMeta = {
+  cubes: CubeInfo[]
   measures: Member[]
   dimensions: Member[]
   segments: Segment[]
@@ -33,6 +37,7 @@ export type CubeMeta = {
 }
 
 const EMPTY: CubeMeta = {
+  cubes: [],
   measures: [],
   dimensions: [],
   segments: [],
@@ -94,11 +99,13 @@ export function useCubeMeta(): { meta: CubeMeta; loading: boolean; error: string
         const timeDimensions: Member[] = []
         const segments: Segment[] = []
         const hierarchies: Hierarchy[] = []
+        const cubes: CubeInfo[] = []
 
         for (const cube of data.cubes ?? []) {
           // view 是給 AI Agent 與外部工具的查詢入口（cube/model/views），成員和 cube 重複，
           // 列進選單會出現兩份，混選時還會撞到 join 路徑錯誤。前端一律直接查 cube。
           if (cube.type === "view") continue
+          cubes.push({ name: cube.name, title: cube.title ?? cube.name, description: cube.description })
           for (const m of cube.measures ?? []) {
             if (m.public === false || HIDDEN.test(m.name) || HIDDEN_CUBE.test(m.name) || !isPresentable(m)) continue
             measures.push(m)
@@ -121,7 +128,7 @@ export function useCubeMeta(): { meta: CubeMeta; loading: boolean; error: string
         const byName = new Map<string, Member>()
         for (const m of [...measures, ...dimensions, ...timeDimensions]) byName.set(m.name, m)
 
-        setMeta({ measures, dimensions, timeDimensions, segments, hierarchies, byName })
+        setMeta({ cubes, measures, dimensions, timeDimensions, segments, hierarchies, byName })
         setLoading(false)
       })
       .catch((e: Error) => {

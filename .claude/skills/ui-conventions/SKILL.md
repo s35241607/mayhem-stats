@@ -247,6 +247,21 @@ description: 這個專案前端的主題與動畫規範。只要動到 web/src �
 要接到新的畫面：`useCube(applyCompare(同一個查詢))`（沒開時是 null，不會查），數字卡用 `<Kpi compare>`；
 文字一定要帶 `compare.label` 寫明比的是哪一段。表格用 `components/compare.tsx` 的 `useComparedRows`＋`compareColumns`（英雄表、增幅表已接；只在看目前帳號時接）。
 
+**自由探索工作台**（`web/src/explore/`，頁面殼在 `pages/Explore.tsx`，四個分頁：工作台／儀表板／資料目錄／下鑽路徑）：
+- 一個分析就是一份 `Spec`（`spec.ts`）：列、欄、數值、顏色、篩選各放哪些**成員名稱**，加上圖表種類。
+  定義一律留在語意層；`Spec` 裡沒有 SQL、沒有分組界線。存到伺服器的卡片、網址的 `a=`、儀表板的每一格都是同一個形狀，
+  一律用 `<SpecView spec meta>` 畫，同一張卡片在哪裡看都一樣。
+- **資料集**（`DATASETS`／`fitsDataset`）決定哪些欄位能一起查：對局表現、同場玩家、增幅組合。新增 cube 時想清楚它掛在哪一個；
+  每個資料集鎖人的方式不同，全域條件由 `data.ts` 的 `useScoped` 套，套不上的要列在 `ignored` 顯示出來。
+- **樞紐表的小計與總計不准用下一層加總**：勝率、平均、不重複計數都不可加。`usePivot` 對每個「列前綴 × 欄前綴」各查一次，
+  讓語意層自己算那一層（固定 12 個 hook 槽，列最多 3 層、欄最多 2 層）。驗證：每一層的數字各自和手寫 SQL 對。
+- **計算欄位**（`calc.ts`）是對「查詢回來的聚合結果」做運算，自己寫的解析器、不用 `eval`（公式會存到伺服器給別人開）。
+  要新增函式就加在 `FN_ALIASES`／`ARITY`／`evaluate`；需要對明細算的東西不屬於這裡，回語意層加指標。
+- **多系列圖用 `charts.tsx` 的 `<SeriesChart>`**，類別色是 `--series-1..6`（`index.css`，驗證紀錄寫在旁邊）：順序固定、不循環，
+  超過六個系列只畫前六個並說明。組合圖是上下兩格共用類別軸，不做雙 y 軸。要加第七色或改色，照「新增主題」那節重跑 `validate_palette.js`。
+- 存檔在 `/api/explore/items`（`store.ts` 的 `useItems`），後端存成 `.explore_items.json`（不進版控）；鏡像上只有管理員能寫，畫面依 `canEdit` 收起寫入入口。
+- 儀表板的一格只記「哪張卡片、寬、高」，內容永遠是卡片現在的規格；共用篩選就是標題列的全域篩選。
+
 **自由探索的下鑽路徑與交叉矩陣**（`components/DrillPath.tsx`、`PivotMatrix.tsx`，共用規則在 `lib/drill.ts`）：
 - 預設路徑寫在 `cube/model/cubes/*.yml` 的 `hierarchies`，前端從 `/meta` 讀，不要在前端另寫一份。
 - 維度分兩家：participants 與 teammates 之間沒有 join 路徑，一條路徑／一張矩陣只能用同一家（`dimensionsOf`）。

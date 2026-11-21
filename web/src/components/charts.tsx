@@ -14,8 +14,10 @@ import { CHART_GROW_MS, STAGGER_CAP_MS, STAGGER_MS, prefersReducedMotion, useAft
 // 要用 esm/core：lib/core 是 CommonJS，default import 拿到的是整個模組物件，React 會丟 #130、整頁的圖都不見。
 echarts.use([
   ECharts.BarChart, ECharts.LineChart, ECharts.HeatmapChart, ECharts.RadarChart,
-  ECharts.ScatterChart, ECharts.TreemapChart,
+  ECharts.ScatterChart, ECharts.TreemapChart, ECharts.PieChart,
   EComponents.GridComponent, EComponents.TooltipComponent, EComponents.LegendComponent,
+  // 自由探索工作台的多系列圖：可捲動的圖例、組合圖每格的小標題、上下兩格連動的軸指示
+  EComponents.LegendScrollComponent, EComponents.TitleComponent, EComponents.AxisPointerComponent,
   EComponents.RadarComponent, EComponents.MarkLineComponent, EComponents.MarkAreaComponent,
   EComponents.DataZoomInsideComponent, EComponents.DataZoomSliderComponent,
   CanvasRenderer,
@@ -225,6 +227,8 @@ function useTheme() {
       loss: cssVar("--loss", "#e3437c"),
       /** 單一系列（勝率走勢、場次、散布點）的資料色。和勝／敗兩極不同色，不會被誤讀成好壞。 */
       data: cssVar("--data", "#8272f2"),
+      /** 多系列圖表的類別色，順序固定（index.css 的 --series-1..6，驗證紀錄在那裡） */
+      series: [1, 2, 3, 4, 5, 6].map((i) => cssVar(`--series-${i}`, "#3987e5")),
     }),
     [name, isDark],
   )
@@ -1711,4 +1715,209 @@ export function TimelineChart({
   }, [frames, buildings, kills, team, duration, enemyOpenSec, ownOpenSec, theme])
 
   return <ResponsiveChart option={option} height={364} />
+}
+
+// ─────────────────────────────────────────── 多系列圖表（自由探索工作台）
+
+export type SeriesKind = "bar" | "stacked" | "line" | "area" | "combo" | "pie"
+export type ChartSeries = { name: string; data: (number | null)[]; suffix?: string }
+/** 一張圖最多幾個系列：類別色只有六個，順序固定、不循環產生新顏色 */
+export const MAX_SERIES = 6
+
+/** 類別軸 × 一到六個系列。長條（並排）、堆疊、折線、面積、圓餅、組合。
+ *
+ *  - 單一系列用資料色（--data），和站內其他單系列圖一致；兩個以上才用類別色，圖例一定出現。
+ *  - 組合圖不做雙 y 軸（兩組刻度會被拿來互相比高低，而那個比較沒有意義）：
+ *    拆成上下兩格共用類別軸，上面長條是第一個系列、下面折線是第二個。
+ *  - 圓餅只吃第一個系列；超過六塊的併成「其他」，所以只適合可以相加的指標（場次、勝場）。
+ *  系列超過 MAX_SERIES 由呼叫端先裁掉並說明，這裡不處理。 */
+export function SeriesChart({
+  kind,
+  categories,
+  series,
+  height = 340,
+  onPick,
+}: {
+  kind: SeriesKind
+  categories: string[]
+  series: ChartSeries[]
+  height?: number
+  /** 點了某個類別（長條、折線上的點、圓餅的一塊） */
+  onPick?: (category: string) => void
+}) {
+  const theme = useTheme()
+
+  const option = useMemo(() => {
+    const multi = series.length > 1
+    const colorOf = (i: number) => (multi ? theme.series[i % MAX_SERIES] : theme.data)
+    const fmt = (v: unknown, suffix = "") =>
+      typeof v === "number" && Number.isFinite(v) ? `${v.toLocaleString(undefined, { maximumFractionDigits: 2 })}${suffix}` : "—"
+    const legend = {
+      show: multi && kind !== "combo",
+      top: 0,
+      right: 8,
+      type: "scroll",
+      icon: "roundRect",
+      itemWidth: 10,
+      itemHeight: 10,
+      textStyle: { color: theme.muted, fontSize: 11 },
+      pageTextStyle: { color: theme.muted },
+    }
+    const dense = categories.length > 14
+    const categoryAxis = (show: boolean) => ({
+      type: "category",
+      data: categories,
+      axisLine: { lineStyle: { color: alpha(theme.muted, 0.3) } },
+      axisTick: { show: false },
+      axisLabel: show
+        ? axisLabel(theme, { rotate: dense ? 40 : 0, interval: categories.length > 40 ? "auto" : 0, hideOverlap: true, fontFamily: undefined, fontSize: 11, width: 90, overflow: "truncate" })
+        : { show: false },
+    })
+    const valueAxis = (suffix = "") => ({
+      type: "value",
+      axisLabel: axisLabel(theme, { formatter: (v: number) => `${v.toLocaleString()}${suffix}` }),
+      splitLine: splitLine(theme),
+    })
+    const axisTooltip = {
+      trigger: "axis",
+      axisPointer: { type: kind === "line" || kind === "area" ? "line" : "shadow", lineStyle: { color: alpha(theme.muted, 0.5) }, shadowStyle: { color: alpha(theme.muted, 0.08) } },
+      ...baseTooltip(theme),
+      formatter: (params: { axisValueLabel: string; seriesIndex: number; seriesName: string; value: unknown; marker: string }[]) =>
+        [`<b>${params[0]?.axisValueLabel ?? ""}</b>`, ...params.map((p) => `${p.marker} ${p.seriesName}　${fmt(p.value, series[p.seriesIndex]?.suffix)}`)].join("<br/>"),
+    }
+
+    if (kind === "pie") {
+      const first = series[0] ?? { name: "", data: [] }
+      const slices = categories
+        .map((name, i) => ({ name, value: first.data[i] ?? 0 }))
+        .filter((s) => s.value > 0)
+        .sort((a, b) => b.value - a.value)
+      const head = slices.slice(0, MAX_SERIES - 1)
+      const rest = slices.slice(MAX_SERIES - 1)
+      const folded = rest.length > 1
+      const data = folded ? [...head, { name: `其他 ${rest.length} 項`, value: rest.reduce((a, s) => a + s.value, 0) }] : slices.slice(0, MAX_SERIES)
+      return {
+        tooltip: { trigger: "item", ...baseTooltip(theme), formatter: (p: { name: string; value: number; percent: number; marker: string }) => `${p.marker} ${p.name}<br/>${fmt(p.value, first.suffix)}（${p.percent}%）` },
+        legend: { ...legend, show: true, orient: "vertical", top: "middle", right: 8 },
+        series: [
+          {
+            type: "pie",
+            radius: ["42%", "70%"],
+            center: ["40%", "50%"],
+            // 每一塊之間留一圈卡片色的縫，相鄰兩塊不靠顏色也分得開
+            itemStyle: { borderColor: theme.card, borderWidth: 2, borderRadius: 4 },
+            label: { color: theme.text, fontSize: 11, formatter: "{b}\n{d}%" },
+            labelLine: { lineStyle: { color: alpha(theme.muted, 0.5) } },
+            data: data.map((d, i) => ({ ...d, itemStyle: { color: folded && i === data.length - 1 ? alpha(theme.muted, 0.55) : theme.series[i] } })),
+            animationType: "scale",
+            animationEasing: "cubicOut",
+          },
+        ],
+      }
+    }
+
+    if (kind === "combo") {
+      const [bar, line] = series
+      return {
+        tooltip: axisTooltip,
+        axisPointer: { link: [{ xAxisIndex: "all" }] },
+        // 上下兩格共用類別軸；每格左上角直接寫是哪個指標，不靠圖例
+        title: [
+          { text: bar?.name ?? "", left: 44, top: 0, textStyle: { color: theme.muted, fontSize: 11, fontWeight: "normal" } },
+          { text: line?.name ?? "", left: 44, top: "52%", textStyle: { color: theme.muted, fontSize: 11, fontWeight: "normal" } },
+        ],
+        grid: [
+          { left: 52, right: 16, top: 22, height: "34%" },
+          { left: 52, right: 16, top: "58%", bottom: dense ? 70 : 36 },
+        ],
+        xAxis: [{ ...categoryAxis(false), gridIndex: 0 }, { ...categoryAxis(true), gridIndex: 1 }],
+        yAxis: [{ ...valueAxis(bar?.suffix), gridIndex: 0 }, { ...valueAxis(line?.suffix), gridIndex: 1 }],
+        series: [
+          {
+            name: bar?.name,
+            type: "bar",
+            xAxisIndex: 0,
+            yAxisIndex: 0,
+            data: bar?.data ?? [],
+            barMaxWidth: 28,
+            itemStyle: { color: fade(theme.series[0], false), borderRadius: [4, 4, 0, 0] },
+            animationDelay: (i: number) => stagger(i, 20),
+            animationDelayUpdate: 0,
+          },
+          {
+            name: line?.name,
+            type: "line",
+            xAxisIndex: 1,
+            yAxisIndex: 1,
+            data: line?.data ?? [],
+            symbol: "circle",
+            symbolSize: 7,
+            lineStyle: { color: theme.series[1], width: 2 },
+            itemStyle: { color: theme.series[1], borderColor: theme.card, borderWidth: 2 },
+            animationDuration: CHART_GROW_MS + 300,
+          },
+        ],
+      }
+    }
+
+    const isLine = kind === "line" || kind === "area"
+    return {
+      tooltip: axisTooltip,
+      legend,
+      grid: { left: 52, right: 16, top: multi ? 34 : 16, bottom: dense ? 70 : 36 },
+      xAxis: { ...categoryAxis(true), boundaryGap: !isLine },
+      yAxis: valueAxis(series.every((s) => s.suffix === series[0]?.suffix) ? series[0]?.suffix : ""),
+      series: series.map((s, i) => {
+        const color = colorOf(i)
+        if (isLine) {
+          return {
+            name: s.name,
+            type: "line",
+            data: s.data,
+            connectNulls: false,
+            symbol: "circle",
+            symbolSize: categories.length > 40 ? 4 : 7,
+            lineStyle: { color, width: 2 },
+            // 點外面套一圈卡片色，線交叉、點重疊時看得出是哪一條的
+            itemStyle: { color, borderColor: theme.card, borderWidth: 2 },
+            ...(kind === "area" ? { areaStyle: { color: alpha(color, multi ? 0.16 : 0.28) } } : {}),
+            animationDuration: CHART_GROW_MS + 300,
+            animationEasing: "cubicInOut",
+          }
+        }
+        return {
+          name: s.name,
+          type: "bar",
+          data: s.data,
+          ...(kind === "stacked" ? { stack: "all" } : {}),
+          barMaxWidth: 32,
+          barGap: "12%",
+          // 堆疊的每一段之間留卡片色的縫；並排的長條頂端圓角、貼著基線
+          itemStyle:
+            kind === "stacked"
+              ? { color, borderColor: theme.card, borderWidth: 1 }
+              : { color: multi ? color : fade(color, false), borderRadius: [4, 4, 0, 0] },
+          label: !multi && categories.length <= 14 ? { show: true, position: "top", color: theme.muted, fontSize: 10, fontFamily: MONO, valueAnimation: true, formatter: (p: { value: unknown }) => fmt(p.value, s.suffix) } : { show: false },
+          emphasis: { focus: multi ? "series" : "none" },
+          animationDelay: (idx: number) => stagger(idx, 20),
+          animationDelayUpdate: 0,
+        }
+      }),
+    }
+  }, [kind, categories, series, theme])
+
+  const onEvent = useMemo(
+    () =>
+      onPick
+        ? {
+            click: (p: never) => {
+              const name = (p as { name?: string }).name
+              if (name && !name.startsWith("其他 ")) onPick(name)
+            },
+          }
+        : undefined,
+    [onPick],
+  )
+
+  return <ResponsiveChart option={option} height={height} onEvent={onEvent} />
 }

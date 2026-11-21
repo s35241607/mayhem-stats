@@ -413,6 +413,15 @@
   --role-ad: #d95926;
   --role-ap: #9085e9;
   --role-util: #199e70;
+  /* 多系列圖表的類別色（自由探索工作台）。dataviz 參考調色盤的前六個色相、順序固定不循環：
+   * 藍、橘、青、黃、洋紅、綠。暗色這組在四個暗色主題的 --card 上跑過 validate_palette.js：全部 PASS
+   * （相鄰色盲 ΔE 最低 8.4、一般視覺 19.3、對比皆 >= 3:1）。超過六個系列不產生新顏色，畫面只畫前六個並說明。 */
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #0ca30c;
 }
 [data-theme="daylight"],
 [data-theme="mint"],
@@ -421,6 +430,14 @@
   --role-ad: #eb6834;
   --role-ap: #4a3aa7;
   --role-util: #1baf7a;
+  /* 亮色這組在四個亮色主題的 --card 上：色盲 ΔE 最低 9.1、一般視覺 19.6，全部 PASS；
+   * 青、黃、洋紅對卡片的對比 2.1～2.8（WARN）——補救是圖例一定在、而且隨時能切成表格看數字 */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
 }
 
 @theme inline {
