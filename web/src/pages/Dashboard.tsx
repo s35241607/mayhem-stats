@@ -23,6 +23,18 @@ import { ROLE_SPEC } from "@/lib/roleBasis"
 /** 逐場列表與單場戰報只有點了才用得到，延後載入：儀表板是首屏，
  *  直接靜態引入會把對局卡片與戰報（約 20KB）併進主程式。
  *  那個 chunk 本來就會在瀏覽器閒下來時預先抓好（App 的 usePrefetchPages）。 */
+/** 對照期間要查的指標：數字卡上有的那幾個 */
+const COMPARE_MEASURES = [
+  "participants.games",
+  "participants.wins",
+  "participants.winrate",
+  "participants.kda",
+  "participants.dpm",
+  "participants.gpm",
+  "participants.kill_participation",
+  "participants.avg_objective_damage",
+  "participants.avg_deaths",
+]
 const resultCodec = oneOf<"勝" | "敗">("勝", "敗")
 const CubeMatchList = lazy(() => import("@/components/MatchList").then((m) => ({ default: m.CubeMatchList })))
 const DrillPanel = lazy(() => import("@/components/MatchList").then((m) => ({ default: m.DrillPanel })))
@@ -127,6 +139,7 @@ function RecordHero({
   previous,
   loading,
   onPick,
+  compare,
 }: {
   winrate: number | null
   wins: number
@@ -136,6 +149,8 @@ function RecordHero({
   loading: boolean
   /** 點勝段或敗段：列出那幾場 */
   onPick: (result: "勝" | "敗") => void
+  /** 對照期間的勝率與差值 */
+  compare?: string
 }) {
   const delta = recent.winrate !== null && previous.winrate !== null ? recent.winrate - previous.winrate : null
   return (
@@ -159,6 +174,7 @@ function RecordHero({
         <div className="text-right text-sm tabular-nums text-muted-foreground">
           <CountUp text={`${wins + losses} 場`} className="block font-mono text-base font-semibold text-foreground" />
           <CountUp text={`${wins} 勝 ${losses} 敗`} />
+          {compare && <div className="reveal mt-0.5 text-[11px] font-medium text-primary">{compare}</div>}
         </div>
       </div>
 
@@ -346,7 +362,7 @@ function DayDrawerBody({ day }: { day: string }) {
 }
 
 export function Dashboard() {
-  const { apply, account } = useFilters()
+  const { apply, account, applyCompare, compare } = useFilters()
   // 點每日圖的某一天、或最近戰績的某一場，右邊滑出抽屜（和英雄頁同一種）
   const [day, setDay] = useState<string | null>(null)
   const [match, setMatch] = useState<MatchRow | null>(null)
@@ -375,6 +391,20 @@ export function Dashboard() {
       ],
     }),
   )
+
+  // 對照期間（標題列的「對照前期」）：同一組指標換成前一段再查一次，沒開就不查
+  const prevTotals = useCube(applyCompare({ measures: COMPARE_MEASURES }))
+  const prevRow = compare ? prevTotals.rows[0] : undefined
+  /** 「前一段 3.10（+0.24）」；對照期間沒有場次或還在查就不顯示 */
+  const cmp = (key: string, fmt: (n: number) => string, suffix = "") => {
+    const now = num(totals.rows[0]?.[key])
+    const before = num(prevRow?.[key])
+    if (!compare || now === null || before === null || !num(prevRow?.["participants.games"])) return undefined
+    const diff = now - before
+    return `${compare.label}：${fmt(before)}${suffix}（${diff >= 0 ? "+" : "−"}${fmt(Math.abs(diff))}${suffix}）`
+  }
+  const prevGames = num(prevRow?.["participants.games"])
+  const prevWinrate = num(prevRow?.["participants.winrate"])
 
   // 和時段頁同一個查詢（按採集時存好的本地日期分組），兩頁的每日數字保證一樣，快取也共用
   const daily = useCube(
@@ -508,6 +538,15 @@ export function Dashboard() {
             previous={previousPeriod}
             loading={totals.loading || daily.loading}
             onPick={setResult}
+            compare={
+              compare && prevGames && prevWinrate !== null && winrate !== null
+                ? `${compare.label}：${prevWinrate.toFixed(1)}%・${prevGames} 場（${winrate - prevWinrate >= 0 ? "+" : "−"}${Math.abs(winrate - prevWinrate).toFixed(1)}pp）`
+                : compare && prevTotals.loading
+                  ? undefined
+                  : compare
+                    ? `${compare.label}：沒有對局`
+                    : undefined
+            }
           />
         </Panel>
         <Panel className="xl:col-span-7" title="最近戰績" index={1} action={<SeeAll page="matches" label="對局紀錄" />}>
@@ -517,11 +556,11 @@ export function Dashboard() {
 
       {/* 次要數字：打法的總量指標，比勝率次要，縮成一排小卡 */}
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-        <Kpi index={2} label="KDA" value={metric("participants.kda", round2)} hint={refHint("participants.kda", round2)} loading={totals.loading} refreshing={totals.refreshing} />
-        <Kpi index={3} label="每分鐘傷害" value={metric("participants.dpm", round0)} hint={refHint("participants.dpm", round0)} loading={totals.loading} refreshing={totals.refreshing} />
-        <Kpi index={4} label="每分鐘經濟" value={metric("participants.gpm", round0)} hint={refHint("participants.gpm", round0)} loading={totals.loading} refreshing={totals.refreshing} />
-        <Kpi index={5} label="參團率" value={metric("participants.kill_participation", round1, "%")} hint={refHint("participants.kill_participation", round1, "%")} loading={totals.loading} refreshing={totals.refreshing} />
-        <Kpi index={6} label="對塔平均傷害" value={metric("participants.avg_objective_damage", round0)} hint={refHint("participants.avg_objective_damage", round0)} loading={totals.loading} refreshing={totals.refreshing} />
+        <Kpi index={2} label="KDA" value={metric("participants.kda", round2)} compare={cmp("participants.kda", round2)} hint={refHint("participants.kda", round2)} loading={totals.loading} refreshing={totals.refreshing} />
+        <Kpi index={3} label="每分鐘傷害" value={metric("participants.dpm", round0)} compare={cmp("participants.dpm", round0)} hint={refHint("participants.dpm", round0)} loading={totals.loading} refreshing={totals.refreshing} />
+        <Kpi index={4} label="每分鐘經濟" value={metric("participants.gpm", round0)} compare={cmp("participants.gpm", round0)} hint={refHint("participants.gpm", round0)} loading={totals.loading} refreshing={totals.refreshing} />
+        <Kpi index={5} label="參團率" value={metric("participants.kill_participation", round1, "%")} compare={cmp("participants.kill_participation", round1, "%")} hint={refHint("participants.kill_participation", round1, "%")} loading={totals.loading} refreshing={totals.refreshing} />
+        <Kpi index={6} label="對塔平均傷害" value={metric("participants.avg_objective_damage", round0)} compare={cmp("participants.avg_objective_damage", round0)} hint={refHint("participants.avg_objective_damage", round0)} loading={totals.loading} refreshing={totals.refreshing} />
         <Kpi
           index={7}
           label="對小兵平均傷害（估）"
@@ -529,7 +568,7 @@ export function Dashboard() {
           hint={[refHint("participants.avg_minion_damage", round0), "總輸出 − 對英雄 − 對塔"].filter(Boolean).join("・")}
           loading={totals.loading} refreshing={totals.refreshing}
         />
-        <Kpi index={8} label="平均死亡" value={metric("participants.avg_deaths", round1)} hint={refHint("participants.avg_deaths", round1)} loading={totals.loading} refreshing={totals.refreshing} />
+        <Kpi index={8} label="平均死亡" value={metric("participants.avg_deaths", round1)} compare={cmp("participants.avg_deaths", round1)} hint={refHint("participants.avg_deaths", round1)} loading={totals.loading} refreshing={totals.refreshing} />
         <Kpi
           index={9}
           label="平均死亡時間"

@@ -299,12 +299,14 @@ function CustomRange({ range, onChange }: { range: string; onChange: (range: str
 }
 
 function GlobalFilters() {
-  const { queueId, setQueueId, dateRange, setDateRange } = useFilters()
+  const { queueId, setQueueId, dateRange, setDateRange, canEditDefaults, compare, canCompare, setCompare } = useFilters()
+  // 指令面板要列的頁面：和側欄同一份，非管理員看不到 ADMIN 那組
+  const pages = NAV.filter((g) => !g.admin || canEditDefaults).flatMap((g) => g.items.map(({ id, label }) => ({ id, label, group: g.group })))
   const custom = isCustomRange(dateRange)
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <AccountSwitcher />
+      <AccountSwitcher pages={pages} />
       <Select value={queueId ?? "all"} onValueChange={(v) => setQueueId(v === "all" ? null : v)}>
         <SelectTrigger size="sm" className="w-[136px]">
           <SelectValue />
@@ -337,6 +339,22 @@ function GlobalFilters() {
         </SelectContent>
       </Select>
       {custom && <CustomRange range={dateRange} onChange={setDateRange} />}
+      {canCompare && (
+        <Button
+          size="sm"
+          variant={compare ? "default" : "outline"}
+          aria-pressed={!!compare}
+          onClick={() => setCompare(!compare)}
+          data-tip={
+            compare
+              ? `正在對照：${compare.label}（${compare.bounds[0]} ～ ${compare.bounds[1]}）\n目前接在儀表板的數字卡與整體戰績；再按一次關掉`
+              : "和緊接在前、一樣長的那一段比較\n（7 天對前 7 天）。目前接在儀表板的數字卡與整體戰績"
+          }
+        >
+          <GitCompareArrows className="size-3.5" />
+          {compare ? compare.label : "對照前期"}
+        </Button>
+      )}
 
       <VersionFilter />
 

@@ -140,6 +140,13 @@ type FilterState = {
    *  scope 為 "all" 時不鎖定帳號——自由探索需要跨玩家聚合，
    *  否則「玩家」這個維度永遠只會回傳一列。 */
   apply: (query: CubeQuery, scope?: "account" | "all", cube?: string) => CubeQuery
+  /** 對照期間：緊接在目前期間之前、一樣長的那一段。沒開、或目前是「全部期間」（沒有邊界可往前推）時為 null */
+  compare: { bounds: [string, string]; label: string } | null
+  /** 目前的期間能不能對照（有起迄才行） */
+  canCompare: boolean
+  setCompare: (on: boolean) => void
+  /** 和 apply 一樣，但期間換成對照期間。沒開對照時回 null（直接交給 useCube 就是不查） */
+  applyCompare: (query: CubeQuery, scope?: "account" | "all", cube?: string) => CubeQuery | null
   /** 以 participants 以外的 cube 查詢時，用這個取得「主角」的篩選條件。 */
   subjectFilter: (member: string) => CubeFilter[]
   /** 不走 apply() 的查詢用這個套期間：回傳要展開進查詢的 timeDimensions。 */
@@ -227,6 +234,7 @@ export function FilterProvider({ children }: { children: ReactNode }) {
   // vf=none：站台預設有「某版本之後」，但這個人選了全部版本
   const versionFrom = vParam ? null : vfParam === "none" ? null : (vfParam ?? siteDefaults.versionFrom)
   const noVersionFrom = siteDefaults.versionFrom ? "none" : null
+  const [cmpParam, setCmpParam] = useUrlParam("cmp")
 
   // 「某版本之後」還沒拿到版本清單時展開不出條件，先等，不要用「全部版本」查一輪
   const ready = playersLoaded && configLoaded && (!versionFrom || versionsLoaded)
@@ -284,6 +292,21 @@ export function FilterProvider({ children }: { children: ReactNode }) {
     setPlayers(next)
     return null
   }
+
+  const compare = useMemo(() => {
+    const bounds = cmpParam === "prev" ? dateBounds(dateRange) : null
+    if (!bounds) return null
+    // 往前推一樣長的一段，兩段不重疊：7 天對前 7 天
+    const day = 86_400_000
+    const from = new Date(`${bounds[0]}T00:00:00`)
+    const to = new Date(`${bounds[1]}T00:00:00`)
+    const length = Math.round((to.getTime() - from.getTime()) / day) + 1
+    const prevTo = new Date(from.getFullYear(), from.getMonth(), from.getDate() - 1)
+    const prevFrom = new Date(prevTo.getFullYear(), prevTo.getMonth(), prevTo.getDate() - (length - 1))
+    const short = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`
+    return { bounds: [localDate(prevFrom), localDate(prevTo)] as [string, string], label: `前一段 ${short(prevFrom)}–${short(prevTo)}` }
+    // dateBounds 每次都用今天重算；跨日時 dateRange 沒變也沒關係，下一次渲染就會是新的
+  }, [cmpParam, dateRange])
 
   const value = useMemo<FilterState>(() => {
     const baseline: CubeFilter[] = []
@@ -357,7 +380,15 @@ export function FilterProvider({ children }: { children: ReactNode }) {
         return params
       },
 
-      apply: (query, scope = "account", cube = "participants") => {
+      compare,
+      canCompare: !!dateBounds(dateRange),
+      setCompare: (on) => setCmpParam(on ? "prev" : null),
+      applyCompare: (query, scope = "account", cube = "participants") =>
+        compare ? build(query, scope, cube, compare.bounds) : null,
+      apply: (query, scope = "account", cube = "participants") => build(query, scope, cube, dateBounds(dateRange)),
+    }
+
+    function build(query: CubeQuery, scope: "account" | "all", cube: string, bounds: [string, string] | null): CubeQuery {
         const remap = (member: string) => {
           if (cube === "augment_pairs" && member === "participants.puuid") return "augment_pairs.puuid"
           if (cube === "augment_pairs" && member === "matches.queue_id") return "augment_pairs.queue_id"
@@ -375,7 +406,6 @@ export function FilterProvider({ children }: { children: ReactNode }) {
           ],
         }
 
-        const bounds = dateBounds(dateRange)
         if (bounds) {
           const existing = query.timeDimensions ?? []
           // 已經有時間維度（例如趨勢圖要按天分組）就補上區間，否則另外加一個純篩選用的
@@ -390,11 +420,10 @@ export function FilterProvider({ children }: { children: ReactNode }) {
         }
 
         return merged
-      },
     }
     // setLinked 每次渲染都是新函式，但它讀的 players 已經在依賴裡
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, account, defaultAccount, players, viewer, queueId, dateRange, versions, versionFrom, versionOptions, activeVersions, siteDefaults, canEditDefaults, drills])
+  }, [ready, account, defaultAccount, players, viewer, queueId, dateRange, versions, versionFrom, versionOptions, activeVersions, siteDefaults, canEditDefaults, drills, compare])
 
   return <FilterContext.Provider value={value}>{children}</FilterContext.Provider>
 }

@@ -235,6 +235,14 @@ description: 這個專案前端的主題與動畫規範。只要動到 web/src �
 - 全域篩選的真相就在網址（`filters.tsx`），沒寫的用站台預設；帳號只放 puuid 前 8 碼。
 - 純暫時的 UI 狀態（展開收合、hover、輸入到一半的文字）留在 `useState`。
 
+**指令面板**（Ctrl/⌘ + K，`components/AccountSwitcher.tsx`）：頁面、英雄、增幅、期間、帳號都從這裡跳。
+新增一種「可以直接打開的東西」時，讓它的頁面用 `useUrlState` 讀一個參數，面板用 `go(page, { 參數: 值 })` 帶過去
+（`lib/nav.tsx` 的 `useNavigate`），不要另外做一套跨頁傳值。
+
+**對照期間**（標題列「對照前期」，`filters.tsx` 的 `compare`／`applyCompare`）：緊接在前、一樣長的一段。
+要接到新的畫面：`useCube(applyCompare(同一個查詢))`（沒開時是 null，不會查），數字卡用 `<Kpi compare>`；
+文字一定要帶 `compare.label` 寫明比的是哪一段。目前只接在儀表板的數字卡與整體戰績。
+
 **自由探索的下鑽路徑與交叉矩陣**（`components/DrillPath.tsx`、`PivotMatrix.tsx`，共用規則在 `lib/drill.ts`）：
 - 預設路徑寫在 `cube/model/cubes/*.yml` 的 `hierarchies`，前端從 `/meta` 讀，不要在前端另寫一份。
 - 維度分兩家：participants 與 teammates 之間沒有 join 路徑，一條路徑／一張矩陣只能用同一家（`dimensionsOf`）。

@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react"
+import { useMemo } from "react"
+import { Button } from "@/components/ui/button"
 import { BarCell, LiftCell, RecordCell, StatCell, num0, numOf, solidMax } from "@/components/cells"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -22,7 +23,7 @@ import { useWhoScope, type Who } from "@/lib/who"
 import { MIN_GAMES, NO_LIMIT, round0, round1 } from "./shared"
 import { empiricalBayes, shrinkRate } from "@/lib/gap"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { oneOf, stringCodec, useUrlState } from "@/lib/urlState"
+import { boolCodec, oneOf, stringCodec, useUrlState } from "@/lib/urlState"
 
 const ALL = "__all__"
 const rankCodec = oneOf<"eb" | "raw">("eb", "raw")
@@ -143,8 +144,11 @@ export function Augments() {
   const apply = scope.q
   const [picked, setPicked] = useUrlState<string>("champ", ALL, stringCodec)
   // 交叉篩選：點長條 → 表格選取並捲到那一列；點表格一列 → 長條亮起那一根。再點一次取消
-  const [focus, setFocus] = useState<string | null>(null)
-  const toggleFocus = (name: string) => setFocus((cur) => (cur === name ? null : name))
+  // 放在網址：指令面板選一個增幅就是帶著 aug= 跳過來
+  const [focus, setFocus] = useUrlState<string | null>("aug", null, stringCodec)
+  const toggleFocus = (name: string) => setFocus(focus === name ? null : name)
+  // 單擊只是聚焦（圖表與表格互相亮起）；要看每一場，按聚焦列上的按鈕才開抽屜
+  const [showGames, setShowGames] = useUrlState<boolean>("games", false, boolCodec, "push")
   // 從別頁下鑽來的英雄已經是全域篩選（麵包屑裡的標籤），這裡只登記本頁選單選的
   useCrumb(10, picked === ALL || drills.some((d) => d.member === "champions.name") ? null : `${picked} 上的增幅`, () => setPicked(ALL))
   useCrumb(20, focus, () => setFocus(null))
@@ -362,6 +366,17 @@ export function Augments() {
       </Panel>
 
       {focus && (
+        <div className="reveal flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-sm">
+          <span className="min-w-0 flex-1 truncate">
+            聚焦：<b>{focus}</b>
+            <span className="ml-2 text-xs text-muted-foreground">圖表與表格都標出這一個</span>
+          </span>
+          <Button size="sm" onClick={() => setShowGames(true)}>看每一場</Button>
+          <Button size="sm" variant="ghost" onClick={() => setFocus(null)}>清除</Button>
+        </div>
+      )}
+
+      {focus && showGames && (
         <DrillPanel
           title={champion ? `${champion} 選了「${focus}」` : `選了「${focus}」`}
           gameIdKey="matches.game_id"
@@ -377,7 +392,7 @@ export function Augments() {
             ],
             limit: MAX_GAME_IDS,
           })}
-          onClose={() => setFocus(null)}
+          onClose={() => setShowGames(false)}
         />
       )}
 
@@ -392,7 +407,7 @@ export function Augments() {
         {loading || overall.loading || (champion && baseline.loading) ? (
           <Skeleton className="h-[480px] w-full" />
         ) : error ? (
-          <div className="text-sm text-destructive">{error}</div>
+          <QueryError error={error} />
         ) : (
           <AgTable
             columns={columns}

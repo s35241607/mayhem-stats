@@ -22,11 +22,14 @@ export function Kpi({
   tone,
   loading,
   refreshing,
+  compare,
   index = 0,
 }: {
   label: string
   value: string
   hint?: string
+  /** 對照期間的同一個數字與差值（開了「對照前期」才有），畫在主數字正下方 */
+  compare?: string
   tone?: "win" | "loss" | "neutral"
   loading?: boolean
   /** 數字是上一個條件的、新的還在查：淡化（useCube 的 refreshing） */
@@ -60,6 +63,7 @@ export function Kpi({
               <CountUp text={value} />
             </div>
           )}
+          {compare && <div className="reveal mt-0.5 text-[11px] font-medium tabular-nums text-primary">{compare}</div>}
           {hint && <CountUp text={hint} className="mt-1 block text-[11px] text-muted-foreground" />}
         </CardContent>
       </Card>

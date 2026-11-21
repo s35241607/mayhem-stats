@@ -45,14 +45,16 @@ export function writeParams(patch: Record<string, string | null>, mode: "replace
   emit()
 }
 
-/** 換頁用的網址：頁名換掉，只帶全站參數過去 */
-export function pageHref(page: string): string {
+/** 換頁用的網址：頁名換掉，只帶全站參數過去。extra 是要一併帶給新頁的頁內參數
+ *  （指令面板選一隻英雄 = 跳到英雄頁並帶 champ=）。 */
+export function pageHref(page: string, extra?: Record<string, string>): string {
   const current = new URLSearchParams(window.location.search)
   const kept = new URLSearchParams()
   for (const key of GLOBAL_KEYS) {
     const value = current.get(key)
     if (value !== null) kept.set(key, value)
   }
+  for (const [key, value] of Object.entries(extra ?? {})) kept.set(key, value)
   return href(`/${page}`, kept)
 }
 

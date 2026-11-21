@@ -70,11 +70,15 @@ function usePrefetchPages() {
 
 export default function App() {
   const [page, setPageState] = useState<PageId>(pageFromPath)
-  const setPage = (next: PageId) => {
-    if (next === page) return
-    markNavigation()
+  // params：一併帶給新頁的頁內參數（指令面板選一隻英雄 = 到英雄頁並打開它）
+  const setPage = (next: PageId, params?: Record<string, string>) => {
+    if (next === page && !params) return
+    if (next !== page) markNavigation()
     // 只帶全站的篩選過去，上一頁的頁內狀態留在它自己那一格歷史裡
-    window.history.pushState(null, "", pageHref(next))
+    const target = pageHref(next, params)
+    // 同一個目的地不重複推一格歷史（面板的鍵盤與滑鼠路徑可能各觸發一次）
+    if (target === window.location.pathname + window.location.search) return
+    window.history.pushState(null, "", target)
     notifyUrlChanged()
     setPageState(next)
   }
