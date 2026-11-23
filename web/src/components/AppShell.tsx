@@ -290,6 +290,26 @@ function VersionFilter({ className }: { className?: string }) {
   )
 }
 
+/** 斷線提示：加到主畫面後離線開啟，外殼來自 Service Worker 的快取，但資料一筆都查不到（sw.js 不快取 /api）。
+ *  不講的話畫面只是一直轉圈。 */
+const subscribeOnline = (cb: () => void) => {
+  window.addEventListener("online", cb)
+  window.addEventListener("offline", cb)
+  return () => {
+    window.removeEventListener("online", cb)
+    window.removeEventListener("offline", cb)
+  }
+}
+function OfflineBanner() {
+  const online = useSyncExternalStore(subscribeOnline, () => navigator.onLine)
+  if (online) return null
+  return (
+    <div role="status" className="mb-4 rounded-lg border border-loss/40 bg-loss/10 px-3 py-2 text-sm">
+      目前離線：戰績資料要連上網路才查得到，連上後會自動更新。
+    </div>
+  )
+}
+
 /** 有 Cube 查詢在跑時，標題列底部滑過一道光。換篩選後內容是淡化等新資料、不再整塊換骨架，
  *  需要一個全站一致的地方說「還在查」。樣式與「延後 150ms 才出現」在 index.css 的 progress-bar。 */
 function QueryProgress() {
@@ -848,6 +868,7 @@ export function AppShell({
         <main className="min-w-0 flex-1 p-4 pb-[calc(5rem+env(safe-area-inset-bottom))] md:p-5">
           <Shortcuts onNavigate={onNavigate} />
           <Toaster />
+          <OfflineBanner />
           <ViewingOtherBanner />
           {content}
         </main>

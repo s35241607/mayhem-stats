@@ -92,7 +92,7 @@ export function AccountSwitcher() {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="flex h-8 min-w-0 items-center gap-2 rounded-md border bg-secondary/50 px-2.5 text-sm transition hover:bg-accent"
+        className="flex h-8 min-w-0 items-center gap-2 rounded-md border bg-secondary/50 px-2.5 text-sm transition hover:bg-accent max-md:h-10"
         data-tip="切換帳號（Ctrl/⌘ + K）"
         aria-label="切換帳號"
       >
