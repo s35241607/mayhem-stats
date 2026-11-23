@@ -55,3 +55,7 @@ web/playwright-report/
 # 自由探索存下來的分析與儀表板（篩選值可能含玩家名稱）
 .explore_items.json
 .explore_items.tmp
+
+# 驗證時的截圖、效能量測等暫存（scratch），不進版控
+.tmp/
+/*.png
