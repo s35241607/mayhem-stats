@@ -43,18 +43,19 @@ export function DetailDrawer({
           className={`drawer-in fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l bg-background shadow-2xl ${wide ? "sm:w-[min(1280px,96vw)]" : "sm:w-[min(980px,92vw)]"}`}
           aria-describedby={undefined}
         >
-          <div className="flex items-center gap-3 border-b px-5 py-3">
+          {/* 手機上抽屜是全螢幕：頂端讓出瀏海、底部讓出橫條（加到主畫面全螢幕開啟時） */}
+          <div className="flex items-center gap-3 border-b px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 sm:px-5 sm:pt-3">
             {icon && <img loading="lazy" decoding="async" src={icon} alt="" className="size-10 shrink-0 rounded-lg bg-icon-tile ring-1 ring-border" />}
             <div className="min-w-0 flex-1">
               <DialogPrimitive.Title className="truncate text-base font-semibold">{title}</DialogPrimitive.Title>
               {subtitle && <div className="text-xs text-muted-foreground">{subtitle}</div>}
             </div>
             {actions}
-            <Button size="icon-sm" variant="ghost" onClick={onClose} aria-label="關閉">
-              <X className="size-4" />
+            <Button size="icon-sm" variant="ghost" onClick={onClose} aria-label="關閉" className="max-sm:size-11">
+              <X className="size-4 max-sm:size-5" />
             </Button>
           </div>
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">{open && children}</div>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-5">{open && children}</div>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

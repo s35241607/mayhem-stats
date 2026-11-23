@@ -102,6 +102,7 @@ description: 這個專案前端的主題與動畫規範。只要動到 web/src �
    | `img[loading="lazy"]` | 不是 utility：全站圖示載入完從 0.35 淡入（`main.tsx` 全站聽 load 標 `data-loaded`）；載入前不設透明，圖示自己的底塊就是佔位。`<img>` 一律帶 `loading="lazy" decoding="async"` | 200ms |
    | `pressable` | 可點的卡片與列按下去縮到 0.99 | 120ms |
    | `cv-row` | 不是動畫：長清單的列加 `content-visibility: auto`，畫面外的不排版不繪製。列的內容不能溢出列外（會被裁掉） | — |
+   | `sheet-up` | 手機的底部面板（`components/BottomSheet.tsx`：篩選、更多）由下往上滑出 48px + 淡入 | 260ms |
    | `drawer-in` / `drawer-overlay` | 右側詳細抽屜滑入 32px + 淡入／遮罩淡入（英雄頁點一列）。抽屜裡的重元件等滑完（300ms）再掛 | 280ms / 200ms |
    | `title-shine` | 好友比較的稱號徽章出現時掃過一道光（偽元素的 transform），同一列用 `--stagger` 依序閃，只播一次 | 900ms（延遲 300ms 起） |
    不要自己另寫時長。需要新的動畫就加 utility 並更新這張表。
@@ -141,6 +142,16 @@ description: 這個專案前端的主題與動畫規範。只要動到 web/src �
    骨架根元素要帶 `data-slot="skeleton"`，e2e 的 `ready()` 才知道還在載入。只有某個分頁用得到的查詢，切到那個分頁才查（傳 null 給 `useCube`），不要讓它卡住第一個畫面。
 9. **尊重「減少動態」。** CSS 那邊由 `index.css` 的 `prefers-reduced-motion` 縮成 1ms；JS 的資料動畫要自己檢查
    `prefersReducedMotion()`（`CountUp` 直接顯示最終值、`ResponsiveChart` 關掉 ECharts 動畫）。新動畫不要繞過它。
+
+## 手機版外殼（< 768px）
+
+- 斷點和 shadcn 側欄同一個（`hooks/use-mobile.ts`，768px）。手機上沒有側欄：`AppShell` 換成底部分頁列（`TAB_PAGES`：儀表板、對局、英雄、好友＋「更多」），
+  其餘頁面與管理員頁在「更多」面板。新增頁面時要決定它在分頁列還是「更多」——「更多」自動列出 `NAV` 裡不在分頁列的頁。
+- 全域條件在手機上收成標題列下的一列摘要標籤，點了開篩選面板；寫進網址的仍是 `filters.tsx` 那一份，不要另做手機版狀態。
+- 固定在底部的東西（分頁列、toast、面板按鈕）都要讓出 `env(safe-area-inset-bottom)`；頂端的標題列與全螢幕抽屜讓出 `safe-area-inset-top`。
+  `<main>` 底部已預留分頁列高度。
+- 可點的東西至少 44px 高（`min-h-11`）。`data-tip` 在觸控上是「點一下顯示、再點收起」（`TipLayer`），不能把唯一的資訊放在提示裡。
+- 對局卡片在 < 640px 用 `max-sm:order-*` 排成固定兩行、直角、收起十人頭像。
 
 ## 三、表格的複合格子
 

@@ -11,6 +11,12 @@ const markLoaded = (e: Event) => {
 document.addEventListener("load", markLoaded, true)
 document.addEventListener("error", markLoaded, true)
 
+// PWA：只在建置版註冊（開發模式的 vite 沒有 sw.js，註冊了也只會快取到開發中的檔案）。
+// 快取規則見 public/sw.js：只存外殼與帶雜湊的 assets，不碰 /api
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}))
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />

@@ -99,6 +99,8 @@ export function TipLayer() {
       setTip({ text, x: r.left + r.width / 2, y: below ? r.bottom : r.top, below })
     }
     const over = (e: Event) => {
+      // 觸控沒有「滑過」：手指點下去會先送 pointerover 再送 pointerdown，交給下面的 down 處理
+      if ((e as PointerEvent).pointerType === "touch") return
       const el = (e.target as Element | null)?.closest?.("[data-tip]") ?? null
       if (el === current.current) return
       current.current = el
@@ -114,18 +116,28 @@ export function TipLayer() {
       current.current = null
       setTip(null)
     }
+    // 觸控：點一下有 data-tip 的元素就顯示（再點一次同一個收起），點別的地方收起。
+    // 元素本身的點擊照常觸發（例如點長條同時看提示），只是提示不會一閃就被收掉
+    const down = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") return hide()
+      const el = (e.target as Element | null)?.closest?.("[data-tip]") ?? null
+      if (!el || el === current.current) return hide()
+      window.clearTimeout(timer.current)
+      current.current = el
+      show(el)
+    }
     const esc = (e: KeyboardEvent) => e.key === "Escape" && hide()
     document.addEventListener("pointerover", over)
     document.addEventListener("focusin", over)
     document.addEventListener("focusout", hide)
-    document.addEventListener("pointerdown", hide)
+    document.addEventListener("pointerdown", down)
     window.addEventListener("scroll", hide, true)
     window.addEventListener("keydown", esc)
     return () => {
       document.removeEventListener("pointerover", over)
       document.removeEventListener("focusin", over)
       document.removeEventListener("focusout", hide)
-      document.removeEventListener("pointerdown", hide)
+      document.removeEventListener("pointerdown", down)
       window.removeEventListener("scroll", hide, true)
       window.removeEventListener("keydown", esc)
     }

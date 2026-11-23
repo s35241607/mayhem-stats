@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- App 圖示（主畫面、分頁、PWA 安裝）。霓虹主題的底色與強調色；PNG 版由 web/scripts/build-icons.mjs 產生 -->
+  <rect width="512" height="512" rx="112" fill="#0b1220"/>
+  <rect x="96" y="96" width="320" height="320" rx="72" fill="#22d3ee" fill-opacity=".14"/>
+  <g transform="translate(136 136) scale(10)" fill="#22d3ee" stroke="#22d3ee" stroke-width="1.2" stroke-linejoin="round">
+    <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>
+  </g>
+</svg>

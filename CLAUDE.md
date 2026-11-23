@@ -55,6 +55,8 @@ ARAM: Mayhem 的本機戰績採集與分析工具。FastAPI（`app.py`）+ Cube 
   不准把下一層加起來；計算欄位只對聚合結果做四則運算，要對明細算就回 `cube/model` 加指標。存下來的卡片與儀表板在 `.explore_items.json`
   （`/api/explore/items`，本機與鏡像兩個行程讀同一個檔），篩選值可能含玩家名稱，不進版控。細節見 `ui-conventions`。
 - **repo 是公開的**：不能提交其他玩家的 Riot ID、puuid（程式、文件、commit 訊息、截圖都算）；`mayhem.db`、`cube/.env`、`*.log` 不進版控。
+- **PWA**：`web/public/` 的 `manifest.webmanifest`、`sw.js`、圖示（PNG 由 `web/scripts/build-icons.mjs` 從 `app-icon.svg` 產生）由 `app.py` 的 `PWA_FILES` 逐檔放行（公開模式未登入也要拿得到）。
+  `sw.js` 只快取外殼與 `/assets/`，**絕對不要讓它快取 `/api`、`/auth`、`/login`**（資料有登入與名稱遮罩）。新增頁面要同時加進 `app.py` 的頁面白名單與 `sw.js` 的 `PAGES`。
 - 前端改完要 `cd web && npm run build`：服務（含鏡像）直接讀 `web/dist`。`web/dist` 不進版控，commit 只放原始碼。
 - **這台機器上跑著一個對外開放的唯讀鏡像**（`mirror.pyw`，5058 埠，Tailscale Funnel 指向它，
   排程工作 `MayhemStatsMirror`）。動到 `app.py` 時記得它也會載入同一份程式：

@@ -23,6 +23,9 @@ import {
   ChevronDown,
   Settings,
   Link2,
+  LayoutGrid,
+  SlidersHorizontal,
+  Check,
 } from "lucide-react"
 import {
   Sidebar,
@@ -64,6 +67,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useCollectorStatus } from "@/hooks/useCube"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { DATE_RANGES, comparePatch, customRange, dateBounds, isCustomRange, localDate, useFilters } from "@/lib/filters"
 import { MAYHEM_QUEUE_ID, inflightCount, subscribeInflight } from "@/lib/cube"
 import { AccountSwitcher, ViewingOtherBanner } from "@/components/AccountSwitcher"
@@ -72,6 +76,8 @@ import { Shortcuts } from "@/components/Shortcuts"
 import { Toaster, toast } from "@/lib/toast"
 import { EmptyState } from "@/components/primitives"
 import { useCrumbs } from "@/lib/breadcrumb"
+import { BottomSheet } from "@/components/BottomSheet"
+import { cn } from "@/lib/utils"
 
 export type PageId =
   | "dashboard"
@@ -218,23 +224,27 @@ function CollectorPill() {
   )
 }
 
+function versionLabel(versions: string[], versionFrom: string | null) {
+  return versionFrom
+    ? `${versionFrom} 之後`
+    : !versions.length ? "全部版本" : versions.length <= 2 ? versions.join("、") : `${versions[0]} 等 ${versions.length} 個`
+}
+
 /** 遊戲版本（主.次）：多選，或「某版本之後」。選項來自資料裡實際有的版本，不受期間篩選影響（選了 7 天也要看得到舊版本）。 */
-function VersionFilter() {
+function VersionFilter({ className }: { className?: string }) {
   const { versions, setVersions, versionFrom, setVersionFrom, versionOptions: options } = useFilters()
   const toggle = (patch: string, on: boolean) => {
     const next = on ? [...versions, patch] : versions.filter((v) => v !== patch)
     setVersions(options.map((o) => o.patch).filter((p) => next.includes(p)))
   }
-  const label = versionFrom
-    ? `${versionFrom} 之後`
-    : !versions.length ? "全部版本" : versions.length <= 2 ? versions.join("、") : `${versions[0]} 等 ${versions.length} 個`
+  const label = versionLabel(versions, versionFrom)
   // 起點以後（含）的場次合計，給子選單每一列看「選這個會剩幾場」
   const gamesFrom = (patch: string) => options.filter((o) => comparePatch(o.patch, patch) >= 0).reduce((a, o) => a + o.games, 0)
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="h-7 w-[150px] justify-between gap-2 rounded-[min(var(--radius-md),10px)] text-sm font-normal" disabled={!options.length && !versionFrom}>
+        <Button variant="outline" size="sm" className={cn("h-7 w-[150px] justify-between gap-2 rounded-[min(var(--radius-md),10px)] text-sm font-normal", className)} disabled={!options.length && !versionFrom}>
           <span className="truncate">{label}</span>
           <ChevronDown className="size-3.5 shrink-0 opacity-60" />
         </Button>
@@ -379,7 +389,7 @@ function Breadcrumb({ title, caption }: { title: string; caption: string }) {
 
   return (
     <div className="mr-auto min-w-0">
-      <h1 className="truncate text-base font-semibold leading-tight">
+      <h1 className="truncate text-xl font-bold leading-tight md:text-base md:font-semibold">
         {crumbs.length ? (
           <button onClick={() => clearFrom(0)} className="transition hover:text-primary" title="回到這頁的最上層">
             {title}
@@ -389,7 +399,8 @@ function Breadcrumb({ title, caption }: { title: string; caption: string }) {
         )}
       </h1>
       {empty ? (
-        <p className="truncate text-xs text-muted-foreground">{caption}</p>
+        // 手機上省掉副標：一行說明換來的是少看一張卡片
+        <p className="truncate text-xs text-muted-foreground max-md:hidden">{caption}</p>
       ) : (
         <nav aria-label="目前位置" className="mt-0.5">
           <ol className="flex flex-wrap items-center gap-x-1 gap-y-1 text-xs">
@@ -441,6 +452,232 @@ function Breadcrumb({ title, caption }: { title: string; caption: string }) {
         </nav>
       )}
     </div>
+  )
+}
+
+/** 期間的短標籤：預設期間用原本的名稱，自訂區間只寫月-日 */
+function rangeLabel(range: string) {
+  const preset = DATE_RANGES.find((r) => r.value === range)
+  if (preset) return preset.label
+  const bounds = dateBounds(range)
+  return bounds ? `${bounds[0].slice(5)}～${bounds[1].slice(5)}` : range
+}
+
+/** 手機標題列的第二行：目前的全域條件收成一列標籤，點任何一個都打開篩選面板。
+ *  電腦版把一排下拉選單攤在標題列；手機放不下（原本擠成三行、佔掉 23% 的螢幕）。 */
+function FilterSummary({ onOpen }: { onOpen: () => void }) {
+  const { queueId, dateRange, versions, versionFrom, compare } = useFilters()
+  const chips = [
+    queueId ? "只看 Mayhem" : "全部模式",
+    rangeLabel(dateRange),
+    versionLabel(versions, versionFrom),
+    ...(compare ? [`對照 ${compare.label}`] : []),
+  ]
+  const chip = "inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border bg-card px-3 text-[13px]"
+  return (
+    <div className="-mx-4 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none]">
+      <button onClick={onOpen} className={cn(chip, "border-primary text-primary")}>
+        <SlidersHorizontal className="size-4" />
+        篩選
+      </button>
+      {chips.map((label) => (
+        <button key={label} onClick={onOpen} className={chip}>
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function SheetSection({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <section className="space-y-2">
+      <h3 className="text-[13px] text-muted-foreground">{label}</h3>
+      {children}
+    </section>
+  )
+}
+
+/** 手機的篩選面板：和電腦版標題列是同一組全域條件（filters.tsx），改了立刻生效、寫進網址，
+ *  所以沒有「套用」，只有「完成」。帳號在標題列右上角，主題也收在這裡。 */
+function FilterSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const { queueId, setQueueId, dateRange, setDateRange, compare, canCompare, setCompare } = useFilters()
+  const custom = isCustomRange(dateRange)
+  const option = (on: boolean) =>
+    cn(
+      "h-10 rounded-full border px-3.5 text-sm transition",
+      on ? "border-primary bg-primary/10 font-semibold text-primary" : "bg-card",
+    )
+  return (
+    <BottomSheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title="篩選"
+      footer={
+        <Button className="h-12 w-full text-base" onClick={() => onOpenChange(false)}>
+          完成
+        </Button>
+      }
+    >
+      <div className="space-y-6 pt-2">
+        <SheetSection label="模式">
+          <div className="grid grid-cols-2 gap-1 rounded-xl border bg-background p-1">
+            {[
+              { value: MAYHEM_QUEUE_ID, label: "只看 Mayhem" },
+              { value: null, label: "全部模式" },
+            ].map((o) => (
+              <button
+                key={o.label}
+                aria-pressed={queueId === o.value}
+                onClick={() => setQueueId(o.value)}
+                className={cn(
+                  "h-10 rounded-lg text-sm transition",
+                  queueId === o.value ? "bg-primary font-bold text-primary-foreground" : "text-foreground",
+                )}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </SheetSection>
+
+        <SheetSection label="期間">
+          <div className="flex flex-wrap gap-2">
+            {DATE_RANGES.map((range) => (
+              <button key={range.value} aria-pressed={dateRange === range.value} onClick={() => setDateRange(range.value)} className={option(dateRange === range.value)}>
+                {range.label}
+              </button>
+            ))}
+            <button
+              aria-pressed={custom}
+              className={option(custom)}
+              onClick={() => {
+                if (custom) return
+                const [from, to] = dateBounds(dateRange) ?? dateBounds("last 30 days")!
+                setDateRange(customRange(from, to))
+              }}
+            >
+              自訂區間
+            </button>
+          </div>
+          {custom && <CustomRange range={dateRange} onChange={setDateRange} />}
+          {canCompare && (
+            <button
+              role="switch"
+              aria-checked={!!compare}
+              onClick={() => setCompare(!compare)}
+              className="flex min-h-11 w-full items-center justify-between gap-3 text-left text-[15px]"
+            >
+              <span>
+                對照前一段同長的期間
+                {compare && <span className="block text-xs text-muted-foreground">{compare.label}（{compare.bounds[0]} ～ {compare.bounds[1]}）</span>}
+              </span>
+              <span className={cn("relative h-7 w-12 shrink-0 rounded-full border transition", compare ? "border-primary bg-primary" : "bg-secondary")}>
+                <span className={cn("absolute top-[3px] size-5 rounded-full transition-transform", compare ? "translate-x-[23px] bg-primary-foreground" : "translate-x-[3px] bg-muted-foreground")} />
+              </span>
+            </button>
+          )}
+        </SheetSection>
+
+        <SheetSection label="版本">
+          <VersionFilter className="h-12 w-full rounded-xl px-3.5 text-[15px]" />
+        </SheetSection>
+
+        <SheetSection label="主題">
+          <ThemeSwitcher className="h-12 w-full justify-start rounded-xl px-3.5 text-[15px]" />
+        </SheetSection>
+      </div>
+    </BottomSheet>
+  )
+}
+
+/** 手機底部的分頁列：最常用的四頁＋「更多」。其餘頁面（和管理員頁）收在「更多」面板。 */
+const TAB_PAGES: { id: PageId; label: string; icon: typeof Zap }[] = [
+  { id: "dashboard", label: "儀表板", icon: LayoutDashboard },
+  { id: "matches", label: "對局", icon: ScrollText },
+  { id: "champions", label: "英雄", icon: Swords },
+  { id: "crew", label: "好友", icon: GitCompareArrows },
+]
+
+function MobileTabBar({ page, onNavigate, onMore }: { page: PageId; onNavigate: (page: PageId) => void; onMore: () => void }) {
+  const inTabs = TAB_PAGES.some((t) => t.id === page)
+  const tab = (on: boolean) =>
+    cn("flex min-h-12 min-w-0 flex-col items-center justify-center gap-0.5 text-[11px] transition", on ? "text-primary" : "text-muted-foreground")
+  return (
+    <nav
+      aria-label="主要頁面"
+      className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t bg-sidebar/95 px-1 pt-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] backdrop-blur md:hidden"
+    >
+      {TAB_PAGES.map((t) => (
+        <button key={t.id} className={tab(page === t.id)} aria-current={page === t.id ? "page" : undefined} onClick={() => onNavigate(t.id)}>
+          <t.icon className="size-[22px]" />
+          {t.label}
+        </button>
+      ))}
+      {/* 正在看收在「更多」裡的頁面時，這一格顯示那一頁的名字，才知道自己在哪 */}
+      <button className={tab(!inTabs)} aria-current={!inTabs ? "page" : undefined} onClick={onMore}>
+        <LayoutGrid className="size-[22px]" />
+        <span className="max-w-full truncate px-0.5">{inTabs ? "更多" : PAGE_TITLES[page].title}</span>
+      </button>
+    </nav>
+  )
+}
+
+function MoreSheet({ open, onOpenChange, page, onNavigate }: { open: boolean; onOpenChange: (open: boolean) => void; page: PageId; onNavigate: (page: PageId) => void }) {
+  const { canEditDefaults } = useFilters()
+  const tabIds = new Set(TAB_PAGES.map((t) => t.id))
+  const go = (id: PageId) => {
+    onNavigate(id)
+    onOpenChange(false)
+  }
+  const row = "flex min-h-[50px] w-full items-center gap-3 border-b px-3.5 text-left text-[15px] last:border-b-0"
+  const tile = "flex size-8 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary"
+  return (
+    <BottomSheet open={open} onOpenChange={onOpenChange} title="更多">
+      <div className="space-y-5 pt-1">
+        {NAV.filter((section) => !section.admin || canEditDefaults).map((section) => {
+          const items = section.items.filter((item) => !tabIds.has(item.id))
+          if (!items.length) return null
+          return (
+            <section key={section.group}>
+              <h3 className="mb-1.5 text-xs font-semibold tracking-wider text-muted-foreground">{section.group}</h3>
+              <div className="overflow-hidden rounded-2xl border bg-card">
+                {items.map((item) => (
+                  <button key={item.id} onClick={() => go(item.id)} aria-current={page === item.id ? "page" : undefined} className={row}>
+                    <span className={tile}>
+                      <item.icon className="size-[18px]" />
+                    </span>
+                    <span className="flex-1">{item.label}</span>
+                    {item.id === "explore" && <span className="rounded-md border px-2 py-0.5 text-[11px] text-muted-foreground">建議用電腦</span>}
+                    {page === item.id && <Check className="size-4 text-primary" />}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )
+        })}
+        <section>
+          <h3 className="mb-1.5 text-xs font-semibold tracking-wider text-muted-foreground">這個畫面</h3>
+          <div className="overflow-hidden rounded-2xl border bg-card">
+            <button
+              className={row}
+              onClick={() =>
+                navigator.clipboard.writeText(window.location.href).then(
+                  () => toast("已複製這個畫面的連結"),
+                  () => toast("複製失敗，請直接複製網址列", "error"),
+                )
+              }
+            >
+              <span className={tile}>
+                <Link2 className="size-[18px]" />
+              </span>
+              複製這個畫面的連結
+            </button>
+          </div>
+        </section>
+        <CollectorPill />
+      </div>
+    </BottomSheet>
   )
 }
 
@@ -498,6 +735,10 @@ export function AppShell({
 }) {
   const meta = PAGE_TITLES[page]
   const { ready, canEditDefaults } = useFilters()
+  // 768px 以下：底部分頁列＋篩選面板取代側欄與標題列的下拉選單（與 shadcn 側欄同一個斷點）
+  const isMobile = useIsMobile()
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
   // 分頁標題跟著「現在在看什麼」：頁名加上最深的一層（某隻英雄、某一場），開好幾個分頁時分得出來
   const crumbs = useCrumbs()
   const deepest = crumbs[crumbs.length - 1]?.label
@@ -566,37 +807,57 @@ export function AppShell({
       {/* min-w-0：flex 子元素預設 min-width: auto，內容一寬就把整塊推出視窗（768px 寬時對局紀錄、好友比較橫向溢出） */}
       <SidebarInset className="min-w-0 bg-transparent">
         {/* id 給好友比較的分頁列量高度：標題列會換行，分頁列要貼在它正下方 */}
-        <header id="app-header" className="sticky top-0 z-20 flex flex-col gap-3 border-b bg-background/85 px-5 py-3 backdrop-blur">
+        {/* 手機：標題＋帳號一行、條件摘要一行；頂端讓出瀏海（加到主畫面全螢幕時） */}
+        <header id="app-header" className="sticky top-0 z-20 flex flex-col gap-2.5 border-b bg-background/85 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2.5 backdrop-blur md:gap-3 md:px-5 md:py-3">
           <div className="flex flex-wrap items-center gap-3">
-            <SidebarTrigger className="-ml-1" />
-            <Separator orientation="vertical" className="!h-5" />
+            {!isMobile && (
+              <>
+                <SidebarTrigger className="-ml-1" />
+                <Separator orientation="vertical" className="!h-5" />
+              </>
+            )}
             <Breadcrumb title={meta.title} caption={meta.caption} />
-            <GlobalFilters />
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label="複製這個畫面的連結"
-              data-tip={"複製這個畫面的連結\n篩選、分頁、點開的那一層都在網址裡，貼給別人或自己存書籤都是同一個畫面"}
-              onClick={() =>
-                navigator.clipboard.writeText(window.location.href).then(
-                  () => toast("已複製這個畫面的連結"),
-                  () => toast("複製失敗，請直接複製網址列", "error"),
-                )
-              }
-            >
-              <Link2 className="size-4" />
-            </Button>
-            <ThemeSwitcher />
+            {isMobile ? (
+              <AccountSwitcher />
+            ) : (
+              <>
+                <GlobalFilters />
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="複製這個畫面的連結"
+                  data-tip={"複製這個畫面的連結\n篩選、分頁、點開的那一層都在網址裡，貼給別人或自己存書籤都是同一個畫面"}
+                  onClick={() =>
+                    navigator.clipboard.writeText(window.location.href).then(
+                      () => toast("已複製這個畫面的連結"),
+                      () => toast("複製失敗，請直接複製網址列", "error"),
+                    )
+                  }
+                >
+                  <Link2 className="size-4" />
+                </Button>
+                <ThemeSwitcher />
+              </>
+            )}
           </div>
+          {isMobile && <FilterSummary onOpen={() => setFiltersOpen(true)} />}
           <QueryProgress />
         </header>
 
-        <main className="min-w-0 flex-1 p-5">
+        {/* 手機底部有分頁列，內容底部讓出它的高度 */}
+        <main className="min-w-0 flex-1 p-4 pb-[calc(5rem+env(safe-area-inset-bottom))] md:p-5">
           <Shortcuts onNavigate={onNavigate} />
           <Toaster />
           <ViewingOtherBanner />
           {content}
         </main>
+        {isMobile && (
+          <>
+            <MobileTabBar page={page} onNavigate={onNavigate} onMore={() => setMoreOpen(true)} />
+            <FilterSheet open={filtersOpen} onOpenChange={setFiltersOpen} />
+            <MoreSheet open={moreOpen} onOpenChange={setMoreOpen} page={page} onNavigate={onNavigate} />
+          </>
+        )}
       </SidebarInset>
     </SidebarProvider>
   )

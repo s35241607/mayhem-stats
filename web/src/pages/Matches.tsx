@@ -898,7 +898,7 @@ function MatchCardChunk({
               "cv-row pressable",
               // 勝敗靠底色與文字傳達就夠了。先前用高彩度的左側粗邊，
               // 二十列疊起來像斑馬紋，反而蓋過內容。
-              "flex w-full flex-wrap items-center gap-y-1.5 rounded-lg border px-3 py-2 text-left transition",
+              "flex w-full flex-wrap items-center gap-y-1.5 rounded-lg border px-3 py-2 text-left transition max-sm:rounded-none max-sm:py-2.5",
               m.win
                 ? "border-win/20 bg-win/[0.06] hover:bg-win/[0.11]"
                 : "border-loss/20 bg-loss/[0.06] hover:bg-loss/[0.11]",
@@ -919,7 +919,9 @@ function MatchCardChunk({
 
             {/* 單行、兩層堆疊：各區塊寬度固定（合計約 700px），中間兩段彈性空隙平分多出來的寬度。
                 容器變寬只會讓空隙變大，結構與順序在整頁、抽屜、好友比較的半版面板都一樣。
-                容器不到 700px（768px 寬螢幕扣掉側邊欄、手機）時換行，後半段排到第二行，不會被切掉 */}
+                容器不到 700px（768px 寬螢幕扣掉側邊欄）時換行，後半段排到第二行，不會被切掉。
+                手機（< 640px）改成固定兩行（max-sm:order-*）：第一行英雄、勝敗、K/D/A、補兵金錢，
+                第二行增幅與出裝、貢獻與日期；十人頭像收起來，點進戰報再看 */}
             <div className="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
               <div className="relative shrink-0">
                 <img loading="lazy" decoding="async" src={iconUrl(m.champion_icon)} alt="" title={m.champion_name} className="size-10 rounded-md bg-icon-tile" />
@@ -942,14 +944,14 @@ function MatchCardChunk({
                 {swing.get(keyOf(m)) && <SwingChip label={swing.get(keyOf(m))!} className="mt-0.5" />}
               </div>
 
-              <div className="flex shrink-0 flex-col gap-0.5">
+              <div className="flex shrink-0 flex-col gap-0.5 max-sm:order-5">
                 <AugmentRow augments={m.augments ?? []} size="size-5" />
                 <ItemRow items={m.items ?? []} size="size-5" />
               </div>
 
-              <div className="min-w-0 flex-1" />
+              <div className="min-w-0 flex-1 max-sm:hidden" />
 
-              <div className="w-[100px] shrink-0 text-center">
+              <div className="w-[100px] shrink-0 text-center max-sm:order-2 max-sm:w-auto max-sm:min-w-0 max-sm:flex-1 max-sm:text-left">
                 <div className="text-sm font-semibold tabular-nums">
                   {m.kills} / <span className="text-loss">{m.deaths}</span> / {m.assists}
                 </div>
@@ -958,7 +960,7 @@ function MatchCardChunk({
                 </div>
               </div>
 
-              <div className="w-[54px] shrink-0 text-right text-[11px] text-muted-foreground tabular-nums">
+              <div className="w-[54px] shrink-0 text-right text-[11px] text-muted-foreground tabular-nums max-sm:order-3">
                 <div>{m.cs} 補兵</div>
                 {showDamage ? (
                   <div className="whitespace-nowrap" data-tip={`對英雄傷害 ${m.dmg_to_champions.toLocaleString("zh-TW")}`}>{k(m.dmg_to_champions)} 傷害</div>
@@ -967,13 +969,18 @@ function MatchCardChunk({
                 )}
               </div>
 
-              <div className="min-w-0 flex-1" />
+              <div className="min-w-0 flex-1 max-sm:hidden" />
 
-              <RosterRow roster={m.roster ?? []} teamId={m.team_id} self={m.participant_id} withId={m.with_participant_id} />
+              {/* 手機換行用：滿版、零高度，把增幅出裝與貢獻推到第二行 */}
+              <div className="hidden h-0 w-full max-sm:order-4 max-sm:block" aria-hidden />
+
+              <div className="contents max-sm:hidden">
+                <RosterRow roster={m.roster ?? []} teamId={m.team_id} self={m.participant_id} withId={m.with_participant_id} />
+              </div>
 
               {!showPlayer && (
                 // 固定寬度：晶片有寬有窄，加上貢獻分數後右欄不能跟著變寬，不然每列的敵我頭像會左右錯位
-                <div className="w-[118px] shrink-0 text-right">
+                <div className="w-[118px] shrink-0 text-right max-sm:order-6 max-sm:ml-auto max-sm:w-auto">
                   <div className="flex items-center justify-end gap-1.5 text-xs text-muted-foreground">
                     <ContribInline score={score} estimate={estimate} />
                     {role && <RoleChip role={role} />}

@@ -40,7 +40,7 @@ export function WhoSwitch({
   return (
     <div className="rise flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border bg-card px-4 py-3">
       <span className="text-sm font-semibold">看誰的數據</span>
-      <div role="radiogroup" aria-label="看誰的數據" className="flex rounded-lg border bg-muted/40 p-0.5">
+      <div role="radiogroup" aria-label="看誰的數據" className="flex max-sm:w-full rounded-lg border bg-muted/40 p-0.5">
         {OPTIONS.map(({ value, icon: Icon }) => {
           const on = who === value
           const off = disabled?.[value]
@@ -53,7 +53,8 @@ export function WhoSwitch({
               title={off}
               onClick={() => !off && onChange(value)}
               className={cn(
-                "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition",
+                // 手機上三顆平分整列、不換行（原本窄螢幕會擠成「目前帳／號」兩行）
+                "flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition max-sm:min-h-10 max-sm:flex-1 max-sm:px-2",
                 off
                   ? "cursor-not-allowed text-muted-foreground/50"
                   : on

@@ -34,7 +34,7 @@ const subscribe = (fn: () => void) => {
 export function Toaster() {
   const list = useSyncExternalStore(subscribe, () => items)
   return (
-    <div className="pointer-events-none fixed bottom-4 left-1/2 z-[60] flex -translate-x-1/2 flex-col items-center gap-2" aria-live="polite">
+    <div className="pointer-events-none fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] md:bottom-4 left-1/2 z-[60] flex -translate-x-1/2 flex-col items-center gap-2" aria-live="polite">
       {list.map((t) => (
         <div
           key={t.id}

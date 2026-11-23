@@ -579,7 +579,18 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="ARAM: Mayhem 戰績 BI", lifespan=lifespan)
 
 
-OPEN_PATHS = {"/login", "/auth/start", "/auth/callback"}
+# PWA 的 manifest、圖示與 Service Worker 也要放行：瀏覽器抓 manifest 時預設不帶 cookie，
+# 擋下來的話登入後也裝不了「加到主畫面」。這幾個都是 web/dist 裡的固定檔案，沒有資料。
+PWA_FILES = {
+    "/manifest.webmanifest": "application/manifest+json",
+    "/sw.js": "text/javascript",
+    "/app-icon.svg": "image/svg+xml",
+    "/icon-192.png": "image/png",
+    "/icon-512.png": "image/png",
+    "/icon-maskable-512.png": "image/png",
+    "/apple-touch-icon.png": "image/png",
+}
+OPEN_PATHS = {"/login", "/auth/start", "/auth/callback", *PWA_FILES}
 
 
 @app.middleware("http")
@@ -844,10 +855,25 @@ def root_icon(request: Request):
     return FileResponse(path, media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=86400"})
 
 
+def pwa_file(request: Request):
+    """PWA 的固定檔案（清單在 PWA_FILES）。sw.js 不能被長期快取，否則改了快取規則手機要很久才換新版；
+    其他的檔名不帶雜湊，給一天。"""
+    path = request.url.path
+    file = WEB_DIST / path.lstrip("/")
+    if not file.is_file():
+        return Response(status_code=404)
+    cache = "no-cache" if path == "/sw.js" else "public, max-age=86400"
+    return FileResponse(file, media_type=PWA_FILES[path], headers={"Cache-Control": cache})
+
+
+for _path in PWA_FILES:
+    app.add_api_route(_path, pwa_file, methods=["GET"], include_in_schema=False)
+
+
 @app.get("/{page}")
 def page_index(page: str):
     if page not in {"dashboard", "matches", "champions", "augments", "lineups", "players", "crew",
-                    "time", "tilt", "losses", "explore", "recap", "tracked", "calc", "settings"}:
+                    "time", "tilt", "losses", "explore", "recap", "tracked", "calc", "settings", "logs"}:
         return Response(status_code=404)
     return index()
 

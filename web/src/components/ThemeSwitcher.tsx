@@ -9,15 +9,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { cn } from "@/lib/utils"
 import { THEME_GROUPS, THEMES, useThemeName } from "@/lib/theme"
 
-export function ThemeSwitcher() {
+export function ThemeSwitcher({ className }: { className?: string }) {
   const { theme, setTheme, isDark } = useThemeName()
   const current = THEMES.find((t) => t.id === theme)
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button size="sm" variant="outline" className="h-8 gap-1.5" aria-label="切換主題">
+        <Button size="sm" variant="outline" className={cn("h-8 gap-1.5", className)} aria-label="切換主題">
           <Palette className="size-3.5" />
           {current?.label}
         </Button>
