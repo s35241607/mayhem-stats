@@ -622,21 +622,24 @@ const TAB_PAGES: { id: PageId; label: string; icon: typeof Zap }[] = [
 function MobileTabBar({ page, onNavigate, onMore }: { page: PageId; onNavigate: (page: PageId) => void; onMore: () => void }) {
   const inTabs = TAB_PAGES.some((t) => t.id === page)
   const tab = (on: boolean) =>
-    cn("flex min-h-12 min-w-0 flex-col items-center justify-center gap-0.5 text-[11px] transition", on ? "text-primary" : "text-muted-foreground")
+    cn("relative flex min-h-12 min-w-0 flex-col items-center justify-center gap-0.5 text-[11px] transition", on ? "text-primary" : "text-muted-foreground")
   return (
     <nav
       aria-label="主要頁面"
-      className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t bg-sidebar/95 px-1 pt-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] backdrop-blur md:hidden"
+      className="glass fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t px-1 pt-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] md:hidden"
     >
+      {/* 目前頁的底塊：換頁時從上一格滑過來（index.css 的 tab-slider） */}
+      <span className="tab-slider" style={{ "--tab": inTabs ? TAB_PAGES.findIndex((t) => t.id === page) : TAB_PAGES.length } as CSSProperties} aria-hidden />
       {TAB_PAGES.map((t) => (
         <button key={t.id} className={tab(page === t.id)} aria-current={page === t.id ? "page" : undefined} onClick={() => onNavigate(t.id)}>
-          <t.icon className="size-[22px]" />
+          {/* key 跟著「是不是目前頁」換：被選到的那一刻重掛，圖示彈一下 */}
+          <t.icon key={String(page === t.id)} className={cn("size-[22px]", page === t.id && "tab-pop")} />
           {t.label}
         </button>
       ))}
       {/* 正在看收在「更多」裡的頁面時，這一格顯示那一頁的名字，才知道自己在哪 */}
       <button className={tab(!inTabs)} aria-current={!inTabs ? "page" : undefined} onClick={onMore}>
-        <LayoutGrid className="size-[22px]" />
+        <LayoutGrid key={String(!inTabs)} className={cn("size-[22px]", !inTabs && "tab-pop")} />
         <span className="max-w-full truncate px-0.5">{inTabs ? "更多" : PAGE_TITLES[page].title}</span>
       </button>
     </nav>
@@ -828,7 +831,7 @@ export function AppShell({
       <SidebarInset className="min-w-0 bg-transparent">
         {/* id 給好友比較的分頁列量高度：標題列會換行，分頁列要貼在它正下方 */}
         {/* 手機：標題＋帳號一行、條件摘要一行；頂端讓出瀏海（加到主畫面全螢幕時） */}
-        <header id="app-header" className="sticky top-0 z-20 flex flex-col gap-2.5 border-b bg-background/85 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2.5 backdrop-blur md:gap-3 md:px-5 md:py-3">
+        <header id="app-header" className="sticky top-0 z-20 flex flex-col gap-2.5 glass border-b px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2.5 md:gap-3 md:px-5 md:py-3">
           <div className="flex flex-wrap items-center gap-3">
             {!isMobile && (
               <>

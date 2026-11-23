@@ -102,6 +102,7 @@ description: 這個專案前端的主題與動畫規範。只要動到 web/src �
    | `img[loading="lazy"]` | 不是 utility：全站圖示載入完從 0.35 淡入（`main.tsx` 全站聽 load 標 `data-loaded`）；載入前不設透明，圖示自己的底塊就是佔位。`<img>` 一律帶 `loading="lazy" decoding="async"` | 200ms |
    | `pressable` | 可點的卡片與列按下去縮到 0.99 | 120ms |
    | `cv-row` | 不是動畫：長清單的列加 `content-visibility: auto`，畫面外的不排版不繪製。列的內容不能溢出列外（會被裁掉） | — |
+   | `tab-slider` / `tab-pop` | 手機分頁列目前頁的底塊從上一格滑過來（`--tab` 是第幾格）／被選到的圖示彈一下 | 300ms / 320ms |
    | `sheet-up` | 手機的底部面板（`components/BottomSheet.tsx`：篩選、更多）由下往上滑出 48px + 淡入 | 260ms |
    | `drawer-in` / `drawer-overlay` | 右側詳細抽屜滑入 32px + 淡入／遮罩淡入（英雄頁點一列）。抽屜裡的重元件等滑完（300ms）再掛 | 280ms / 200ms |
    | `title-shine` | 好友比較的稱號徽章出現時掃過一道光（偽元素的 transform），同一列用 `--stagger` 依序閃，只播一次 | 900ms（延遲 300ms 起） |
@@ -142,6 +143,13 @@ description: 這個專案前端的主題與動畫規範。只要動到 web/src �
    骨架根元素要帶 `data-slot="skeleton"`，e2e 的 `ready()` 才知道還在載入。只有某個分頁用得到的查詢，切到那個分頁才查（傳 null 給 `useCube`），不要讓它卡住第一個畫面。
 9. **尊重「減少動態」。** CSS 那邊由 `index.css` 的 `prefers-reduced-motion` 縮成 1ms；JS 的資料動畫要自己檢查
    `prefersReducedMotion()`（`CountUp` 直接顯示最終值、`ResponsiveChart` 關掉 ECharts 動畫）。新動畫不要繞過它。
+
+### 玻璃
+
+- `glass`：浮在內容上的外殼層（標題列、側欄、手機分頁列、底部面板、抽屜、下拉／選單／popover／dialog）。半透明＋背景模糊。
+- `glass-card`：內容卡片（`ui/card`）。半透明＋頂緣反光＋淡陰影，**不做背景模糊**：一頁幾十張卡片各自模糊，捲動時每張都要重算，手機會掉幀。
+- 背景光暈在 `body::before`，**不要讓它動**：背景每一幀都變的話，所有 `glass` 層的模糊每一幀都要重算。
+- 顏色都用 `color-mix()` 從主題變數混，八個主題都成立；新的玻璃面也照這兩個 utility，不要自己寫 `bg-x/80 backdrop-blur`。
 
 ## 手機版外殼（< 768px）
 

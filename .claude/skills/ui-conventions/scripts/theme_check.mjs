@@ -11,7 +11,7 @@ const FULL = process.argv[4] === "full"
 const port = 9420 + Math.max(0, ["neon", "matrix", "lava", "violet", "daylight", "mint", "sakura", "sand"].indexOf(THEME))
 const PROFILE = mkdtempSync(join(tmpdir(), "edge-th-"))
 const edge = spawn("C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
-  ["--headless=new", "--remote-debugging-port=" + port, "--window-size=1500,1000",
+  ["--headless=new", "--disable-extensions", "--remote-debugging-port=" + port, "--window-size=1500,1000",
     "--user-data-dir=" + PROFILE, "--no-first-run", "about:blank"], { stdio: "ignore" })
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 let targets

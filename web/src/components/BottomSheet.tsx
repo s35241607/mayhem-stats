@@ -31,7 +31,7 @@ export function BottomSheet({
             e.preventDefault()
             ;(e.currentTarget as HTMLElement).focus()
           }}
-          className="sheet-up outline-none fixed inset-x-0 bottom-0 z-50 flex max-h-[88dvh] flex-col rounded-t-2xl border-t bg-popover text-popover-foreground shadow-2xl"
+          className="sheet-up outline-none fixed inset-x-0 bottom-0 z-50 flex max-h-[88dvh] flex-col glass rounded-t-2xl border-t text-popover-foreground"
         >
           <div className="flex justify-center pt-2" aria-hidden>
             <span className="h-1.5 w-10 rounded-full bg-muted-foreground/40" />

@@ -667,13 +667,65 @@ img[loading="lazy"][data-loaded] {
   transition: transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 160ms ease-out;
   pointer-events: none;
 }
-/* 可以點的卡片與列：按下去微微縮一點（只動 transform），放開彈回 */
+/* 可以點的卡片與列：按下去微微縮一點（只動 transform），放開彈回；
+ * 有滑鼠的裝置滑過時浮起 1px（觸控沒有 hover，不會卡在浮起的狀態） */
 @utility pressable {
-  transition: transform 120ms ease-out;
+  transition: transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  @media (hover: hover) and (pointer: fine) {
+    &:hover {
+      transform: translateY(-1px);
+    }
+  }
   &:active {
     transform: scale(0.99);
   }
 }
+
+/* ── 玻璃 ──
+ * 兩種：
+ * - glass：浮在內容上的「外殼」——標題列、手機分頁列、底部面板、抽屜、下拉選單。真的做背景模糊。
+ *   這些同時只有一兩層，backdrop-filter 的成本可控。
+ * - glass-card：內容卡片。半透明＋頂緣反光＋淡陰影，不做背景模糊：一頁幾十張卡片各自模糊，
+ *   捲動時每張都要重算（好友比較一頁就有二三十張），手機會掉幀。底下的流動光暈透得過來就有玻璃感。
+ * 顏色全從主題變數混出來（color-mix），亮色主題一樣成立。 */
+@utility glass {
+  background-color: color-mix(in oklab, var(--popover) 74%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(18px) saturate(160%);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--foreground) 7%, transparent),
+    0 12px 32px -16px rgb(0 0 0 / 0.45);
+}
+@utility glass-card {
+  background-color: color-mix(in oklab, var(--card) 80%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--foreground) 6%, transparent),
+    0 10px 28px -18px rgb(0 0 0 / 0.5);
+}
+
+/* 手機底部分頁列的目前頁底塊：從上一格滑到這一格（translateX，--tab 是第幾格） */
+@utility tab-slider {
+  position: absolute;
+  top: 0.25rem;
+  left: 0.25rem;
+  height: 3rem;
+  width: calc((100% - 0.5rem) / 5);
+  border-radius: 0.9rem;
+  background: color-mix(in oklab, var(--primary) 14%, transparent);
+  transform: translateX(calc(var(--tab, 0) * 100%));
+  transition: transform 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  pointer-events: none;
+}
+/* 分頁列圖示被選到時彈一下 */
+@keyframes tab-pop {
+  0% { transform: scale(0.86); }
+  60% { transform: scale(1.08); }
+  100% { transform: none; }
+}
+@utility tab-pop {
+  animation: tab-pop 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
 /* 骨架換成真正內容時淡入，而不是瞬間跳出來 */
 @utility reveal {
   animation: reveal 220ms ease-out both;
@@ -745,5 +797,18 @@ img[loading="lazy"][data-loaded] {
       linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
     background-size: 100% 100%, 32px 32px, 32px 32px;
     background-attachment: fixed;
+  }
+  /* 背景光暈：三團主題色在內容後面，玻璃層才有東西可以透。
+   * 刻意不做漂動：背景每一幀都變的話，標題列、側欄、分頁列的背景模糊也要每一幀重算 */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: -15%;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(38% 32% at 18% 12%, color-mix(in oklab, var(--primary) 13%, transparent), transparent 70%),
+      radial-gradient(34% 30% at 86% 30%, color-mix(in oklab, var(--data) 15%, transparent), transparent 70%),
+      radial-gradient(44% 34% at 55% 96%, color-mix(in oklab, var(--primary) 9%, transparent), transparent 70%);
   }
 }

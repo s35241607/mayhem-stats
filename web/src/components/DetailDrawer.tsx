@@ -40,7 +40,7 @@ export function DetailDrawer({
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="drawer-overlay fixed inset-0 z-50 bg-black/40 supports-backdrop-filter:backdrop-blur-xs" />
         <DialogPrimitive.Content
-          className={`drawer-in fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l bg-background shadow-2xl ${wide ? "sm:w-[min(1280px,96vw)]" : "sm:w-[min(980px,92vw)]"}`}
+          className={`drawer-in fixed inset-y-0 right-0 z-50 glass flex w-full flex-col border-l ${wide ? "sm:w-[min(1280px,96vw)]" : "sm:w-[min(980px,92vw)]"}`}
           aria-describedby={undefined}
         >
           {/* 手機上抽屜是全螢幕：頂端讓出瀏海、底部讓出橫條（加到主畫面全螢幕開啟時） */}
