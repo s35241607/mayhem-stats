@@ -4928,7 +4928,8 @@ export function Crew() {
         caption="點名字拿掉或加回來；★ 設為中心"
         hint="你和追蹤中的好友。點名字可以拿掉或加回來；點 ★ 設為中心，整頁只看中心都在場的場次。模式、期間與上方的篩選照常套用。大部分場次是一起打的，勝率會互相牽動，差距要搭配場次看"
       >
-        <div className="flex flex-wrap gap-2">
+        {/* 手機：名單改成一列橫向捲動（十幾個人換行排會佔滿第一個畫面） */}
+        <div className="flex flex-wrap gap-2 max-sm:-mx-1 max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:px-1 max-sm:pb-1 max-sm:[scrollbar-width:none]">
           {crew.map((p) => {
             const on = !excluded.has(p.puuid)
             const isCenter = centerIds.includes(p.puuid)
@@ -4938,7 +4939,7 @@ export function Crew() {
                 key={p.puuid}
                 data-testid="crew-chip"
                 className={cn(
-                  "flex max-w-[16rem] items-center rounded-full border text-sm transition",
+                  "flex max-w-[16rem] shrink-0 items-center rounded-full border text-sm transition",
                   on ? (isCenter ? "border-primary bg-primary/20" : "border-primary/50 bg-primary/10") : "text-muted-foreground opacity-60 hover:opacity-100",
                 )}
               >
@@ -4946,7 +4947,7 @@ export function Crew() {
                   type="button"
                   onClick={() => toggleIncluded(p.puuid)}
                   data-tip={on ? `拿掉 ${name}（不納入比較）` : `加回 ${name}`}
-                  className="flex min-w-0 items-center gap-1.5 py-1 pl-3 pr-2"
+                  className="flex min-w-0 items-center gap-1.5 py-1 pl-3 pr-2 max-sm:min-h-10"
                 >
                   <Check className={cn("size-3.5 shrink-0", on ? "text-primary" : "opacity-0")} />
                   <PlayerName player={p} />
@@ -4989,7 +4990,7 @@ export function Crew() {
           style={{ top: headerHeight }}
           className="sticky z-10 flex flex-wrap items-center gap-x-3 gap-y-2 border-b bg-background/85 py-2 backdrop-blur"
         >
-          <TabsList className="h-auto max-w-full flex-wrap justify-start">
+          <TabsList className="h-auto max-w-full flex-wrap justify-start max-sm:w-full max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:[scrollbar-width:none]">
             <TabsTrigger value="matrix">全員一覽</TabsTrigger>
             <TabsTrigger value="stats">數據總表</TabsTrigger>
             <TabsTrigger value="champ">查英雄</TabsTrigger>

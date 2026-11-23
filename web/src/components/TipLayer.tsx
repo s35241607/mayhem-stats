@@ -232,7 +232,7 @@ export function Hint({ text, className }: { text: string; className?: string }) 
       data-tip={text}
       data-testid="hint"
       className={cn(
-        "inline-flex size-4 shrink-0 cursor-help items-center justify-center rounded-full align-[-3px] text-muted-foreground transition-colors hover:text-primary focus-visible:text-primary focus-visible:outline-none",
+        "inline-flex size-4 shrink-0 cursor-help items-center justify-center rounded-full align-[-3px] text-muted-foreground transition-colors hover:text-primary focus-visible:text-primary focus-visible:outline-none max-sm:-my-2 max-sm:size-8",
         className,
       )}
     >

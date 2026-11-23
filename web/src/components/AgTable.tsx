@@ -25,6 +25,8 @@ import { useThemeName } from "@/lib/theme"
 import { prefersReducedMotion, useAfterPageEnter } from "@/lib/motion"
 import { readStored, writeStored } from "@/lib/tableLayout"
 import { ColumnMenu, type MenuColumn } from "@/components/ColumnMenu"
+import { MobileTable } from "@/components/MobileTable"
+import { useIsMobile } from "@/hooks/use-mobile"
 
 ModuleRegistry.registerModules([AllCommunityModule])
 
@@ -160,6 +162,7 @@ export function AgTable({
   fileName?: string
 }) {
   const theme = useGridTheme()
+  const isMobile = useIsMobile()
   // 掛載 AG Grid 是切頁時最大的長任務（60～130ms），等進場動畫跑完才掛，見 lib/motion.ts
   const enterDone = useAfterPageEnter()
   const apiRef = useRef<GridApi | null>(null)
@@ -361,6 +364,11 @@ export function AgTable({
       // 隱藏欄（複合格子吃掉的原始數字）也要匯出
       allColumns: true,
     })
+
+  // 手機：同一份欄位與資料畫成卡片（AG Grid 在 390px 寬只看得到兩欄）。單擊就下鑽，手機沒有雙擊
+  if (isMobile) {
+    return <MobileTable columns={columns} rows={rows} onDrill={onDrill} onRowClick={onRowClick} highlight={highlight} emptyHint={emptyHint} />
+  }
 
   if (!rows.length) {
     return (

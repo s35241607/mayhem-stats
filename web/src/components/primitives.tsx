@@ -92,20 +92,25 @@ export function Panel({
   children: ReactNode
   index?: number
 }) {
+  const longCaption = !!caption && caption.length > 40
   return (
     <div className={cn("rise", className)} style={{ "--stagger": `${index * 50}ms` } as CSSProperties}>
       <Card className="relative h-full gap-3 transition-shadow duration-200 hover:ring-primary/25">
         <EdgeLight />
         {title && (
           <CardHeader className="pb-0">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
+            {/* 標題右邊的操作放不下時換到下一行（手機上原本把標題擠成一字一行） */}
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-[min(100%,10rem)] flex-1">
                 <CardTitle className="flex items-center gap-1 text-sm font-semibold">
                   {title}
-                  {hint && <Hint text={hint} />}
+                  {hint && <Hint text={hint} className={longCaption ? "max-sm:hidden" : undefined} />}
+                  {/* 手機上長的說明收進 ⓘ（一段五行的說明會吃掉半個螢幕），點一下看全文 */}
+                  {longCaption && <Hint text={hint ? `${caption}
+${hint}` : caption!} className="sm:hidden" />}
                 </CardTitle>
                 {caption && (
-                  <p className="mt-0.5 text-xs font-normal text-muted-foreground">{caption}</p>
+                  <p className={cn("mt-0.5 text-xs font-normal text-muted-foreground", longCaption && "max-sm:hidden")}>{caption}</p>
                 )}
               </div>
               {action}
