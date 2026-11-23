@@ -1,0 +1,1 @@
+import{S as e,T as t}from"./primitives-D9xi7IRS.js";import"./cube-CIo8HlXD.js";var n=t(e(),1),r=0,i=new Set;typeof window<`u`&&window.addEventListener(`mayhem:data-changed`,()=>{r++,i.forEach(e=>e())});function a(e){return i.add(e),()=>void i.delete(e)}function o(){return(0,n.useSyncExternalStore)(a,()=>r)}export{o as t};

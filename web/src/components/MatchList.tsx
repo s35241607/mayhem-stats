@@ -1,9 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { flushSync } from "react-dom"
 import { Button } from "@/components/ui/button"
 import { DetailDrawer, useDrawerSettled } from "@/components/DetailDrawer"
 import { Skeleton } from "@/components/ui/skeleton"
 import { EmptyState, QueryError } from "@/components/primitives"
 import { useCrumb } from "@/lib/breadcrumb"
+import { holdForMorph, prefersReducedMotion } from "@/lib/motion"
 import { useDataRevision } from "@/lib/revision"
 import { useUrlParam, writeParams } from "@/lib/urlState"
 import { useCube } from "@/hooks/useCube"
@@ -124,6 +126,10 @@ function DrillBody({ children }: { children: ReactNode }) {
   return useDrawerSettled() ? children : <Skeleton className="h-40 w-full" />
 }
 
+/** 卡片 ↔ 戰報共用的 view-transition-name（動畫在 index.css）。只在轉場那一瞬間掛上、結束就拿掉：
+ *  同一頁可能同時有兩份列表（頁面本身＋抽屜、好友比較的左右兩欄），常駐的話名稱重複，整個轉場會被瀏覽器取消 */
+const HERO = "match-hero"
+
 type Loaded = { matches: MatchRow[]; total: number; wins: number; key: string }
 
 /** 逐場列表：卡片樣式和「對局紀錄」頁一樣，點一張看完整戰報。
@@ -172,6 +178,8 @@ export function MatchList({
   const inflight = useRef<AbortController | null>(null)
   // 看戰報前的捲動位置，回到列表時還原（不然捲到第 300 場點進去，回來又在最上面）
   const savedScroll = useRef<number | null>(null)
+  // 看過戰報之後，回來時已經載入的那幾張不再重播滑入（見 MatchCards 的 instantCount）
+  const instantCount = useRef(0)
 
   const fetchPage = (offset: number, signal: AbortSignal) =>
     fetch(`/api/matches?${new URLSearchParams({ ...params, limit: String(offset === 0 ? FIRST_PAGE : PAGE), offset: String(offset) })}`, { signal })
@@ -188,6 +196,7 @@ export function MatchList({
     if (!sameKey && loaded.current) {
       if (loaded.current.puuid !== params.puuid) setData(null)
       setPicked(null)
+      instantCount.current = 0
     }
     setError(null)
     setLoadingMore(false)
@@ -251,11 +260,52 @@ export function MatchList({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, hasMore, picked, loadingMore])
 
+  const cardOf = (m: MatchPick) =>
+    rootRef.current?.querySelector<HTMLElement>(`[data-match="${m.platformId}.${m.gameId}.${m.participantId}"]`) ?? null
+
+  /** 卡片展開成戰報、戰報縮回卡片（View Transition 的共用元素）。
+   *  from／to 是轉場前後代表「同一場」的元素；update 要同步把畫面換完，瀏覽器在它結束時拍新畫面。
+   *  不支援或使用者要求減少動態時回 false，由呼叫端照原本的方式直接換 */
+  const morph = (from: HTMLElement | null, update: () => void, to: () => HTMLElement | null) => {
+    if (!document.startViewTransition || prefersReducedMotion() || !from) return false
+    from.style.viewTransitionName = HERO
+    let target: HTMLElement | null = null
+    const transition = document.startViewTransition(() => {
+      from.style.viewTransitionName = ""
+      flushSync(update)
+      target = to()
+      if (target) target.style.viewTransitionName = HERO
+    })
+    holdForMorph(transition.finished)
+    // 被下一次轉場打斷時 finished 會 reject，名稱一樣要拿掉
+    transition.finished.catch(() => {}).finally(() => {
+      from.style.viewTransitionName = ""
+      if (target) target.style.viewTransitionName = ""
+    })
+    return true
+  }
+
   const pick = (m: MatchPick) => {
     savedScroll.current = window.scrollY
+    const animated = morph(
+      cardOf(m),
+      () => setPicked(m),
+      () => {
+        // 戰報從列表頂端開始畫；若列表已經捲很深，要捲回戰報的位置才看得到。在拍新畫面之前捲好，轉場的終點才是對的
+        rootRef.current?.scrollIntoView({ block: "nearest" })
+        return rootRef.current
+      },
+    )
+    if (animated) return
     setPicked(m)
-    // 戰報從列表頂端開始畫；若列表已經捲很深，要捲回戰報的位置才看得到
     requestAnimationFrame(() => rootRef.current?.scrollIntoView({ block: "nearest" }))
+  }
+
+  // 按「回列表」：戰報縮回那一張卡片（捲動位置由下面的 layout effect 在同一次更新裡還原）。
+  // 瀏覽器的上一頁、麵包屑不走這裡，直接換
+  const back = () => {
+    const m = picked
+    if (!m || !morph(rootRef.current, () => setPicked(null), () => cardOf(m))) setPicked(null)
   }
 
   useLayoutEffect(() => {
@@ -265,13 +315,15 @@ export function MatchList({
   }, [picked])
 
   let body
+  // 看戰報的期間列表可能還在背景載入下一批，所以每次渲染都記，不只記點下去那一刻
+  if (picked && data) instantCount.current = data.matches.length
   if (picked) {
     body = (
       <MatchDetail
         platformId={picked.platformId}
         gameId={picked.gameId}
         puuid={pickedRow?.puuid ?? puuid}
-        onBack={() => setPicked(null)}
+        onBack={back}
       />
     )
   } else if (error && !data) {
@@ -293,7 +345,7 @@ export function MatchList({
         <div className="text-xs text-muted-foreground">
           共 {total} 場・{wins} 勝 {total - wins} 敗・勝率 {((wins / total) * 100).toFixed(1)}%・點任一場看完整戰報
         </div>
-        <MatchCards rows={matches} onPick={pick} showPlayer={showPlayer} showDamage={params.sort === "damage" || params.metric === "damage"} headerExtra={headerExtra} />
+        <MatchCards rows={matches} onPick={pick} showPlayer={showPlayer} showDamage={params.sort === "damage" || params.metric === "damage"} headerExtra={headerExtra} instantCount={instantCount.current} />
         <div ref={sentinelRef} />
         {error ? (
           <Button size="sm" variant="outline" className="w-full" onClick={() => { setError(null); loadMore() }}>

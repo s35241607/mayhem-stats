@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Skeleton } from "@/components/ui/skeleton"
+import { afterMorph } from "@/lib/motion"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { EmptyState, Panel } from "@/components/primitives"
@@ -739,7 +740,8 @@ export function MatchDetail({
     const q = puuid ? `?puuid=${encodeURIComponent(puuid)}` : ""
     fetch(`/api/match/${platformId}/${gameId}${q}`)
       .then((r) => r.json())
-      .then((d) => (d.error ? setError(d.error) : setData(d)))
+      // 卡片正在展開成戰報時先不畫（見 afterMorph）
+      .then((d) => afterMorph().then(() => (d.error ? setError(d.error) : setData(d))))
       .catch((e: Error) => setError(e.message))
   }, [platformId, gameId, puuid])
 
@@ -832,6 +834,7 @@ export function MatchCards({
   showPlayer = false,
   showDamage = false,
   headerExtra,
+  instantCount = 0,
 }: {
   rows: MatchRow[]
   onPick: (match: MatchPick) => void
@@ -839,13 +842,15 @@ export function MatchCards({
   showDamage?: boolean
   /** 標頭多放的內容，見 MatchList */
   headerExtra?: (m: MatchRow) => ReactNode
+  /** 前幾張不播滑入：從戰報回到列表時，看過的卡片要立刻在原位（其中一張還是戰報縮回來的目標） */
+  instantCount?: number
 }) {
   const chunks: MatchRow[][] = []
   for (let i = 0; i < rows.length; i += ROLE_CHUNK) chunks.push(rows.slice(i, i + ROLE_CHUNK))
   return (
     <div className="space-y-1.5">
       {chunks.map((chunk, ci) => (
-        <MatchCardChunk key={ci} rows={chunk} offset={ci * ROLE_CHUNK} onPick={onPick} showPlayer={showPlayer} showDamage={showDamage} headerExtra={headerExtra} />
+        <MatchCardChunk key={ci} rows={chunk} offset={ci * ROLE_CHUNK} onPick={onPick} showPlayer={showPlayer} showDamage={showDamage} headerExtra={headerExtra} instantCount={instantCount} />
       ))}
     </div>
   )
@@ -858,6 +863,7 @@ function MatchCardChunk({
   showPlayer,
   showDamage,
   headerExtra,
+  instantCount,
 }: {
   rows: MatchRow[]
   offset: number
@@ -865,6 +871,7 @@ function MatchCardChunk({
   showPlayer: boolean
   showDamage: boolean
   headerExtra?: (m: MatchRow) => ReactNode
+  instantCount: number
 }) {
   // 這場的出裝定位：向 Cube 查（見 useBuildRoles）
   const roleOf = useBuildRoles(rows.map(keyOf))
@@ -881,11 +888,14 @@ function MatchCardChunk({
         return (
           <button
             key={keyOf(m)}
+            // MatchList 靠它找到「點的是哪一張」，做卡片展開成戰報的轉場
+            data-match={`${m.platform_id}.${m.game_id}.${m.participant_id}`}
             onClick={() => onPick({ platformId: m.platform_id, gameId: m.game_id, participantId: m.participant_id, puuid: m.puuid })}
             // 一列一列滑進來；「再顯示 20 場」時新增的那批從 0 開始錯開，不會等上一批的延遲
             style={{ "--stagger": `${(i % 20) * 30}ms` } as CSSProperties}
             className={cn(
-              "slide-in cv-row pressable",
+              i >= instantCount && "slide-in",
+              "cv-row pressable",
               // 勝敗靠底色與文字傳達就夠了。先前用高彩度的左側粗邊，
               // 二十列疊起來像斑馬紋，反而蓋過內容。
               "flex w-full flex-wrap items-center gap-y-1.5 rounded-lg border px-3 py-2 text-left transition",

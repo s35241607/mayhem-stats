@@ -36,3 +36,17 @@ export function useAfterPageEnter() {
   }, [ready])
   return ready
 }
+
+// 共用元素轉場（對局卡片 ↔ 戰報，MatchList 的 morph）進行中的那一次。
+// 轉場的外框是在主執行緒上改大小的：戰報的計分板若在這 300ms 內掛上（實測一格停 222ms），外框會跟著停。
+// 所以資料回來了也先不畫，等轉場結束——和「重元件等進場動畫結束才掛」同一個道理。
+let morphing: Promise<void> | null = null
+export function holdForMorph(finished: Promise<unknown>) {
+  const done: Promise<void> = finished.then(() => {}, () => {}).then(() => {
+    if (morphing === done) morphing = null
+  })
+  morphing = done
+}
+/** 沒有轉場在跑時立刻解決 */
+export const afterMorph = (): Promise<void> => morphing ?? Promise.resolve()
+

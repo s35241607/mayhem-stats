@@ -677,8 +677,33 @@ img[loading="lazy"][data-loaded] {
   animation-duration: 220ms;
 }
 
+/* 對局卡片展開成戰報、戰報縮回卡片（MatchList 的 morph）：外框從卡片的位置與大小長到戰報的。
+ * 新舊兩張快照都維持原尺寸、貼齊左上角由外框裁切，不跟著外框拉伸——卡片 76px 高、戰報 560px 以上，
+ * 預設的等比拉伸會把字拉成一片糊。舊的那張很快淡掉，眼睛跟的是外框 */
+::view-transition-group(match-hero) {
+  animation-duration: 300ms;
+  animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+::view-transition-old(match-hero),
+::view-transition-new(match-hero) {
+  height: 100%;
+  object-fit: none;
+  object-position: top left;
+  overflow: clip;
+  animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+::view-transition-old(match-hero) {
+  animation-duration: 140ms;
+}
+::view-transition-new(match-hero) {
+  animation-duration: 220ms;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
+  ::view-transition-group(match-hero),
+  ::view-transition-old(match-hero),
+  ::view-transition-new(match-hero),
   ::view-transition-old(root),
   ::view-transition-new(root) {
     animation-duration: 1ms !important;
