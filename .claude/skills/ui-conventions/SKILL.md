@@ -294,8 +294,8 @@ node .claude/skills/ui-conventions/scripts/perf_nav.mjs after.json 9451
 - **整輪都異常時，不要直接下結論說改動變慢了**：`git stash push -- web` 在同一時間點量一次舊版。
   舊版正常、新版異常才是退步；再用 CDP `Performance.getMetrics` 量頁面閒置 5 秒的 `ScriptDuration`
   排除渲染迴圈（應該是 0）。實際發生過：新版連兩輪全異常，同時間量舊版正常，但接著再量新版也正常——是環境間歇性節流。
-- 改前改後要在同一台機器、同一份資料上量。要量舊版可以 `git stash push -- web`（`web/dist` 有進版控，
-  stash 後服務就是舊版），量完 `git stash pop`。
+- 改前改後要在同一台機器、同一份資料上量。要量舊版可以 `git stash push -- web/src` 後 `npm run build`
+  （`web/dist` 不進版控，stash 不會動到它，要重新建置服務才是舊版），量完 `git stash pop` 再建置一次。
 - 前一次的 Edge 還沒完全關時，同一個除錯埠會連不上——換一個埠號。
 
 ### 資料動畫（動到數字或圖表動畫時）
@@ -320,4 +320,4 @@ node .claude/skills/ui-conventions/scripts/theme_check.mjs daylight
 ### 收尾
 
 - `cd web && npx tsc -b && npx oxlint src`，只看自己動到的檔案有沒有新警告。
-- `git status` 確認 `web/dist` 有重新 build 進去。
+- `npm run build` 重新建置 `web/dist`（不進版控，但服務與鏡像讀的是它）。

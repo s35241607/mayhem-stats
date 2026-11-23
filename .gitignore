@@ -21,8 +21,9 @@ cube/cube.log
 cube/cube.log.*
 cube/.env
 
-# 前端。web/dist 刻意「不」忽略——它有進版控，執行期才不需要裝 npm，
-# 只有要改 UI 時才需要進 web/ 跑 npm install && npm run build。
+# 前端。web/dist 是建置產物，不進版控（每次建置檔名都換，曾佔掉 repo 八成的大小）；
+# clone 後要先在 web/ 跑 npm ci && npm run build，見 README。
+web/dist/
 web/node_modules/
 web/.vite/
 *.tsbuildinfo

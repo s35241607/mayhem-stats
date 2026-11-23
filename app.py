@@ -814,14 +814,16 @@ class HashedAssets(StaticFiles):
 
 if (WEB_DIST / "assets").is_dir():
     app.mount("/assets", HashedAssets(directory=WEB_DIST / "assets"), name="assets")
+else:
+    # web/dist 不進版控：剛 clone 下來沒建置過時，畫面會是舊的單檔前端，講清楚原因
+    print("找不到 web/dist：請先 cd web && npm ci && npm run build，否則只會看到舊版的單檔前端。")
 
 
 @app.get("/")
 def index():
-    """優先送 React 的建置產物;沒有建置過就退回舊的單檔前端。
+    """送 React 的建置產物;沒有建置過就退回舊的單檔前端。
 
-    dist/ 有一起進版控,所以執行期只需要 uv run app.py,不需要裝 npm。
-    只有要改前端時才需要進 web/ 跑 npm run build。
+    dist/ 不進版控:clone 或 pull 之後要進 web/ 跑 npm ci && npm run build。
     """
     built = WEB_DIST / "index.html"
     # no-cache：index.html 沒有雜湊檔名，不帶這個標頭時瀏覽器會依 last-modified 自己猜要快取多久，

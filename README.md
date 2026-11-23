@@ -15,6 +15,7 @@
 ```bash
 uv sync
 cd cube && npm install && cd ..
+cd web && npm ci && npm run build && cd ..
 uv run app.py
 ```
 
@@ -286,7 +287,7 @@ Unregister-ScheduledTask -TaskName MayhemStatsCollector -Confirm:$false   # 移�
 <details>
 <summary>改前端</summary>
 
-原始碼在 `web/`。**建置產物 `web/dist` 有一起進版控**，所以平常執行不需要 npm：
+原始碼在 `web/`，服務讀的是建置產物 `web/dist`（不進版控）。改完或 `git pull` 之後要重新建置：
 
 ```bash
 cd web && npm install && npm run build
