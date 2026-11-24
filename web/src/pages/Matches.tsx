@@ -1,5 +1,7 @@
 import { Fragment, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react"
-import { ArrowDown, ArrowUp, ChevronLeft, Coins, RotateCcw, SlidersHorizontal, Swords, X } from "lucide-react"
+import { ArrowDown, ArrowUp, ChevronLeft, Coins, RotateCcw, Share2, SlidersHorizontal, Swords, X } from "lucide-react"
+import { toast } from "@/lib/toast"
+import { ScoreInfoLink } from "@/components/ScoreInfoLink"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -702,6 +704,23 @@ function StatTable({ players, roleOf, contrib }: { players: Player[]; roleOf: Ma
 
 // ─────────────────────────────────────────── 單場戰報
 
+/** 分享這場戰報：手機叫出系統的分享選單（Discord、LINE…），電腦退回複製連結。
+ *  連結就是現在的網址（點開的那一場在網址的 match 參數裡）；文字只放自己的英雄與數字，不帶其他玩家的名字。
+ *  鏡像要登入才看得到，所以聊天軟體抓不到預覽圖：對方點進來登入後看到的就是這一場。 */
+function shareMatch(p: Player, score: number | null) {
+  const text = `${p.win ? "勝利" : "戰敗"}｜${p.champion_name} ${p.kills}/${p.deaths}/${p.assists}${score !== null ? `｜貢獻 ${Math.round(score)}` : ""}`
+  const url = window.location.href
+  if (navigator.share) {
+    navigator.share({ title: "Mayhem 戰報", text, url }).catch(() => {})
+    return
+  }
+  navigator.clipboard.writeText(`${text}
+${url}`).then(
+    () => toast("已複製戰報連結"),
+    () => toast("複製失敗，請直接複製網址列", "error"),
+  )
+}
+
 export function MatchDetail({
   platformId,
   gameId,
@@ -772,6 +791,12 @@ export function MatchDetail({
           {match.ended_surrender ? " · 投降結束" : ""}
         </span>
         {isSwing(swingLabel) && <SwingChip label={swingLabel} className="text-[11px]" />}
+        {subject && (
+          <Button size="sm" variant="outline" className="ml-auto max-sm:h-10" onClick={() => shareMatch(subject, workScore(contrib.get(keyOf(subject))))}>
+            <Share2 className="size-3.5" />
+            分享
+          </Button>
+        )}
       </div>
 
       <Tabs defaultValue="board">
@@ -786,7 +811,7 @@ export function MatchDetail({
           </div>
           <Scoreboard players={players} roleOf={roleOf} contrib={contrib} />
           <p className="mt-2 text-xs text-muted-foreground">
-            大數字是「本場貢獻」（0～100，v5.4 跨場絕對尺度）；點一列看九個基因、高光加分與失誤扣分各自加減幾分。
+            大數字是「本場貢獻」（0～100，v5.4 跨場絕對尺度）<ScoreInfoLink className="mx-0.5" />；點一列看九個基因、高光加分與失誤扣分各自加減幾分。
             <Hint
               text={
                 "本場貢獻怎麼算（v5.4 / v5-B 修訂版）\n" +

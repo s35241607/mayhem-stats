@@ -84,6 +84,8 @@ class Collector:
         self._live_game_id = None
         self._live_platform = ""
         self.on_change = None
+        # 場次變多時以「採集前的最大 rowid」呼叫（推送通知用，見 push.py）；在採集執行緒上，要自己快速返回
+        self.on_new_matches = None
 
     def _attach_archive(self, client, conn=None, transient=False):
         """只啟用採集器讀取的 JSON 存檔，不保存請求 headers／lockfile。"""
@@ -212,6 +214,11 @@ class Collector:
             conn.close()
             if (matches_changed or dimensions_changed or features_changed) and self.on_change:
                 self.on_change()
+            if matches_changed and self.on_new_matches:
+                try:
+                    self.on_new_matches(matches_before or 0)
+                except Exception as exc:  # noqa: BLE001 - 通知壞掉不能影響採集
+                    print(f"新對局通知失敗: {type(exc).__name__}: {exc}")
 
     def _rebuild_features(self, conn):
         """衍生表（出裝定位、貢獻分數…）整批重算，見 features.py。

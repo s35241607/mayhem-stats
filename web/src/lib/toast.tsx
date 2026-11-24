@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
  *  給「按了但畫面上看不出發生什麼」的操作用——立即採集、複製連結、下載檔案。
  *  不引入 toast 套件：一個模組層的清單加一個固定的顯示層就夠，動畫用 index.css 的 rise。
  *  用法：任何地方 `toast("已複製連結")`；失敗用 `toast("…", "error")`。 */
-type Toast = { id: number; text: string; tone: "info" | "error" }
+type Toast = { id: number; text: string; tone: "info" | "error"; action?: { label: string; onClick: () => void } }
 
 const SHOW_MS = 3200
 let items: Toast[] = []
@@ -14,15 +14,16 @@ let nextId = 1
 const listeners = new Set<() => void>()
 const emit = () => listeners.forEach((fn) => fn())
 
-export function toast(text: string, tone: Toast["tone"] = "info") {
+export function toast(text: string, tone: Toast["tone"] = "info", action?: Toast["action"]) {
   const id = nextId++
   // 最多同時三句，舊的先走
-  items = [...items.slice(-2), { id, text, tone }]
+  items = [...items.slice(-2), { id, text, tone, action }]
   emit()
+  // 有按鈕的多留一會，來得及按
   setTimeout(() => {
     items = items.filter((t) => t.id !== id)
     emit()
-  }, SHOW_MS)
+  }, action ? SHOW_MS * 2.5 : SHOW_MS)
 }
 
 const subscribe = (fn: () => void) => {
@@ -45,6 +46,18 @@ export function Toaster() {
           )}
         >
           {t.text}
+          {t.action && (
+            <button
+              className="pointer-events-auto ml-3 min-h-8 font-semibold text-primary underline-offset-2 hover:underline"
+              onClick={() => {
+                items = items.filter((x) => x.id !== t.id)
+                emit()
+                t.action!.onClick()
+              }}
+            >
+              {t.action.label}
+            </button>
+          )}
         </div>
       ))}
     </div>

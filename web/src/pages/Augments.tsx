@@ -1,4 +1,5 @@
 import { useMemo } from "react"
+import { Insight } from "@/components/Insight"
 import { Button } from "@/components/ui/button"
 import { BarCell, LiftCell, RecordCell, StatCell, num0, numOf, solidMax } from "@/components/cells"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -425,6 +426,12 @@ export function Augments() {
             : `這份資料只有這個資料庫拿得到——Riot 對 Mayhem 封鎖了公開 API，任何第三方網站都算不出增幅勝率。`
         }
       >
+        {/* 結論先講：只在看全部增幅時（選了英雄時比的是加成，另有自己的刻度） */}
+        {!champion && !loading && !overall.loading && (
+          <div className="mb-3">
+            <Insight rows={rows} nameKey="augments.name" baseline={overallWr ?? null} baselineLabel={scope.baselineLabel} noun="增幅" />
+          </div>
+        )}
         {loading || overall.loading || (champion && baseline.loading) ? (
           <Skeleton className="h-[480px] w-full" />
         ) : error ? (

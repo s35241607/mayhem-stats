@@ -6,6 +6,7 @@ import { Filter, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Kpi, Panel, EmptyState } from "@/components/primitives"
+import { Insight } from "@/components/Insight"
 import { AgTable, type GridColumn } from "@/components/AgTable"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { CubeMatchList } from "@/components/MatchList"
@@ -625,6 +626,7 @@ function ChampionsBody({ onWho }: { onWho: (who: Who) => void }) {
             <RoleRadar role={activeRole} spec={spec} baseline={baseline} totalGames={totalGames} onRole={setRole} />
 
             <div className="flex min-w-0 flex-col gap-2">
+              {!loading && <Insight rows={rows} nameKey="champions.name" baseline={baseline} baselineLabel={baselineLabel} noun="英雄" />}
               <div className="flex min-h-8 flex-wrap items-center gap-2">
                 <span className="text-sm font-semibold">英雄表現</span>
                 {activeRole ? (

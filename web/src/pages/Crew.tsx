@@ -1,5 +1,5 @@
 import { Fragment, createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react"
-import { ArrowRight, Swords, HandHeart, Bomb, Crosshair, Castle, Orbit, Rocket, Axe, ShieldHalf, Sword, Target, Droplets, Hourglass, ChevronsUp, Lock, LoaderCircle, BookOpen, Check, ChevronDown, ChevronRight, ChevronsUpDown, Crown, Flame, Hammer, HeartHandshake, Infinity as InfinityIcon, Medal, Search, Shield, Snowflake, Sparkles, Star, Trophy, Zap, Users, Skull, Award, Mountain, Heart, Moon, type LucideIcon } from "lucide-react"
+import { ArrowRight, Swords, HandHeart, Bomb, Crosshair, Castle, Orbit, Rocket, Axe, ShieldHalf, Sword, Target, Droplets, Hourglass, ChevronsUp, Lock, LoaderCircle, BookOpen, Check, ChevronDown, ChevronRight, ChevronsUpDown, Crown, Flame, Hammer, HeartHandshake, Infinity as InfinityIcon, Medal, Search, Shield, Snowflake, Sparkles, Star, Trophy, Zap, Users, Skull, Award, Mountain, Heart, Moon, UserRound, type LucideIcon } from "lucide-react"
 import { RecordCell, StatCell } from "@/components/cells"
 import { CloudRain } from "lucide-react"
 import { ContribBars, ContribScore } from "@/components/Contribution"
@@ -4552,6 +4552,8 @@ type RowSort = "games" | "score" | "winrate" | "titles"
 
 export function Crew() {
   const { players, apply, queueId, activeVersions, timeFilter, matchParams } = useFilters()
+  // 抽屜標題旁的「看個人頁」
+  const go = useNavigate()
   const crew = useMemo(() => players.filter((p) => p.crew), [players])
   // 預設全部人都比；點名字可以拿掉（至少留一個）
   const [excluded, setExcluded] = useState<Set<string>>(new Set())
@@ -5319,6 +5321,14 @@ export function Crew() {
         open={!!focus}
         onClose={() => setFocus(null)}
         title={focus?.kind === "games" ? focus.title : focusPlayer ? <PlayerName player={focusPlayer} /> : ""}
+        actions={
+          focusPlayer && (
+            <Button size="sm" variant="outline" onClick={() => go("profile", { p: focusPlayer.puuid.slice(0, 8) })}>
+              <UserRound className="size-3.5" />
+              看個人頁
+            </Button>
+          )
+        }
         subtitle={
           focus?.kind === "games"
             ? focus.note

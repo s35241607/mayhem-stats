@@ -59,3 +59,7 @@ web/playwright-report/
 # 驗證時的截圖、效能量測等暫存（scratch），不進版控
 .tmp/
 /*.png
+
+# 推送通知的 VAPID 金鑰（含私鑰；換掉它所有裝置的訂閱都會失效）。訂閱本身存在 .public_state.db
+.push_vapid.json
+.push_vapid.json.*.tmp

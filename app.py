@@ -44,6 +44,7 @@ import db
 import features
 import icons
 import lcu
+import push
 from timeline_analysis import summarize_fights
 
 BASE_DIR = Path(__file__).parent
@@ -215,6 +216,7 @@ def _state_db():
                CREATE INDEX IF NOT EXISTS idx_access_who ON access_log(who, ts);
                CREATE INDEX IF NOT EXISTS idx_access_kind ON access_log(kind, ts);"""
         )
+        push.ensure_schema(conn)  # 推送通知的訂閱，見 push.py 開頭
         # 舊版建的表少這兩欄。舊 session 的 via 是 NULL,當成群組放行處理(期限較短的那種)。
         have = {r["name"] for r in conn.execute("PRAGMA table_info(sessions)")}
         for col in ("username", "via"):
@@ -564,11 +566,13 @@ async def lifespan(app: FastAPI):
     warm_task = asyncio.create_task(warm_icons())
     cube_warm_task = asyncio.create_task(warm_cube())
     collector.on_change = change_events.publish
+    collector.on_new_matches = _notify_new_matches
     task = asyncio.create_task(collector.run_forever())
     try:
         yield
     finally:
         collector.on_change = None
+        collector.on_new_matches = None
         task.cancel()
         warm_task.cancel()
         cube_warm_task.cancel()
@@ -873,7 +877,8 @@ for _path in PWA_FILES:
 @app.get("/{page}")
 def page_index(page: str):
     if page not in {"dashboard", "matches", "champions", "augments", "lineups", "players", "crew",
-                    "time", "tilt", "losses", "explore", "recap", "tracked", "calc", "settings", "logs"}:
+                    "time", "tilt", "losses", "explore", "recap", "tracked", "calc", "settings", "logs",
+                    "feed", "pick", "profile", "score", "changelog"}:
         return Response(status_code=404)
     return index()
 
@@ -1035,6 +1040,127 @@ def link_account(body: LinkBody, request: Request):
             )
     print(f"{who['name']} {'綁定' if body.linked else '解除'}帳號 {body.puuid[:8]}…")
     return whoami(request)
+
+
+# ── 推送通知（新對局）──────────────────────────────────────────────────
+# 規則與「哪個行程管什麼」寫在 push.py 開頭。這裡只有三個端點和採集後的發送。
+# 公開模式下 /api/* 一律先過 require_login；訂閱還要求 Discord 身分（要知道該通知誰的帳號），
+# 共用密碼登入沒有個別身分，和綁定帳號一樣不給訂閱。
+PUSH_VAPID_FILE = BASE_DIR / ".push_vapid.json"
+
+
+def _push_owner(request: Request):
+    """(scope, discord_id)；公開模式下沒有 Discord 身分回 None。"""
+    if not PUBLIC:
+        return "local", None
+    who = _session(request)
+    if not who or not who["discord_id"]:
+        return None
+    return "discord", who["discord_id"]
+
+
+@app.get("/api/push/key")
+def push_key():
+    try:
+        return {"publicKey": push.load_vapid(PUSH_VAPID_FILE)["public_key"]}
+    except Exception as exc:  # noqa: BLE001
+        print(f"推送通知金鑰讀取失敗: {type(exc).__name__}: {exc}")
+        return JSONResponse(status_code=503, content={"error": "推送通知暫時不可用"})
+
+
+@app.post("/api/push/subscribe")
+async def push_subscribe(request: Request):
+    owner = _push_owner(request)
+    if owner is None:
+        return JSONResponse(status_code=403, content={"error": "要用 Discord 登入才能開啟通知"})
+    try:
+        sub = push.clean_subscription(await request.json())
+    except ValueError:
+        sub = None
+    if sub is None:
+        return JSONResponse(status_code=400, content={"error": "訂閱資料不正確"})
+    with closing(_state_db()) as conn, conn:
+        if not push.save_subscription(conn, sub, *owner):
+            return JSONResponse(status_code=400, content={"error": f"最多 {push.MAX_PER_OWNER} 個裝置"})
+    return {"ok": True}
+
+
+@app.post("/api/push/unsubscribe")
+async def push_unsubscribe(request: Request):
+    owner = _push_owner(request)
+    if owner is None:
+        return JSONResponse(status_code=403, content={"error": "要用 Discord 登入才能管理通知"})
+    try:
+        endpoint = (await request.json()).get("endpoint")
+    except (ValueError, AttributeError):
+        endpoint = None
+    if not isinstance(endpoint, str):
+        return JSONResponse(status_code=400, content={"error": "缺少 endpoint"})
+    with closing(_state_db()) as conn, conn:
+        # 本機（站長）可以刪任何一筆；鏡像上只能刪自己的
+        removed = push.delete_subscription(conn, endpoint, *(owner if PUBLIC else (None, None)))
+    return {"ok": True, "removed": removed}
+
+
+def _push_targets(subs: list) -> list:
+    """每個訂閱此刻關心的 puuid。discord 訂閱要他的登入仍有效（被踢、登出、過期就不再通知），
+    帳號照當下的 links 表；本機訂閱是 accounts.is_me。"""
+    now = time.time()
+    with closing(_state_db()) as state:
+        sessions = [dict(r) for r in state.execute(
+            "SELECT issued, discord_id, name, username, via FROM sessions"
+            " WHERE discord_id IS NOT NULL AND issued >= ?",
+            (now - SESSION_MAX_AGE,),
+        )]
+        links: dict = {}
+        for r in state.execute("SELECT discord_id, puuid FROM links"):
+            links.setdefault(r["discord_id"], set()).add(r["puuid"])
+    active = {s["discord_id"] for s in sessions if _still_allowed(s)}
+    conn = db.connect()
+    try:
+        mine = {r[0] for r in conn.execute("SELECT puuid FROM accounts WHERE is_me = 1")}
+    finally:
+        conn.close()
+    targets = []
+    for sub in subs:
+        if sub["scope"] == "local":
+            targets.append((sub, mine))
+        elif sub["scope"] == "discord" and sub["discord_id"] in active:
+            targets.append((sub, links.get(sub["discord_id"], set())))
+    return targets
+
+
+def _send_new_match_pushes(after_rowid: int):
+    try:
+        with closing(_state_db()) as state:
+            subs = push.all_subscriptions(state)
+        if not subs:
+            return
+        conn = db.connect()
+        try:
+            games = push.new_match_players(conn, after_rowid, lcu.MAYHEM_QUEUE_ID)
+        finally:
+            conn.close()
+        if not games:
+            return
+        plan = push.plan_notifications(_push_targets(subs), games)
+        if not plan:
+            return
+        sent, gone = push.send_all(subs, plan, push.load_vapid(PUSH_VAPID_FILE))
+        if gone:
+            with closing(_state_db()) as state, state:
+                for endpoint in gone:
+                    push.delete_subscription(state, endpoint)
+        print(f"推送通知：{len(games)} 場新對局，送出 {sent}/{len(plan)}")
+    except Exception as exc:  # noqa: BLE001 - 通知壞掉不能影響採集
+        print(f"推送通知失敗: {type(exc).__name__}: {exc}")
+
+
+def _notify_new_matches(after_rowid: int):
+    """採集執行緒在一輪結束、場次變多時呼叫。另開背景執行緒發送，不拖慢採集。"""
+    threading.Thread(
+        target=_send_new_match_pushes, args=(after_rowid,), name="push-notify", daemon=True
+    ).start()
 
 
 # 全站的預設查詢區間：打開頁面時全域篩選（模式、期間、版本起點）的初始值。只有管理員能改，

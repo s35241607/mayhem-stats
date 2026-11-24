@@ -26,6 +26,10 @@ import {
   LayoutGrid,
   SlidersHorizontal,
   Check,
+  Newspaper,
+  Crosshair,
+  BookOpen,
+  Megaphone,
 } from "lucide-react"
 import {
   Sidebar,
@@ -77,9 +81,17 @@ import { Toaster, toast } from "@/lib/toast"
 import { EmptyState } from "@/components/primitives"
 import { useCrumbs } from "@/lib/breadcrumb"
 import { BottomSheet } from "@/components/BottomSheet"
+import { PullToRefresh } from "@/components/PullToRefresh"
+import { PushToggle } from "@/components/PushToggle"
 import { cn } from "@/lib/utils"
+import { CHANGELOG, isChangelogUnread, markFirstVisit, takeJustUpdated, useChangelogUnread } from "@/lib/changelog"
 
 export type PageId =
+  | "feed"
+  | "pick"
+  | "profile"
+  | "score"
+  | "changelog"
   | "dashboard"
   | "matches"
   | "champions"
@@ -104,6 +116,7 @@ const NAV: { group: string; admin?: boolean; items: { id: PageId; label: string;
   {
     group: "總覽",
     items: [
+      { id: "feed", label: "戰報", icon: Newspaper },
       { id: "dashboard", label: "儀表板", icon: LayoutDashboard },
       { id: "matches", label: "對局紀錄", icon: ScrollText },
     ],
@@ -116,6 +129,12 @@ const NAV: { group: string; admin?: boolean; items: { id: PageId; label: string;
       { id: "lineups", label: "陣容", icon: Shield },
       { id: "players", label: "隊友 / 對手", icon: Users },
       { id: "crew", label: "好友比較", icon: GitCompareArrows },
+    ],
+  },
+  {
+    // 三頁問的都是「我的習慣」：什麼時候打、連打幾場、輸的時候差在哪。頁面頂端有同組切換（HabitSwitch）
+    group: "習慣",
+    items: [
       { id: "time", label: "時段", icon: CalendarClock },
       { id: "tilt", label: "節奏與連敗", icon: Activity },
       { id: "losses", label: "敗因分析", icon: TrendingDown },
@@ -124,9 +143,17 @@ const NAV: { group: string; admin?: boolean; items: { id: PageId; label: string;
   {
     group: "工具",
     items: [
+      { id: "pick", label: "選角助手", icon: Crosshair },
       { id: "calc", label: "出裝計算機", icon: Calculator },
       { id: "recap", label: "賽季回顧", icon: Clapperboard },
       { id: "explore", label: "自由探索", icon: Compass },
+    ],
+  },
+  {
+    group: "說明",
+    items: [
+      { id: "score", label: "分數怎麼算", icon: BookOpen },
+      { id: "changelog", label: "更新紀錄", icon: Megaphone },
     ],
   },
   {
@@ -141,6 +168,11 @@ const NAV: { group: string; admin?: boolean; items: { id: PageId; label: string;
 ]
 
 const PAGE_TITLES: Record<PageId, { title: string; caption: string }> = {
+  feed: { title: "戰報", caption: "一輪一張：每次開打的戰績、最佳與最慘的一場、和誰一起打" },
+  pick: { title: "選角助手", caption: "選到英雄時快速查：你和大家用它的戰績、常勝的增幅與出裝" },
+  profile: { title: "個人頁", caption: "一位玩家的摘要、拿手英雄、最近幾輪，以及和你的對戰紀錄" },
+  score: { title: "分數怎麼算", caption: "本場貢獻（0–100）怎麼算、怎麼看" },
+  changelog: { title: "更新紀錄", caption: "這個網站最近改了什麼" },
   dashboard: { title: "儀表板", caption: "整體表現與趨勢的一頁式總覽" },
   matches: { title: "對局紀錄", caption: "逐場瀏覽，點進去看完整戰報" },
   tilt: { title: "節奏與連敗", caption: "上一場的結果、同一輪連打到第幾場，和勝率的關係" },
@@ -611,15 +643,46 @@ function FilterSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (ope
   )
 }
 
+/** 「習慣」一組三頁（時段、節奏與連敗、敗因分析）頂端的切換：三頁問的都是「我的習慣」，
+ *  放在同一列互相跳，不必回側欄找。網址仍是各自的 /time、/tilt、/losses。 */
+const HABIT_PAGES = NAV.find((s) => s.group === "習慣")!.items
+function HabitSwitch({ page, onNavigate }: { page: PageId; onNavigate: (page: PageId) => void }) {
+  if (!HABIT_PAGES.some((p) => p.id === page)) return null
+  return (
+    <nav aria-label="習慣" className="mb-4 grid grid-cols-3 gap-1 rounded-xl border bg-card/60 p-1 sm:inline-grid sm:w-auto">
+      {HABIT_PAGES.map((p) => (
+        <button
+          key={p.id}
+          aria-current={page === p.id ? "page" : undefined}
+          onClick={() => onNavigate(p.id)}
+          className={cn(
+            "flex min-h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 text-sm transition sm:min-h-8",
+            page === p.id ? "bg-primary font-semibold text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <p.icon className="size-4 max-sm:hidden" />
+          {p.label}
+        </button>
+      ))}
+    </nav>
+  )
+}
+
+/** 還沒看過的更新紀錄：主色小圓點 */
+function UnreadDot({ className }: { className?: string }) {
+  return <span className={cn("size-2 shrink-0 rounded-full bg-primary ring-2 ring-background", className)} aria-hidden />
+}
+
 /** 手機底部的分頁列：最常用的四頁＋「更多」。其餘頁面（和管理員頁）收在「更多」面板。 */
 const TAB_PAGES: { id: PageId; label: string; icon: typeof Zap }[] = [
-  { id: "dashboard", label: "儀表板", icon: LayoutDashboard },
-  { id: "matches", label: "對局", icon: ScrollText },
+  { id: "feed", label: "戰報", icon: Newspaper },
+  { id: "pick", label: "選角", icon: Crosshair },
   { id: "champions", label: "英雄", icon: Swords },
   { id: "crew", label: "好友", icon: GitCompareArrows },
 ]
 
 function MobileTabBar({ page, onNavigate, onMore }: { page: PageId; onNavigate: (page: PageId) => void; onMore: () => void }) {
+  const unread = useChangelogUnread()
   const inTabs = TAB_PAGES.some((t) => t.id === page)
   const tab = (on: boolean) =>
     cn("relative flex min-h-12 min-w-0 flex-col items-center justify-center gap-0.5 text-[11px] transition", on ? "text-primary" : "text-muted-foreground")
@@ -638,7 +701,8 @@ function MobileTabBar({ page, onNavigate, onMore }: { page: PageId; onNavigate: 
         </button>
       ))}
       {/* 正在看收在「更多」裡的頁面時，這一格顯示那一頁的名字，才知道自己在哪 */}
-      <button className={tab(!inTabs)} aria-current={!inTabs ? "page" : undefined} onClick={onMore}>
+      <button className={tab(!inTabs)} aria-current={!inTabs ? "page" : undefined} onClick={onMore} aria-label={unread ? "更多（有新的更新紀錄）" : undefined}>
+        {unread && <UnreadDot className="absolute top-1.5 right-[calc(50%-16px)]" />}
         <LayoutGrid key={String(!inTabs)} className={cn("size-[22px]", !inTabs && "tab-pop")} />
         <span className="max-w-full truncate px-0.5">{inTabs ? "更多" : PAGE_TITLES[page].title}</span>
       </button>
@@ -648,6 +712,7 @@ function MobileTabBar({ page, onNavigate, onMore }: { page: PageId; onNavigate: 
 
 function MoreSheet({ open, onOpenChange, page, onNavigate }: { open: boolean; onOpenChange: (open: boolean) => void; page: PageId; onNavigate: (page: PageId) => void }) {
   const { canEditDefaults } = useFilters()
+  const unread = useChangelogUnread()
   const tabIds = new Set(TAB_PAGES.map((t) => t.id))
   const go = (id: PageId) => {
     onNavigate(id)
@@ -672,6 +737,7 @@ function MoreSheet({ open, onOpenChange, page, onNavigate }: { open: boolean; on
                     </span>
                     <span className="flex-1">{item.label}</span>
                     {item.id === "explore" && <span className="rounded-md border px-2 py-0.5 text-[11px] text-muted-foreground">建議用電腦</span>}
+                    {item.id === "changelog" && unread && <UnreadDot />}
                     {page === item.id && <Check className="size-4 text-primary" />}
                   </button>
                 ))}
@@ -698,6 +764,10 @@ function MoreSheet({ open, onOpenChange, page, onNavigate }: { open: boolean; on
             </button>
           </div>
         </section>
+        <section>
+          <h3 className="mb-1.5 text-xs font-semibold tracking-wider text-muted-foreground">通知</h3>
+          <PushToggle />
+        </section>
         <CollectorPill />
       </div>
     </BottomSheet>
@@ -713,6 +783,7 @@ function NavSections({
 }) {
   const { isMobile, setOpenMobile } = useSidebar()
   const { canEditDefaults } = useFilters()
+  const unread = useChangelogUnread()
 
   const go = (id: PageId) => {
     onNavigate(id)
@@ -736,6 +807,7 @@ function NavSections({
                   >
                     <item.icon />
                     <span>{item.label}</span>
+                    {item.id === "changelog" && unread && <UnreadDot className="ml-auto" />}
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
@@ -761,6 +833,15 @@ export function AppShell({
   // 768px 以下：底部分頁列＋篩選面板取代側欄與標題列的下拉選單（與 shadcn 側欄同一個斷點）
   const isMobile = useIsMobile()
   const [filtersOpen, setFiltersOpen] = useState(false)
+  // 第一次來的人直接記成看過；改版後第一次載入跳一次「網站更新了」，按了去看更新紀錄
+  useEffect(() => {
+    const updated = takeJustUpdated()
+    markFirstVisit()
+    if (updated && isChangelogUnread())
+      toast(`網站更新了：${CHANGELOG[0].title}`, "info", { label: "看看改了什麼", onClick: () => onNavigate("changelog") })
+    // 只在載入時跑一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [moreOpen, setMoreOpen] = useState(false)
   // 分頁標題跟著「現在在看什麼」：頁名加上最深的一層（某隻英雄、某一場），開好幾個分頁時分得出來
   const crumbs = useCrumbs()
@@ -873,11 +954,13 @@ export function AppShell({
           <Toaster />
           <OfflineBanner />
           <ViewingOtherBanner />
+          <HabitSwitch page={page} onNavigate={onNavigate} />
           {content}
         </main>
         {isMobile && (
           <>
             <MobileTabBar page={page} onNavigate={onNavigate} onMore={() => setMoreOpen(true)} />
+            <PullToRefresh />
             <FilterSheet open={filtersOpen} onOpenChange={setFiltersOpen} />
             <MoreSheet open={moreOpen} onOpenChange={setMoreOpen} page={page} onNavigate={onNavigate} />
           </>

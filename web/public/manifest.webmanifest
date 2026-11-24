@@ -4,7 +4,7 @@
   "description": "ARAM: Mayhem 的戰績與分析",
   "lang": "zh-Hant",
   "id": "/",
-  "start_url": "/dashboard",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",

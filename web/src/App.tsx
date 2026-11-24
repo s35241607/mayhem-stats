@@ -10,12 +10,18 @@ import { WhoProvider } from "@/lib/whoState"
 import { ThemeProvider } from "@/lib/theme"
 import { markNavigation } from "@/lib/motion"
 import { notifyUrlChanged, pageHref } from "@/lib/urlState"
+import { flagJustUpdated } from "@/lib/changelog"
 import { Dashboard } from "@/pages/Dashboard"
 
 // 每頁各自成為一個 chunk。表格頁才會載入 AG Grid、圖表頁才會載入 ECharts，
 // 全部打包在一起的話首屏要先扛下兩套函式庫（壓縮後將近 900KB）。
 const LOADERS = {
-  // 儀表板是預設首頁，直接打包進主程式，不走延遲載入。
+  feed: () => import("@/pages/Feed").then((m) => m.Feed),
+  pick: () => import("@/pages/Pick").then((m) => m.Pick),
+  profile: () => import("@/pages/Profile").then((m) => m.Profile),
+  score: () => import("@/pages/Score").then((m) => m.Score),
+  changelog: () => import("@/pages/Changelog").then((m) => m.Changelog),
+  // 儀表板直接打包進主程式，不走延遲載入。
   dashboard: () => Promise.resolve(Dashboard),
   matches: () => import("@/pages/Matches").then((m) => m.Matches),
   tilt: () => import("@/pages/Tilt").then((m) => m.Tilt),
@@ -48,7 +54,8 @@ const PAGE_IDS = new Set<PageId>(Object.keys(LOADERS) as PageId[])
 
 function pageFromPath(): PageId {
   const segment = window.location.pathname.replace(/^\/+|\/+$/g, "")
-  return PAGE_IDS.has(segment as PageId) ? segment as PageId : "dashboard"
+  // 首頁（/）是戰報；儀表板在 /dashboard
+  return PAGE_IDS.has(segment as PageId) ? segment as PageId : "feed"
 }
 
 /** 當前頁顯示完、瀏覽器閒下來之後，把其他頁的 chunk 先抓好。
@@ -101,7 +108,11 @@ export default function App() {
         .then((r) => (r.ok ? r.text() : ""))
         .then((html) => {
           const latest = html.match(/\/assets\/index-[\w-]+\.js/)?.[0]
-          if (latest && !current.endsWith(latest)) window.location.reload()
+          if (latest && !current.endsWith(latest)) {
+            // 重新整理後跳一次「網站更新了」（AppShell 讀這個記號）
+            flagJustUpdated()
+            window.location.reload()
+          }
         })
         .catch(() => {})
     }

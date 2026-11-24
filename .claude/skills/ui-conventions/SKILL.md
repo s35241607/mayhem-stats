@@ -165,6 +165,19 @@ description: 這個專案前端的主題與動畫規範。只要動到 web/src �
   新表格不用另寫手機版；欄位順序就是卡片上的優先順序，最重要的欄位放前面。卡片直角、捲到底每批接 40 張，「N 列」照實寫。
 - `Panel` 的 caption 超過 40 字時，手機上收進標題旁的 ⓘ；標題右邊的 `action` 放不下會換到下一行。
 
+## 導覽與首頁
+
+- 首頁（`/`）是「戰報」（`pages/Feed.tsx`）：一輪一張卡。一輪用語意層的 `participant_context.game_in_session`（遇到第 1 場就開新的一張），**不要在前端另寫 60 分鐘的界線**。
+- 手機底部分頁列：戰報｜選角｜英雄｜好友｜更多。其餘頁面在 `NAV`，「更多」自動列出不在分頁列的。
+- 「習慣」一組（時段、節奏與連敗、敗因分析）由 `AppShell` 的 `HabitSwitch` 在頁面頂端互相切換，網址仍是各自的。
+- 從主畫面開啟時（standalone）有下拉重新整理（`components/PullToRefresh.tsx`），重查走 `mayhem:data-changed`，不重掛頁面。
+
+## 勝率的「看得出」與結論先講
+
+- 勝率和基準比要不要下結論，一律用 `lib/confidence.ts` 的 `judge()`（Wilson 95%）。`RecordCell` 有 `baseline` 時自動標 ▲▼；沒標＝還在誤差內。
+- 表格頁上方的一句話結論用 `components/Insight.tsx`：從表格已載入的列算，和 ▲▼ 同一套判定，不另外查詢。
+- 不要自己用「場次 ≥ N 且勝率 > X」這種門檻寫結論。
+
 ## 三、表格的複合格子
 
 一格一個數字的寬表格，改成「一格 = 主數字 + 補充 + 迷你圖」。元件在 `components/cells.tsx`：

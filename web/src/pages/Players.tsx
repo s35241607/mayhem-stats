@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { RecordCell, num0, numOf } from "@/components/cells"
-import { Check, Radar, X } from "lucide-react"
+import { Check, Radar, UserRound, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
@@ -13,6 +13,7 @@ import { useCube } from "@/hooks/useCube"
 import { MAYHEM_QUEUE_ID, num, type CubeFilter } from "@/lib/cube"
 import { useFilters } from "@/lib/filters"
 import { useCrumb } from "@/lib/breadcrumb"
+import { useNavigate } from "@/lib/nav"
 import { MIN_GAMES, NO_LIMIT, round0 } from "./shared"
 import { oneOf, useUrlState } from "@/lib/urlState"
 
@@ -159,6 +160,17 @@ function TrackButton({ puuid }: { puuid: string }) {
   )
 }
 
+/** 到這個人的個人頁（不切換整站帳號）。網址用 puuid 前 8 碼，和全站的 acct 同一種認法 */
+function ProfileButton({ puuid }: { puuid: string }) {
+  const go = useNavigate()
+  return (
+    <Button size="sm" variant="outline" onClick={() => go("profile", { p: puuid.slice(0, 8) })}>
+      <UserRound className="size-3.5" />
+      看個人頁
+    </Button>
+  )
+}
+
 /** 點了某個人：右側抽屜。上面是同隊、敵對各自的戰績，下面是每一場（同隊、敵對可以一起列或分開看）與英雄拆解。
  *  表格留在原位、那一列保持選取，關掉就回到剛才的位置。 */
 function PersonDrawer({
@@ -187,7 +199,14 @@ function PersonDrawer({
           ? `同場 ${person.games} 場 · 同隊 ${person.mate_games} · 敵對 ${person.foe_games}${person.last_played ? ` · 最近 ${person.last_played}` : ""}`
           : undefined
       }
-      actions={person && <TrackButton puuid={person.puuid} />}
+      actions={
+        person && (
+          <>
+            <ProfileButton puuid={person.puuid} />
+            <TrackButton puuid={person.puuid} />
+          </>
+        )
+      }
     >
       {person && (
         <PersonDetail

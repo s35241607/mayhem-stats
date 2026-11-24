@@ -4,6 +4,7 @@
  *  原始欄位另外以 `hide: true` 保留，匯出 CSV 時仍會帶出。顏色只用主題 token。 */
 import type { CSSProperties, ReactNode } from "react"
 import { cn } from "@/lib/utils"
+import { judge, VERDICT_TEXT } from "@/lib/confidence"
 
 const pct = (v: number) => `${Math.max(0, Math.min(1, v)) * 100}%`
 
@@ -47,6 +48,8 @@ export function RecordCell({
   /** 刻度線的說明，滑鼠移上去看得到（例如「你的整體勝率」） */
   baselineLabel?: string
 }) {
+  // 和基準比「看得出」才標箭頭（lib/confidence）；沒標的是差距還在誤差內
+  const verdict = judge(wins, wins + losses, baseline)
   return (
     <div className="flex w-full flex-col justify-center gap-1.5">
       <div className="flex items-baseline justify-between gap-2">
@@ -56,6 +59,16 @@ export function RecordCell({
             winrate === null ? "text-muted-foreground" : winrate >= 50 ? "text-win" : "text-loss",
           )}
         >
+          {verdict && (
+            <span
+              className={cn("mr-0.5 text-[10px]", verdict === "high" ? "text-win" : "text-loss")}
+              data-tip={`${VERDICT_TEXT[verdict]}於${baselineLabel}
+95% 信賴區間整段${verdict === "high" ? "高於" : "低於"}基準`}
+              aria-label={`${VERDICT_TEXT[verdict]}於${baselineLabel}`}
+            >
+              {verdict === "high" ? "▲" : "▼"}
+            </span>
+          )}
           {winrate === null ? "—" : `${winrate.toFixed(1)}%`}
         </span>
         <span className="text-[11px] tabular-nums text-muted-foreground">
