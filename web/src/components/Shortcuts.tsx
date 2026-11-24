@@ -3,9 +3,7 @@ import type { PageId } from "@/components/AppShell"
 
 /** g 之後按哪個字母到哪一頁。字母取頁面英文名的開頭，撞到的換一個好記的 */
 const GO: { key: string; page: PageId; label: string }[] = [
-  { key: "h", page: "feed", label: "戰報" },
   { key: "d", page: "dashboard", label: "儀表板" },
-  { key: "s", page: "pick", label: "選角助手" },
   { key: "m", page: "matches", label: "對局紀錄" },
   { key: "c", page: "champions", label: "英雄" },
   { key: "a", page: "augments", label: "增幅裝置" },

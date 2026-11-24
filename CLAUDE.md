@@ -59,8 +59,6 @@ ARAM: Mayhem 的本機戰績採集與分析工具。FastAPI（`app.py`）+ Cube 
   `sw.js` 只快取外殼與 `/assets/`，**絕對不要讓它快取 `/api`、`/auth`、`/login`**（資料有登入與名稱遮罩）。新增頁面要同時加進 `app.py` 的頁面白名單與 `sw.js` 的 `PAGES`。
 - **更新紀錄**（`web/src/lib/changelog.ts`，頁面 `/changelog`）：使用者看得到的改動，commit 時一併在最上面補一筆——寫朋友看得懂的「改了什麼、去哪看」，不是 commit 訊息；
   `id` 要比上一筆大（日期＋當天序號），小紅點與「網站更新了」提示靠它比。內容一樣不能出現其他玩家的名稱。
-- **推播**（`push.py`、`/api/push/*`）：訂閱存在 `.public_state.db` 的 `push_subscriptions`，VAPID 私鑰在 `.push_vapid.json`（不進版控，刪掉會讓所有裝置的訂閱失效）。
-  只有本機行程（會採集的那個）發送；端點只接受已知推播服務的 https 網址（防止被當成對內 SSRF）。
 - 前端改完要 `cd web && npm run build`：服務（含鏡像）直接讀 `web/dist`。`web/dist` 不進版控，commit 只放原始碼。
 - **這台機器上跑著一個對外開放的唯讀鏡像**（`mirror.pyw`，5058 埠，Tailscale Funnel 指向它，
   排程工作 `MayhemStatsMirror`）。動到 `app.py` 時記得它也會載入同一份程式：

@@ -26,8 +26,6 @@ import {
   LayoutGrid,
   SlidersHorizontal,
   Check,
-  Newspaper,
-  Crosshair,
   BookOpen,
   Megaphone,
 } from "lucide-react"
@@ -82,14 +80,10 @@ import { EmptyState } from "@/components/primitives"
 import { useCrumbs } from "@/lib/breadcrumb"
 import { BottomSheet } from "@/components/BottomSheet"
 import { PullToRefresh } from "@/components/PullToRefresh"
-import { PushToggle } from "@/components/PushToggle"
 import { cn } from "@/lib/utils"
 import { CHANGELOG, isChangelogUnread, markFirstVisit, takeJustUpdated, useChangelogUnread } from "@/lib/changelog"
 
 export type PageId =
-  | "feed"
-  | "pick"
-  | "profile"
   | "score"
   | "changelog"
   | "dashboard"
@@ -116,7 +110,6 @@ const NAV: { group: string; admin?: boolean; items: { id: PageId; label: string;
   {
     group: "總覽",
     items: [
-      { id: "feed", label: "戰報", icon: Newspaper },
       { id: "dashboard", label: "儀表板", icon: LayoutDashboard },
       { id: "matches", label: "對局紀錄", icon: ScrollText },
     ],
@@ -143,7 +136,6 @@ const NAV: { group: string; admin?: boolean; items: { id: PageId; label: string;
   {
     group: "工具",
     items: [
-      { id: "pick", label: "選角助手", icon: Crosshair },
       { id: "calc", label: "出裝計算機", icon: Calculator },
       { id: "recap", label: "賽季回顧", icon: Clapperboard },
       { id: "explore", label: "自由探索", icon: Compass },
@@ -168,9 +160,6 @@ const NAV: { group: string; admin?: boolean; items: { id: PageId; label: string;
 ]
 
 const PAGE_TITLES: Record<PageId, { title: string; caption: string }> = {
-  feed: { title: "戰報", caption: "一輪一張：每次開打的戰績、最佳與最慘的一場、和誰一起打" },
-  pick: { title: "選角助手", caption: "選到英雄時快速查：你和大家用它的戰績、常勝的增幅與出裝" },
-  profile: { title: "個人頁", caption: "一位玩家的摘要、拿手英雄、最近幾輪，以及和你的對戰紀錄" },
   score: { title: "分數怎麼算", caption: "本場貢獻（0–100）怎麼算、怎麼看" },
   changelog: { title: "更新紀錄", caption: "這個網站最近改了什麼" },
   dashboard: { title: "儀表板", caption: "整體表現與趨勢的一頁式總覽" },
@@ -675,8 +664,8 @@ function UnreadDot({ className }: { className?: string }) {
 
 /** 手機底部的分頁列：最常用的四頁＋「更多」。其餘頁面（和管理員頁）收在「更多」面板。 */
 const TAB_PAGES: { id: PageId; label: string; icon: typeof Zap }[] = [
-  { id: "feed", label: "戰報", icon: Newspaper },
-  { id: "pick", label: "選角", icon: Crosshair },
+  { id: "dashboard", label: "儀表板", icon: LayoutDashboard },
+  { id: "matches", label: "對局", icon: ScrollText },
   { id: "champions", label: "英雄", icon: Swords },
   { id: "crew", label: "好友", icon: GitCompareArrows },
 ]
@@ -763,10 +752,6 @@ function MoreSheet({ open, onOpenChange, page, onNavigate }: { open: boolean; on
               複製這個畫面的連結
             </button>
           </div>
-        </section>
-        <section>
-          <h3 className="mb-1.5 text-xs font-semibold tracking-wider text-muted-foreground">通知</h3>
-          <PushToggle />
         </section>
         <CollectorPill />
       </div>

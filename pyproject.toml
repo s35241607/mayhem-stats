@@ -9,7 +9,6 @@ dependencies = [
     "requests>=2.31",
     "pyyaml>=6",
     "websockets>=14",
-    "pywebpush>=2.5.0",
 ]
 
 [tool.uv]

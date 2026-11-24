@@ -16,12 +16,9 @@ import { Dashboard } from "@/pages/Dashboard"
 // 每頁各自成為一個 chunk。表格頁才會載入 AG Grid、圖表頁才會載入 ECharts，
 // 全部打包在一起的話首屏要先扛下兩套函式庫（壓縮後將近 900KB）。
 const LOADERS = {
-  feed: () => import("@/pages/Feed").then((m) => m.Feed),
-  pick: () => import("@/pages/Pick").then((m) => m.Pick),
-  profile: () => import("@/pages/Profile").then((m) => m.Profile),
   score: () => import("@/pages/Score").then((m) => m.Score),
   changelog: () => import("@/pages/Changelog").then((m) => m.Changelog),
-  // 儀表板直接打包進主程式，不走延遲載入。
+  // 儀表板是預設首頁，直接打包進主程式，不走延遲載入。
   dashboard: () => Promise.resolve(Dashboard),
   matches: () => import("@/pages/Matches").then((m) => m.Matches),
   tilt: () => import("@/pages/Tilt").then((m) => m.Tilt),
@@ -54,8 +51,7 @@ const PAGE_IDS = new Set<PageId>(Object.keys(LOADERS) as PageId[])
 
 function pageFromPath(): PageId {
   const segment = window.location.pathname.replace(/^\/+|\/+$/g, "")
-  // 首頁（/）是戰報；儀表板在 /dashboard
-  return PAGE_IDS.has(segment as PageId) ? segment as PageId : "feed"
+  return PAGE_IDS.has(segment as PageId) ? segment as PageId : "dashboard"
 }
 
 /** 當前頁顯示完、瀏覽器閒下來之後，把其他頁的 chunk 先抓好。
