@@ -4869,191 +4869,6 @@ function HabitTable({ people, profiles, rows, baseRows, onOpen }: { people: Play
   )
 }
 
-// ── 情境變化：同一個人在兩種情境下，十項基因差多少 ───────────────────────────────
-// 每格＝（他在 A 的平均 − 他在 B 的平均）−（基準在 A − 基準在 B）。扣掉基準是因為有些變化每個人都有
-//   （輸的場次大家的 K/DA 都低），留下來的才是「他特別會這樣」。
-// 情境的分組全部用語意層現成的維度與標籤（values 要和 yml 裡的字串一字不差），這裡不另寫界線。
-// 基準：對局本身的條件（勝負、前排數）用所有玩家；連打與上一場結果只有被追蹤的人才有完整的對局序列，改用比較名單合起來。
-// 誤差範圍 = z × 單場標準差 × √(1/nA + 1/nB)（基準的樣本大得多，不計）；兩邊各要 STYLE_MIN 場有分數的才判斷。
-
-type ShiftSide = { label: string; values: string[] }
-const CONTEXTS: { id: string; label: string; dim: string; a: ShiftSide; b: ShiftSide; base: "all" | "crew" }[] = [
-  { id: "result", label: "贏 vs 輸", dim: "participants.result", a: { label: "贏的場次", values: ["勝"] }, b: { label: "輸的場次", values: ["敗"] }, base: "all" },
-  { id: "foe", label: "對面前排多 vs 少", dim: "comp_context.enemy_frontline", a: { label: "對面前排 3 個以上", values: ["3 個以上"] }, b: { label: "對面前排 0～1 個", values: ["0 個", "1 個"] }, base: "all" },
-  { id: "ally", label: "我方前排多 vs 少", dim: "comp_context.team_frontline", a: { label: "我方前排 3 個以上", values: ["3 個以上"] }, b: { label: "我方前排 0～1 個", values: ["0 個", "1 個"] }, base: "all" },
-  { id: "late", label: "連打後段 vs 開頭", dim: "participant_context.session_stage", a: { label: "連打第 6 場以後", values: ["第 6-9 場", "第 10 場以後"] }, b: { label: "連打第 1～2 場", values: ["第 1-2 場"] }, base: "crew" },
-  { id: "tilt", label: "上一場輸 vs 贏", dim: "participant_context.prev_result", a: { label: "上一場輸", values: ["前一場輸"] }, b: { label: "上一場贏", values: ["前一場贏"] }, base: "crew" },
-]
-const SHIFT_MEASURES = [WORK_GAMES, ...AXES.map((a) => a.key)]
-
-/** 一邊（A 或 B）的場次與各基因平均：把這一邊的幾個分組依有分數的場次加權合起來（基因只有計分場次有值，所以這樣合是精確的） */
-function sideOf2(rows: CubeRow[], dim: string, side: ShiftSide) {
-  const hit = rows.filter((r) => side.values.includes(String(r[dim])))
-  const n = hit.reduce((s, r) => s + n0(r, WORK_GAMES), 0)
-  const avg = new Map<string, number>()
-  if (n > 0) for (const ax of AXES) avg.set(ax.key, hit.reduce((s, r) => s + n0(r, WORK_GAMES) * (opt(r, ax.key) ?? 0), 0) / n)
-  return { n, avg }
-}
-
-function ContextShift({
-  people, profiles, ctxId, onCtx, rows, baseRows, loading, onOpen, onGames,
-}: {
-  people: Player[]
-  profiles: Map<string, Profile>
-  ctxId: string
-  onCtx: (id: string) => void
-  rows: CubeRow[]
-  baseRows: CubeRow[]
-  loading: boolean
-  onOpen: (puuid: string) => void
-  onGames: (p: Player, side: ShiftSide, dim: string, n: number) => void
-}) {
-  const ctx = CONTEXTS.find((c) => c.id === ctxId) ?? CONTEXTS[0]
-  const [sortKey, setSortKey] = useState<string | null>(null)
-  const base = useMemo(() => {
-    const a = sideOf2(baseRows, ctx.dim, ctx.a)
-    const b = sideOf2(baseRows, ctx.dim, ctx.b)
-    return new Map(AXES.map((ax) => [ax.key as string, a.n && b.n ? a.avg.get(ax.key)! - b.avg.get(ax.key)! : 0]))
-  }, [baseRows, ctx])
-  const list = useMemo(() => {
-    const out = people.map((p) => {
-      const mine = rows.filter((r) => r["participants.puuid"] === p.puuid)
-      const a = sideOf2(mine, ctx.dim, ctx.a)
-      const b = sideOf2(mine, ctx.dim, ctx.b)
-      const axes = profiles.get(p.puuid)?.style.axes ?? []
-      const enough = a.n >= STYLE_MIN && b.n >= STYLE_MIN
-      const usable = axes.filter((x) => x.applicable)
-      const z = zFor(usable.length)
-      const cells = !enough
-        ? null
-        : AXES.map((ax) => {
-            if (!usable.some((x) => x.key === ax.key)) return null
-            const own = a.avg.get(ax.key)! - b.avg.get(ax.key)!
-            const ref = base.get(ax.key) ?? 0
-            const delta = own - ref
-            const half = z * (GENE_SD[ax.key] ?? 16) * Math.sqrt(1 / a.n + 1 / b.n)
-            const tone = Math.abs(delta) < AXIS_LEAN ? null : delta > 0 ? ("up" as const) : ("down" as const)
-            return { key: ax.key as string, label: ax.label as string, a: a.avg.get(ax.key)!, b: b.avg.get(ax.key)!, own, ref, delta, half, tone, clear: tone !== null && Math.abs(delta) > half }
-          })
-      return { p, a, b, cells }
-    })
-    if (!sortKey) return out
-    const v = (r: (typeof out)[number]) => r.cells?.find((c) => c?.key === sortKey)?.delta ?? -Infinity
-    return [...out].sort((x, y) => v(y) - v(x))
-  }, [people, profiles, rows, base, ctx, sortKey])
-  const sortLabel = AXES.find((a) => a.key === sortKey)?.label
-  return (
-    <div className="space-y-3">
-      <ToggleGroup type="single" size="sm" variant="outline" value={ctx.id} onValueChange={(v) => v && onCtx(v)} className="flex-wrap justify-start" data-testid="crew-shift-ctx">
-        {CONTEXTS.map((c) => (
-          <ToggleGroupItem key={c.id} value={c.id} className="h-7 px-2 text-xs max-sm:h-11">
-            {c.label}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-        <span>
-          正的：他在「{ctx.a.label}」做得比「{ctx.b.label}」多，而且多過{ctx.base === "all" ? "一般玩家" : "這群人合起來"}同樣的變化
-        </span>
-        <span>實心、虛線、灰字的意思和上面一樣</span>
-        {sortLabel && (
-          <Button size="sm" variant="outline" className="h-6 px-2 text-[11px]" onClick={() => setSortKey(null)}>
-            依「{sortLabel}」排序中・清除
-          </Button>
-        )}
-      </div>
-      {loading ? (
-        <LoadingBlock height={Math.max(160, 60 + people.length * 56)} label="載入情境變化…" />
-      ) : (
-        <div className="overflow-x-auto" data-testid="crew-shift" data-ctx={ctx.id}>
-          <div className="grid items-center gap-1 text-[11px]" style={PRINT_COLS}>
-            <span className="self-stretch text-muted-foreground max-sm:sticky max-sm:left-0 max-sm:z-[1] max-sm:bg-card">玩家</span>
-            {AXES.map((a) => (
-              <button
-                key={a.key}
-                type="button"
-                aria-pressed={sortKey === a.key}
-                onClick={() => setSortKey(sortKey === a.key ? null : a.key)}
-                data-tip={`${ctx.base === "all" ? "一般玩家" : "這群人合起來"}在「${ctx.a.label}」比「${ctx.b.label}」${signed(base.get(a.key) ?? 0)} 分（已從每格扣掉）\n${sortKey === a.key ? "點一下回到依場次排序" : "點一下依這一項排序"}`}
-                className={cn(
-                  "flex min-h-8 items-center justify-center gap-0.5 rounded-md px-0.5 text-center font-medium transition hover:bg-accent max-sm:min-h-11",
-                  sortKey === a.key && "bg-primary/10 text-primary",
-                )}
-              >
-                {a.label}
-                {sortKey === a.key && <ChevronDown className="size-3 shrink-0" aria-hidden="true" />}
-              </button>
-            ))}
-            {list.map(({ p, a, b, cells }) => {
-              const name = nameOf(p)
-              return (
-                <Fragment key={p.puuid}>
-                  <span className="grid min-w-0 gap-0.5 py-1 pr-1 max-sm:sticky max-sm:left-0 max-sm:z-[1] max-sm:bg-card" data-testid="crew-shift-row">
-                    <button type="button" onClick={() => onOpen(p.puuid)} data-tip={`看 ${name} 的完整分析`} className="min-w-0 rounded-sm text-left transition hover:text-primary">
-                      <PlayerName player={p} className="text-sm" />
-                    </button>
-                    <span className="flex flex-wrap gap-x-2 font-mono tabular-nums text-muted-foreground">
-                      {([[ctx.a, a.n], [ctx.b, b.n]] as const).map(([side, n]) => (
-                        <button
-                          key={side.label}
-                          type="button"
-                          disabled={!n}
-                          onClick={() => onGames(p, side, ctx.dim, n)}
-                          data-tip={`${side.label}：${n} 場有分數\n點一下看這幾場`}
-                          className="rounded-sm underline decoration-dotted underline-offset-2 transition hover:text-foreground disabled:no-underline"
-                        >
-                          {n} 場
-                        </button>
-                      ))}
-                    </span>
-                  </span>
-                  {!cells ? (
-                    <span className="flex h-9 items-center rounded-md border border-dashed px-2 text-muted-foreground" style={{ gridColumn: `span ${AXES.length}` }}>
-                      兩邊各要 {STYLE_MIN} 場有分數的才比（{ctx.a.label} {a.n} 場、{ctx.b.label} {b.n} 場）
-                    </span>
-                  ) : (
-                    cells.map((c, j) =>
-                      !c ? (
-                        <span key={AXES[j].key} className="flex h-9 items-center justify-center rounded-md text-muted-foreground/60" data-tip={`${name}・${AXES[j].label}：很少玩輔助，這項不列入打法`}>
-                          ·
-                        </span>
-                      ) : (
-                        <span
-                          key={c.key}
-                          data-testid="crew-shift-cell"
-                          data-axis={c.label}
-                          data-tone={c.tone ?? "flat"}
-                          data-clear={c.clear}
-                          data-tip={`${name}・${c.label}\n${ctx.a.label} ${c.a.toFixed(1)}（${a.n} 場）、${ctx.b.label} ${c.b.toFixed(1)}（${b.n} 場）：${signed(c.own)}\n基準同樣的變化 ${signed(c.ref)}，扣掉後 ${signed(c.delta)}\n誤差範圍 ±${c.half.toFixed(1)}：${c.clear ? "看得出他在這個情境會變" : c.tone ? `差 ${AXIS_LEAN} 分以上，但還在誤差內` : "和基準的變化差不多"}`}
-                          style={
-                            c.clear
-                              ? { background: `color-mix(in oklab, var(${c.delta > 0 ? "--win" : "--loss"}) ${Math.round(14 + Math.min(1, Math.abs(c.delta) / PRINT_FULL) * 40)}%, transparent)` }
-                              : undefined
-                          }
-                          className={cn(
-                            "flex h-9 items-center justify-center rounded-md border font-mono text-xs tabular-nums",
-                            c.clear
-                              ? cn("font-semibold", c.delta > 0 ? "border-win" : "border-loss")
-                              : c.tone
-                                ? cn("border-dashed", c.tone === "up" ? "border-win/60 text-win" : "border-loss/60 text-loss")
-                                : "border-transparent text-muted-foreground",
-                          )}
-                        >
-                          {signed0(c.delta)}
-                        </span>
-                      ),
-                    )
-                  )}
-                </Fragment>
-              )
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
 function useHeaderHeight() {
   const [height, setHeight] = useState(0)
   useEffect(() => {
@@ -5216,17 +5031,6 @@ export function Crew() {
       ? apply({ measures: HABIT_MEASURES, dimensions: ["builds.build_role"], filters: centerFilters, limit: NO_LIMIT }, "all")
       : null,
   )
-  // 情境變化（打法分頁才查）：選中的那個情境，每個人各分組的基因平均；基準是所有玩家或比較名單合起來（見 CONTEXTS.base）
-  const [shiftCtx, setShiftCtx] = useUrlState<string>("ctx", CONTEXTS[0].id, stringCodec)
-  const shiftDef = CONTEXTS.find((c) => c.id === shiftCtx) ?? CONTEXTS[0]
-  const shift = useCube(section === "style" ? q({ measures: SHIFT_MEASURES, dimensions: ["participants.puuid", shiftDef.dim], limit: NO_LIMIT }) : null)
-  const shiftBase = useCube(
-    section !== "style" || centerFilters === null
-      ? null
-      : shiftDef.base === "crew"
-        ? q({ measures: SHIFT_MEASURES, dimensions: [shiftDef.dim], limit: NO_LIMIT })
-        : apply({ measures: SHIFT_MEASURES, dimensions: [shiftDef.dim], filters: centerFilters, limit: NO_LIMIT }, "all"),
-  )
   const matrixLoading = summary.loading || roles.loading || champs.loading || dmgTypes.loading || teamRoles.loading || everyoneRoles.loading
   const board = useCube(
     section === "stats" || drawerTab === "stats"
@@ -5328,7 +5132,7 @@ export function Crew() {
   }, [puuids.join(), queueId, activeVersions.join(), timeFilter])
   const duo = useCube(loadMatrixExtras ? duoQuery : null)
   const error = summary.error ?? roles.error ?? champs.error ?? board.error ?? augments.error ?? items.error ??
-    teamRoles.error ?? everyoneRoles.error ?? habits.error ?? habitBase.error ?? shift.error ?? shiftBase.error ?? dmgTypes.error ?? badgeError ?? duo.error ?? together.error
+    teamRoles.error ?? everyoneRoles.error ?? habits.error ?? habitBase.error ?? dmgTypes.error ?? badgeError ?? duo.error ?? together.error
 
   const sumOf = (puuid: string) => summary.rows.find((r) => r["participants.puuid"] === puuid)
   const gamesOf = (puuid: string) => n0(sumOf(puuid), "participants.games")
@@ -5813,36 +5617,6 @@ export function Crew() {
             ) : (
               <HabitTable people={ordered} profiles={profiles} rows={habits.rows} baseRows={habitBase.rows} onOpen={(puuid) => open(puuid, null, "overview")} />
             )}
-          </Panel>
-          <Panel
-            className="mt-4"
-            title="情境變化"
-            caption="同一個人換了情境，打法會不會變；選一組情境來比"
-            hint={`每格＝他在前一種情境的基因平均，減掉後一種情境的平均，再扣掉基準同樣的變化——有些變化每個人都有（輸的場次大家的 K/DA 都比較低），留下來的才是他特別會這樣。\n基準：勝負與前排數用所有玩家；連打與上一場結果用這份比較名單合起來（只有被追蹤的人才有完整的對局順序）。\n實心：95% 誤差範圍整段在一邊（十項一起看已放寬）。兩種情境各要 ${STYLE_MIN} 場有分數的才比；切得越細場次越少，大部分格子會是灰的，這是正常的。\n名字下面的場次可以點開看是哪幾場。`}
-          >
-            <ContextShift
-              people={ordered}
-              profiles={profiles}
-              ctxId={shiftCtx}
-              onCtx={setShiftCtx}
-              rows={shift.rows}
-              baseRows={shiftBase.rows}
-              loading={summary.loading || roles.loading || shift.loading || shiftBase.loading}
-              onOpen={(puuid) => open(puuid, null, "overview")}
-              onGames={(p, side, dim, n) =>
-                openGames({
-                  title: `${nameOf(p)}・${side.label}`,
-                  note: `${n} 場有分數`,
-                  source: {
-                    puuid: p.puuid,
-                    filters: [
-                      { member: dim, operator: "equals", values: side.values },
-                      { member: WORK_STATUS, operator: "notEquals", values: ["unscored"] },
-                    ],
-                  },
-                })
-              }
-            />
           </Panel>
         </TabsContent>
 
