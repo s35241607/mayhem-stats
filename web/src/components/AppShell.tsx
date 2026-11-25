@@ -28,6 +28,8 @@ import {
   Check,
   BookOpen,
   Megaphone,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react"
 import {
   Sidebar,
@@ -42,7 +44,6 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
-  SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
@@ -805,9 +806,25 @@ function NavSections({
 
 /** 側欄的收合開關（Ctrl+B 也可以）。放在側欄裡而不是標題列：標題列會跟著側欄寬度左右移動，開關就跟著跑 */
 function NavToggle() {
-  const { state } = useSidebar()
-  const label = state === "collapsed" ? "展開側欄" : "收合側欄"
-  return <SidebarTrigger className="size-8 shrink-0" aria-label={label} data-tip={`${label}（Ctrl+B）`} />
+  const { state, toggleSidebar } = useSidebar()
+  const shut = state === "collapsed"
+  const label = shut ? "展開側欄" : "收合側欄"
+  // 圖示畫的是「按下去會發生什麼」：展開時箭頭朝左（收起來）、收合時箭頭朝右（打開）
+  const Icon = shut ? PanelLeftOpen : PanelLeftClose
+  return (
+    <Button
+      data-sidebar="trigger"
+      variant="ghost"
+      size="icon-sm"
+      className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+      aria-label={label}
+      aria-expanded={!shut}
+      data-tip={`${label}（Ctrl+B）`}
+      onClick={toggleSidebar}
+    >
+      <Icon className="size-[18px]" />
+    </Button>
+  )
 }
 
 export function AppShell({
