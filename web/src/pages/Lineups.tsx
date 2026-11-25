@@ -1,4 +1,5 @@
 import { useMemo, useState, type CSSProperties } from "react"
+import { LineupTakeaways } from "@/components/LineupTakeaways"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Skeleton } from "@/components/ui/skeleton"
 import { EmptyState, Panel } from "@/components/primitives"
@@ -711,6 +712,7 @@ export function Lineups() {
         <EmptyState>還沒有追蹤任何玩家。到「追蹤對象」頁加人之後，這裡就能看他們的陣容數據。</EmptyState>
       ) : (
         <>
+          <LineupTakeaways />
           <Archetypes who={who} scope={scope} />
           <LineupFive who={who} scope={scope} />
           <Panel

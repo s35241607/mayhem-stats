@@ -19,6 +19,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: "2026-11-25.2",
+    date: "2026-11-25",
+    title: "陣容頁新增重點；新對局更快出現",
+    page: "lineups",
+    items: [
+      "陣容頁最上面多一塊「重點」：哪些陣容比較會贏、比較會輸，哪些對陣有相剋，並標出是看得出還是只有傾向",
+      "打完一場後，新對局出現在網站上的等待時間少了約 20 秒",
+    ],
+  },
+  {
     id: "2026-11-25.1",
     date: "2026-11-25",
     title: "好友比較：等級圖例精簡",

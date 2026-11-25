@@ -236,7 +236,8 @@ cubes:
               (mp.kills + mp.assists) * 100.0 / NULLIF(mp.team_kills, 0) AS kp
             FROM match_participants mp
             JOIN matches m ON m.platform_id = mp.platform_id AND m.game_id = mp.game_id AND m.is_remake = 0
-            JOIN team_taken tt ON tt.platform_id = mp.platform_id AND tt.game_id = mp.game_id AND tt.team_id = mp.team_id
+            /* CROSS JOIN＝固定連接順序（SQLite 不會把右邊的表換到外層）：一定要從 match_participants 出發。 讓規劃器自己排的話它會挑 team_taken 當最外層，接著對每位參賽者把 gold 整個掃一遍（沒有自動索引）， 14,395 人 × 14,343 列＝兩億次比對，重建要 20 秒，而且隨資料量平方成長（2026-11-25 實測 21.7 秒 → 1.3 秒，結果逐列相同） */
+            CROSS JOIN team_taken tt ON tt.platform_id = mp.platform_id AND tt.game_id = mp.game_id AND tt.team_id = mp.team_id
             LEFT JOIN gold g ON g.platform_id = mp.platform_id AND g.game_id = mp.game_id AND g.participant_id = mp.participant_id
             LEFT JOIN primary_role pr ON pr.champion_id = mp.champion_id
             LEFT JOIN marksman mk ON mk.champion_id = mp.champion_id
