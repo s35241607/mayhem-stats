@@ -1139,9 +1139,9 @@ function ExpandRow({
 /** 兩個分頁：總覽（整體的數字、雷達、看得出的強弱、貢獻分解）、出裝與英雄（出裝的區間圖，點一種出裝下面只列那種出裝的英雄） */
 type DrawerTab = "overview" | "picks" | "stats"
 
-/** 頂層分頁：全員一覽、數據總表、查英雄、查增幅裝置。一次只看一段，分頁列貼在頁首下面。 */
-type Section = "matrix" | "stats" | "champ" | "augment" | "item" | "badges"
-const sectionCodec = oneOf<Section>("matrix", "stats", "champ", "augment", "item", "badges")
+/** 頂層分頁：全員一覽、打法、數據總表、查英雄、查增幅裝置。一次只看一段，分頁列貼在頁首下面。 */
+type Section = "matrix" | "style" | "stats" | "champ" | "augment" | "item" | "badges"
+const sectionCodec = oneOf<Section>("matrix", "style", "stats", "champ", "augment", "item", "badges")
 
 /** 抽屜裡的一串對局：範圍條件交給 Cube 找出是哪幾場（PlayerMatches），或現成的列表參數（單場紀錄） */
 type GamesSource = { puuid: string; filters: CubeFilter[]; recordMetric?: string; champion?: string } | { params: Record<string, string> }
@@ -4553,6 +4553,175 @@ function PeakTop({
 }
 
 /** 頁首（AppShell 的 sticky 標題列）實際有多高。標題列會依說明文字與視窗寬度換行，所以量實際值，分頁列才能正好貼在它下面。 */
+// ── 打法指紋：玩家 × 基因的熱圖 ───────────────────────────────────────────────
+// 每格是「這個人這項基因的平均」減「同出裝定位的基準」（playStyleOf 的 axes，和名字底下那行、抽屜的玩家類型同一份）。
+// 橫看是一個人的輪廓，直看是這件事隊上誰在做。這裡只描述做得多或少，不是好壞，也不另算分數。
+// 手機上表格橫向捲動，名字欄釘在左邊。
+// 上色規則：差不到 AXIS_LEAN 分是灰字；差到了但 95% 範圍還跨過 0 是虛線框；範圍整段在一邊才是實心。
+//   範圍 = z × 單場標準差 ÷ √有分數的場數；一個人同時看十項，z 用 zFor(項數) 放寬。
+
+/** 各基因單場的標準差：2026-11-25 實測 mat_contribution 14,300 人次的合併標準差，往上取整（同一個人的只會更小，所以偏保守） */
+const GENE_SD: Record<string, number> = {
+  "contribution.gene_dmg": 16,
+  "contribution.gene_soak": 16,
+  "contribution.gene_kill": 15,
+  "contribution.gene_ka": 16,
+  "contribution.gene_heal": 9,
+  "contribution.gene_cc": 16,
+  "contribution.gene_kda": 20,
+  "contribution.gene_obj": 16,
+  "contribution.gene_wave": 16,
+  "contribution.gene_anti": 15,
+}
+/** 差這麼多分以上就是最深的顏色 */
+const PRINT_FULL = 12
+const PRINT_COLS = { gridTemplateColumns: `minmax(8.5rem, 13rem) repeat(${AXES.length}, minmax(3.25rem, 1fr))`, minWidth: `calc(8.5rem + ${AXES.length} * 3.5rem)` }
+
+type PrintCell = { axis: PlayAxis; delta: number | null; half: number; tone: "up" | "down" | null; clear: boolean }
+
+function printOf(style: PlayStyle, scored: number): PrintCell[] | null {
+  if (scored < STYLE_MIN) return null
+  const z = zFor(style.axes.filter((a) => a.applicable && a.delta !== null).length)
+  return style.axes.map((axis) => {
+    const delta = axis.applicable ? axis.delta : null
+    const half = (z * (GENE_SD[axis.key] ?? 16)) / Math.sqrt(scored)
+    const tone = delta === null || Math.abs(delta) < AXIS_LEAN ? null : delta > 0 ? "up" : "down"
+    return { axis, delta, half, tone, clear: tone !== null && Math.abs(delta!) > half }
+  })
+}
+
+const signed0 = (v: number) => {
+  const r = Math.round(v)
+  return r > 0 ? `+${r}` : String(r)
+}
+
+function StylePrint({ people, profiles, onOpen }: { people: Player[]; profiles: Map<string, Profile>; onOpen: (puuid: string) => void }) {
+  // 點欄名依那一項排（多的在上）；再點一次回到依場次
+  const [sortKey, setSortKey] = useState<string | null>(null)
+  const rows = useMemo(() => {
+    const list = people.flatMap((p) => {
+      const prof = profiles.get(p.puuid)
+      return prof ? [{ p, prof, cells: printOf(prof.style, prof.overall.scored) }] : []
+    })
+    if (!sortKey) return list
+    const v = (r: (typeof list)[number]) => r.cells?.find((c) => c.axis.key === sortKey)?.delta ?? -Infinity
+    return [...list].sort((a, b) => v(b) - v(a))
+  }, [people, profiles, sortKey])
+  const sortLabel = AXES.find((a) => a.key === sortKey)?.label
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-block size-3 rounded-sm border border-win bg-win/30" />
+          <span className="inline-block size-3 rounded-sm border border-loss bg-loss/30" />
+          實心：看得出比同定位多／少
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-block size-3 rounded-sm border border-dashed border-win/60" />
+          <span className="inline-block size-3 rounded-sm border border-dashed border-loss/60" />
+          虛線：差 {AXIS_LEAN} 分以上，但還在誤差內
+        </span>
+        <span>灰字：和同定位差不多</span>
+        {sortLabel && (
+          <Button size="sm" variant="outline" className="h-6 px-2 text-[11px]" onClick={() => setSortKey(null)}>
+            依「{sortLabel}」排序中・清除
+          </Button>
+        )}
+      </div>
+      <div className="overflow-x-auto" data-testid="crew-print">
+        <div className="grid items-center gap-1 text-[11px]" style={PRINT_COLS}>
+          <span className="self-stretch text-muted-foreground max-sm:sticky max-sm:left-0 max-sm:z-[1] max-sm:bg-card">玩家</span>
+          {AXES.map((a) => (
+            <button
+              key={a.key}
+              type="button"
+              aria-pressed={sortKey === a.key}
+              onClick={() => setSortKey(sortKey === a.key ? null : a.key)}
+              data-tip={sortKey === a.key ? "回到依場次排序" : `依「${a.label}」排序：做得多的在上面`}
+              className={cn(
+                "flex min-h-8 items-center justify-center gap-0.5 rounded-md px-0.5 text-center font-medium transition hover:bg-accent max-sm:min-h-11",
+                sortKey === a.key && "bg-primary/10 text-primary",
+              )}
+            >
+              {a.label}
+              {sortKey === a.key && <ChevronDown className="size-3 shrink-0" aria-hidden="true" />}
+            </button>
+          ))}
+          {rows.map(({ p, prof, cells }, i) => {
+            const name = nameOf(p)
+            const scored = prof.overall.scored
+            return (
+              <Fragment key={p.puuid}>
+                <button
+                  type="button"
+                  data-testid="crew-print-row"
+                  onClick={() => onOpen(p.puuid)}
+                  data-tip={`看 ${name} 的完整分析`}
+                  style={{ "--stagger": `${i * 35}ms` } as CSSProperties}
+                  className="slide-in grid min-w-0 gap-0.5 rounded-md py-1 pr-1 text-left transition hover:bg-accent max-sm:sticky max-sm:left-0 max-sm:z-[1] max-sm:min-h-11 max-sm:bg-card"
+                >
+                  <PlayerName player={p} className="text-sm" />
+                  <span className="break-words text-muted-foreground">{styleLine(prof.style)}</span>
+                  <span className="font-mono tabular-nums text-muted-foreground">{scored} 場有分數</span>
+                </button>
+                {!cells ? (
+                  <span className="flex h-9 items-center rounded-md border border-dashed px-2 text-muted-foreground" style={{ gridColumn: `span ${AXES.length}` }}>
+                    有分數的場次不到 {STYLE_MIN} 場，先不判斷打法
+                  </span>
+                ) : (
+                  cells.map(({ axis, delta, half, tone, clear }) => {
+                    if (delta === null || axis.value === null) {
+                      return (
+                        <span
+                          key={axis.key}
+                          className="flex h-9 items-center justify-center rounded-md text-muted-foreground/60"
+                          data-tip={axis.value === null ? `${name}・${axis.label}：沒有資料` : `${name}・${axis.label}：很少玩輔助，這項不列入打法`}
+                        >
+                          ·
+                        </span>
+                      )
+                    }
+                    const verdict = clear
+                      ? `看得出比同定位${delta > 0 ? "多" : "少"}`
+                      : tone
+                        ? `差 ${AXIS_LEAN} 分以上，但還在誤差內`
+                        : "和同定位差不多"
+                    return (
+                      <span
+                        key={axis.key}
+                        data-testid="crew-print-cell"
+                        data-axis={axis.label}
+                        data-tone={tone ?? "flat"}
+                        data-clear={clear}
+                        data-tip={`${name}・${axis.label}\n平均 ${axis.value.toFixed(1)}，同定位基準 ${axis.baseline.toFixed(1)}（${signed(delta)}）\n誤差範圍 ±${half.toFixed(1)}（${scored} 場）：${verdict}`}
+                        style={
+                          clear
+                            ? { background: `color-mix(in oklab, var(${delta > 0 ? "--win" : "--loss"}) ${Math.round(14 + Math.min(1, Math.abs(delta) / PRINT_FULL) * 40)}%, transparent)` }
+                            : undefined
+                        }
+                        className={cn(
+                          "flex h-9 items-center justify-center rounded-md border font-mono text-xs tabular-nums",
+                          clear
+                            ? cn("font-semibold", delta > 0 ? "border-win" : "border-loss")
+                            : tone
+                              ? cn("border-dashed", tone === "up" ? "border-win/60 text-win" : "border-loss/60 text-loss")
+                              : "border-transparent text-muted-foreground",
+                        )}
+                      >
+                        {signed0(delta)}
+                      </span>
+                    )
+                  })
+                )}
+              </Fragment>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function useHeaderHeight() {
   const [height, setHeight] = useState(0)
   useEffect(() => {
@@ -4696,7 +4865,7 @@ export function Crew() {
   const drawerTab = focus?.kind === "player" ? focus.tab : null
   // 一般玩家（所有參賽者）的出裝比例與各定位基因平均：「打法」用來比較玩家和同定位基準的差別
   const everyoneRoles = useCube(
-    centerFilters === null || (section !== "matrix" && drawerTab !== "overview")
+    centerFilters === null || (section !== "matrix" && section !== "style" && drawerTab !== "overview")
       ? null
       : apply(
           {
@@ -5011,6 +5180,7 @@ export function Crew() {
         >
           <TabsList className="h-auto max-w-full flex-wrap justify-start max-sm:w-full max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:[scrollbar-width:none]">
             <TabsTrigger value="matrix">全員一覽</TabsTrigger>
+            <TabsTrigger value="style">打法</TabsTrigger>
             <TabsTrigger value="stats">數據總表</TabsTrigger>
             <TabsTrigger value="champ">查英雄</TabsTrigger>
             <TabsTrigger value="augment">查增幅裝置</TabsTrigger>
@@ -5262,6 +5432,23 @@ export function Crew() {
                   })
                 }
               />
+            )}
+          </Panel>
+        </TabsContent>
+
+        <TabsContent value="style">
+          <Panel
+            title="打法指紋"
+            caption="每格是他這一項比同出裝定位的基準多或少幾分；橫看一個人、直看一件事"
+            hint={`每格＝這個人這項基因的平均，減掉「他常玩的出裝定位」在所有玩家裡的基準（依他各定位的場次加權）。正的是做得比同定位多，負的是少——講的是打法，不是好壞。
+實心：95% 誤差範圍整段在一邊（一個人同時看十項，範圍已放寬）。虛線：差 ${AXIS_LEAN} 分以上但還在誤差內。灰字：差不到 ${AXIS_LEAN} 分。
+治療護盾只對常玩輔助的人列入；有分數的場次不到 ${STYLE_MIN} 場先不判斷。K/DA 不計入本場貢獻，只用來看打法。
+點欄名可以依那一項排序；點名字看他的完整分析。`}
+          >
+            {summary.loading || roles.loading || champs.loading || dmgTypes.loading || everyoneRoles.loading ? (
+              <LoadingBlock height={Math.max(160, 80 + ordered.length * 60)} label="載入打法…" />
+            ) : (
+              <StylePrint people={ordered} profiles={profiles} onOpen={(puuid) => open(puuid, null, "overview")} />
             )}
           </Panel>
         </TabsContent>
