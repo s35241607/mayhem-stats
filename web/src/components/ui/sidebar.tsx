@@ -214,10 +214,13 @@ function Sidebar({
       data-slot="sidebar"
     >
       {/* This is what handles the sidebar gap on desktop */}
+      {/* 這塊的寬度決定主內容多寬：不做寬度動畫，一次跳到位。原本和側欄一起 200ms 漸變，主內容每一幀都要重新排版，
+          好友比較頁實測收合期間 6 幀超過 33ms（最長 56ms），看起來就是卡。側欄本體（下面 fixed 的那塊）照常滑動，它不影響主內容的排版。
+          展開時延後 200ms 才跳：側欄先蓋在內容上滑出來，滑完內容才讓位，中間不會露出一條空白。 */}
       <div
         data-slot="sidebar-gap"
         className={cn(
-          "relative w-(--sidebar-width) bg-transparent transition-[width] duration-200 ease-linear",
+          "relative w-(--sidebar-width) bg-transparent transition-[width] duration-0 group-data-[state=expanded]:delay-200",
           "group-data-[collapsible=offcanvas]:w-0",
           "group-data-[side=right]:rotate-180",
           variant === "floating" || variant === "inset"
