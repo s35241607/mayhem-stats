@@ -325,6 +325,9 @@ test.describe("好友比較頁：全員一覽", () => {
   test("圖例與「怎麼判斷的」：十九級標籤（意思在提示裡）、為什麼不再用適合／不適合", async ({ page }) => {
     const box = panel(page, "全員一覽")
     // 十九級圖例只留標籤，意思放在滑過的提示（data-tip）
+    // 圖例預設收成五組，點「全部 19 級」才攤開
+    await expect(box.getByTestId("crew-level-group")).toHaveCount(5)
+    await box.getByRole("button", { name: /全部 19 級/ }).click()
     const legend = box.getByTestId("crew-level-legend")
     await expect(legend).toHaveCount(19)
     for (const [label, note] of [["傳奇", "20 分以上"], ["順手", "高 4 分以上，還在誤差內"], ["潛力股", "低於平均（看得出）"], ["初體驗", "2 場以下"]]) {
