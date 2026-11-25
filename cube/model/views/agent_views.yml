@@ -336,6 +336,18 @@ views:
           - name: gene_anti
           - name: gene_kill
           - name: gene_ka
+          - name: solo_kills
+          - name: habit_kills
+          - name: iso_deaths
+          - name: late_iso_deaths
+          - name: trade_deaths
+          - name: habit_deaths
+          - name: late_ka
+          - name: habit_ka
+          - name: solo_kill_share
+          - name: iso_death_share
+          - name: trade_death_share
+          - name: late_ka_share
           - name: pts_dmg
           - name: pts_soak
           - name: pts_heal

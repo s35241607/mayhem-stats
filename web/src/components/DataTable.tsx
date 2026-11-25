@@ -47,6 +47,7 @@ export function DataTable<T>({
   maxHeight,
   dense,
   stickyHeader,
+  nowrap,
   showHelp = true,
 }: {
   /** 表格下方那行操作說明；空間小的地方（抽屜裡的小表）可以關掉 */
@@ -70,6 +71,8 @@ export function DataTable<T>({
   maxHeight?: string
   dense?: boolean
   stickyHeader?: boolean
+  /** 欄名與格子都不換行、不截斷：欄寬照最長的內容排，放不下就橫向捲動（欄位很多的寬表用）。使用者自己拉過寬度後照他拉的 */
+  nowrap?: boolean
 }) {
   const { layout, setLayout, reset } = useTableLayout(stateKey)
   const byId = useMemo(() => new Map(columns.map((c) => [c.id, c])), [columns])
@@ -269,6 +272,7 @@ export function DataTable<T>({
                       pad,
                       alignCls(c),
                       stickyCls(c),
+                      nowrap && !fixed && "whitespace-nowrap",
                       pinned.has(c.id) && "z-[3]",
                       dragId === c.id && "opacity-50",
                       overId === c.id && "shadow-[inset_2px_0_0_var(--primary)]",
@@ -327,6 +331,7 @@ export function DataTable<T>({
                       alignCls(c),
                       stickyCls(c),
                       fixed && "overflow-hidden text-ellipsis whitespace-nowrap",
+                      nowrap && !fixed && "whitespace-nowrap",
                       typeof c.className === "function" ? c.className(row) : c.className,
                     )}
                   >

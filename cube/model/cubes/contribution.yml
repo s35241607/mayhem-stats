@@ -500,7 +500,10 @@ cubes:
             ROUND(-t.g_mean_off, 9) AS pts_base,
             t.p_d, t.p_w, t.p_o, t.p_t, t.p_c, t.p_h, t.p_a, t.p_k, t.p_s, t.p_kda, t.p_ks,
             t.x_d, t.x_w, t.x_o, t.x_t, t.x_c, t.x_h, t.x_a, t.x_kp, t.x_ks, t.x_death, t.foe_heal, t.foe_shield,
-            g.anti_heal_item, g.anti_shield_item
+            g.anti_heal_item, g.anti_shield_item,
+            /* 行為習慣（好友比較「打法」分頁）：擊殺事件的原始次數與各自的分母，定義就是上面 ke_* 那幾段，不影響分數 */
+            t.ke_solo, t.ke_iso_death, t.ke_late_iso_death, t.ke_trade_death, t.ke_late_ka,
+            t.kills AS ke_kills, t.deaths AS ke_deaths, t.kills + t.assists AS ke_ka
           FROM gate g LEFT JOIN total t ON t.participant_rowid = g.participant_rowid
 
     # 與 participants.yml 相同的 refresh key，理由寫在那裡。SQL 必須一字不差才會被合併。
@@ -866,3 +869,109 @@ cubes:
           group: 貢獻
           unit: "%"
           decimals: 0
+
+      # ── 行為習慣：擊殺事件（match_kill_events）算出的次數與比例，只描述打法、不另外計分。
+      #    比例一律「加總 ÷ 加總」，不是每場比例的平均；只算有本場貢獻的場次（時間軸事件實測全數涵蓋）。
+      - name: solo_kills
+        title: 單殺次數
+        description: "沒有任何隊友助攻的擊殺次數（加總）。"
+        sql: ke_solo
+        type: sum
+        meta:
+          group: 習慣
+
+      - name: habit_kills
+        title: 擊殺數（習慣分母）
+        description: "有本場貢獻的場次的擊殺加總，單殺占比的分母。"
+        sql: ke_kills
+        type: sum
+        meta:
+          group: 習慣
+
+      - name: iso_deaths
+        title: 被單抓次數
+        description: "孤立死亡次數（加總）：死亡前後 10 秒內，我方沒有擊殺、我方也只有自己陣亡。"
+        sql: ke_iso_death
+        type: sum
+        meta:
+          group: 習慣
+
+      - name: late_iso_deaths
+        title: 後期被單抓次數
+        description: "發生在對局最後 35% 時間的孤立死亡次數（加總）。"
+        sql: ke_late_iso_death
+        type: sum
+        meta:
+          group: 習慣
+
+      - name: trade_deaths
+        title: 有換到的死亡次數
+        description: "死亡前後 10 秒內我方拿到 2 個以上擊殺的死亡次數（加總）：死在打贏的團戰裡。"
+        sql: ke_trade_death
+        type: sum
+        meta:
+          group: 習慣
+
+      - name: habit_deaths
+        title: 死亡數（習慣分母）
+        description: "有本場貢獻的場次的死亡加總，被單抓占比、有換到占比的分母。"
+        sql: ke_deaths
+        type: sum
+        meta:
+          group: 習慣
+
+      - name: late_ka
+        title: 後期擊殺參與次數
+        description: "發生在對局最後 35% 時間的擊殺＋助攻次數（加總）。"
+        sql: ke_late_ka
+        type: sum
+        meta:
+          group: 習慣
+
+      - name: habit_ka
+        title: 擊殺參與數（習慣分母）
+        description: "有本場貢獻的場次的擊殺＋助攻加總，後期參與占比的分母。"
+        sql: ke_ka
+        type: sum
+        meta:
+          group: 習慣
+
+      - name: solo_kill_share
+        title: 單殺占擊殺
+        description: "單殺次數 ÷ 擊殺數（%）：他的擊殺有多少是沒有隊友幫忙拿下的。"
+        sql: "100.0 * {solo_kills} / NULLIF({habit_kills}, 0)"
+        type: number
+        meta:
+          group: 習慣
+          unit: "%"
+          decimals: 1
+
+      - name: iso_death_share
+        title: 被單抓占死亡
+        description: "孤立死亡次數 ÷ 死亡數（%）：他的死亡有多少是落單被抓（前後 10 秒我方沒有擊殺、也沒有其他隊友陣亡）。"
+        sql: "100.0 * {iso_deaths} / NULLIF({habit_deaths}, 0)"
+        type: number
+        meta:
+          group: 習慣
+          unit: "%"
+          decimals: 1
+
+      - name: trade_death_share
+        title: 有換到占死亡
+        description: "有換到的死亡次數 ÷ 死亡數（%）：他的死亡有多少發生在我方同時拿到 2 個以上擊殺的團戰裡。"
+        sql: "100.0 * {trade_deaths} / NULLIF({habit_deaths}, 0)"
+        type: number
+        meta:
+          group: 習慣
+          unit: "%"
+          decimals: 1
+
+      - name: late_ka_share
+        title: 後期參與占比
+        description: "後期擊殺參與次數 ÷ 擊殺參與數（%）：他的擊殺＋助攻有多少發生在對局最後 35% 的時間。"
+        sql: "100.0 * {late_ka} / NULLIF({habit_ka}, 0)"
+        type: number
+        meta:
+          group: 習慣
+          unit: "%"
+          decimals: 1

@@ -4319,7 +4319,9 @@ function StatsPanel({
           ) : (
             <div data-testid="crew-stats">
               <DataTable
-                stateKey={`crew-stats-${setId}`}
+                // 2026-11-25 換鍵（原本 crew-stats-）：舊的存檔裡有擠在一起時記下的欄寬，欄名和數字都被截掉
+                stateKey={`crew-stats2-${setId}`}
+                nowrap
                 rows={people}
                 rowKey={(p) => p.puuid}
                 rowProps={() => ({ "data-testid": "crew-stats-row" })}
@@ -4722,6 +4724,151 @@ function StylePrint({ people, profiles, onOpen }: { people: Player[]; profiles: 
   )
 }
 
+// ── 行為習慣：擊殺事件算出的四個比例 ─────────────────────────────────────────
+// 次數與分母都來自語意層（contribution 的「習慣」指標，定義在 contribution.yml 的 ke_* 那幾段），這裡只做「加總 ÷ 加總」。
+// 基準和打法指紋同一個做法：所有玩家在各出裝定位的比例，依這個人各定位有分數的場次加權。
+// 判定：Wilson 95% 區間（四項一起看，用 zFor 放寬）整段在基準一邊、而且差距達 habitLean 才是實心；
+//   同一場裡的擊殺彼此不獨立，區間會比實際窄一些，所以當作描述看。分母不到 HABIT_MIN 不判斷。
+
+const HABITS = [
+  { id: "solo", label: "單殺占擊殺", num: "contribution.solo_kills", den: "contribution.habit_kills", of: "次擊殺", note: "他的擊殺裡，沒有任何隊友助攻的比例" },
+  { id: "iso", label: "被單抓占死亡", num: "contribution.iso_deaths", den: "contribution.habit_deaths", of: "次死亡", note: "他的死亡裡，前後 10 秒我方沒有擊殺、也沒有其他隊友陣亡的比例" },
+  { id: "trade", label: "有換到占死亡", num: "contribution.trade_deaths", den: "contribution.habit_deaths", of: "次死亡", note: "他的死亡裡，前後 10 秒我方拿到 2 個以上擊殺的比例（死在打贏的團戰裡）" },
+  { id: "late", label: "後期參與占比", num: "contribution.late_ka", den: "contribution.habit_ka", of: "次擊殺參與", note: "他的擊殺＋助攻裡，發生在對局最後 35% 時間的比例" },
+] as const
+const HABIT_MEASURES = [...new Set(HABITS.flatMap((h) => [h.num, h.den]))]
+/** 分母（擊殺、死亡、擊殺參與的次數）不到這個數不判斷 */
+const HABIT_MIN = 100
+/** 和基準差這麼多才算有差：基準的一成，至少 1 個百分點 */
+const habitLean = (base: number) => Math.max(1, base * 0.1)
+const HABIT_COLS = { gridTemplateColumns: `minmax(8.5rem, 13rem) repeat(${HABITS.length}, minmax(6.5rem, 1fr))`, minWidth: `calc(8.5rem + ${HABITS.length} * 6.75rem)` }
+
+type HabitCell = { rate: number; base: number | null; diff: number | null; n: number; x: number; interval: [number, number]; tone: "up" | "down" | null; clear: boolean }
+
+function habitOf(h: (typeof HABITS)[number], row: CubeRow | undefined, roles: Judged[], baseRows: CubeRow[], z: number): HabitCell | null {
+  const n = n0(row, h.den)
+  if (n < HABIT_MIN) return null
+  const x = n0(row, h.num)
+  const rate = (100 * x) / n
+  // 基準：各定位「所有玩家」的比例，依他各定位有分數的場次加權
+  let weighted = 0
+  let weight = 0
+  for (const r of roles) {
+    const b = baseRows.find((br) => br["builds.build_role"] === r.label)
+    const den = n0(b, h.den)
+    if (r.scored <= 0 || !den) continue
+    weighted += r.scored * ((100 * n0(b, h.num)) / den)
+    weight += r.scored
+  }
+  const base = weight > 0 ? weighted / weight : null
+  const interval = wilson(x, n, z)
+  const diff = base === null ? null : rate - base
+  const tone = diff === null || base === null || Math.abs(diff) < habitLean(base) ? null : diff > 0 ? "up" : "down"
+  return { rate, base, diff, n, x, interval, tone, clear: tone !== null && base !== null && (interval[0] > base || interval[1] < base) }
+}
+
+function HabitTable({ people, profiles, rows, baseRows, onOpen }: { people: Player[]; profiles: Map<string, Profile>; rows: CubeRow[]; baseRows: CubeRow[]; onOpen: (puuid: string) => void }) {
+  const [sortKey, setSortKey] = useState<string | null>(null)
+  const list = useMemo(() => {
+    const z = zFor(HABITS.length)
+    const out = people.map((p) => {
+      const row = rows.find((r) => r["participants.puuid"] === p.puuid)
+      return { p, cells: HABITS.map((h) => habitOf(h, row, profiles.get(p.puuid)?.roles ?? [], baseRows, z)) }
+    })
+    const i = HABITS.findIndex((h) => h.id === sortKey)
+    return i < 0 ? out : [...out].sort((a, b) => (b.cells[i]?.rate ?? -Infinity) - (a.cells[i]?.rate ?? -Infinity))
+  }, [people, profiles, rows, baseRows, sortKey])
+  const sortLabel = HABITS.find((h) => h.id === sortKey)?.label
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+        <span>大數字是他的比例，小字是和同定位基準的差（百分點）</span>
+        <span>顏色只代表比同定位多或少，不是好壞；實心、虛線、灰字的意思和上面一樣</span>
+        {sortLabel && (
+          <Button size="sm" variant="outline" className="h-6 px-2 text-[11px]" onClick={() => setSortKey(null)}>
+            依「{sortLabel}」排序中・清除
+          </Button>
+        )}
+      </div>
+      <div className="overflow-x-auto" data-testid="crew-habits">
+        <div className="grid items-center gap-1 text-[11px]" style={HABIT_COLS}>
+          <span className="self-stretch text-muted-foreground max-sm:sticky max-sm:left-0 max-sm:z-[1] max-sm:bg-card">玩家</span>
+          {HABITS.map((h) => (
+            <button
+              key={h.id}
+              type="button"
+              aria-pressed={sortKey === h.id}
+              onClick={() => setSortKey(sortKey === h.id ? null : h.id)}
+              data-tip={`${h.note}\n${sortKey === h.id ? "點一下回到依場次排序" : "點一下依這一項排序：比例高的在上面"}`}
+              className={cn(
+                "flex min-h-8 items-center justify-center gap-0.5 rounded-md px-0.5 text-center font-medium transition hover:bg-accent max-sm:min-h-11",
+                sortKey === h.id && "bg-primary/10 text-primary",
+              )}
+            >
+              {h.label}
+              {sortKey === h.id && <ChevronDown className="size-3 shrink-0" aria-hidden="true" />}
+            </button>
+          ))}
+          {list.map(({ p, cells }, i) => {
+            const name = nameOf(p)
+            return (
+              <Fragment key={p.puuid}>
+                <button
+                  type="button"
+                  data-testid="crew-habit-row"
+                  onClick={() => onOpen(p.puuid)}
+                  data-tip={`看 ${name} 的完整分析`}
+                  style={{ "--stagger": `${i * 35}ms` } as CSSProperties}
+                  className="slide-in min-w-0 rounded-md py-1 pr-1 text-left transition hover:bg-accent max-sm:sticky max-sm:left-0 max-sm:z-[1] max-sm:min-h-11 max-sm:bg-card"
+                >
+                  <PlayerName player={p} className="text-sm" />
+                </button>
+                {cells.map((c, j) => {
+                  const h = HABITS[j]
+                  if (!c) {
+                    return (
+                      <span key={h.id} className="flex h-11 items-center justify-center rounded-md text-muted-foreground/60" data-tip={`${name}・${h.label}：不到 ${HABIT_MIN} ${h.of}，先不判斷`}>
+                        ·
+                      </span>
+                    )
+                  }
+                  const verdict = c.base === null ? "沒有同定位的基準" : c.clear ? `看得出比同定位${c.diff! > 0 ? "多" : "少"}` : c.tone ? "有差，但還在誤差內" : "和同定位差不多"
+                  return (
+                    <span
+                      key={h.id}
+                      data-testid="crew-habit-cell"
+                      data-habit={h.id}
+                      data-tone={c.tone ?? "flat"}
+                      data-clear={c.clear}
+                      data-tip={`${name}・${h.label}\n${c.rate.toFixed(1)}%（${c.n} ${h.of}裡 ${c.x} 次）${c.base === null ? "" : `，同定位基準 ${c.base.toFixed(1)}%（${signed(c.diff!)}）`}\n95% 區間 ${c.interval[0].toFixed(1)}～${c.interval[1].toFixed(1)}%：${verdict}`}
+                      style={
+                        c.clear
+                          ? { background: `color-mix(in oklab, var(${c.diff! > 0 ? "--win" : "--loss"}) ${Math.round(14 + Math.min(1, Math.abs(c.diff!) / (3 * habitLean(c.base!))) * 40)}%, transparent)` }
+                          : undefined
+                      }
+                      className={cn(
+                        "flex h-11 flex-col items-center justify-center rounded-md border font-mono leading-tight tabular-nums",
+                        c.clear
+                          ? c.diff! > 0 ? "border-win" : "border-loss"
+                          : c.tone
+                            ? cn("border-dashed", c.tone === "up" ? "border-win/60" : "border-loss/60")
+                            : "border-transparent",
+                      )}
+                    >
+                      <span className={cn("text-xs", c.clear ? "font-semibold" : !c.tone && "text-muted-foreground")}>{c.rate.toFixed(1)}%</span>
+                      {c.diff !== null && <span className="text-[10px] opacity-75">{signed(c.diff)}</span>}
+                    </span>
+                  )
+                })}
+              </Fragment>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function useHeaderHeight() {
   const [height, setHeight] = useState(0)
   useEffect(() => {
@@ -4877,6 +5024,13 @@ export function Crew() {
           "all",
         ),
   )
+  // 行為習慣（打法分頁才查）：每個人的次數與分母，以及所有玩家各定位的同一組數字當基準
+  const habits = useCube(section === "style" ? q({ measures: HABIT_MEASURES, dimensions: ["participants.puuid"], limit: NO_LIMIT }) : null)
+  const habitBase = useCube(
+    section === "style" && centerFilters !== null
+      ? apply({ measures: HABIT_MEASURES, dimensions: ["builds.build_role"], filters: centerFilters, limit: NO_LIMIT }, "all")
+      : null,
+  )
   const matrixLoading = summary.loading || roles.loading || champs.loading || dmgTypes.loading || teamRoles.loading || everyoneRoles.loading
   const board = useCube(
     section === "stats" || drawerTab === "stats"
@@ -4978,7 +5132,7 @@ export function Crew() {
   }, [puuids.join(), queueId, activeVersions.join(), timeFilter])
   const duo = useCube(loadMatrixExtras ? duoQuery : null)
   const error = summary.error ?? roles.error ?? champs.error ?? board.error ?? augments.error ?? items.error ??
-    teamRoles.error ?? everyoneRoles.error ?? dmgTypes.error ?? badgeError ?? duo.error ?? together.error
+    teamRoles.error ?? everyoneRoles.error ?? habits.error ?? habitBase.error ?? dmgTypes.error ?? badgeError ?? duo.error ?? together.error
 
   const sumOf = (puuid: string) => summary.rows.find((r) => r["participants.puuid"] === puuid)
   const gamesOf = (puuid: string) => n0(sumOf(puuid), "participants.games")
@@ -5449,6 +5603,19 @@ export function Crew() {
               <LoadingBlock height={Math.max(160, 80 + ordered.length * 60)} label="載入打法…" />
             ) : (
               <StylePrint people={ordered} profiles={profiles} onOpen={(puuid) => open(puuid, null, "overview")} />
+            )}
+          </Panel>
+          <Panel
+            className="mt-4"
+            refreshing={habits.refreshing || habitBase.refreshing}
+            title="行為習慣"
+            caption="擊殺與死亡是怎麼發生的：單殺、被單抓、有沒有換到、後期還在不在"
+            hint={`四個比例都從每一次擊殺的時間與參與者算出來（只算有本場貢獻的場次）：\n・單殺占擊殺：沒有隊友助攻的擊殺。\n・被單抓占死亡：死亡前後 10 秒，我方沒有擊殺、也只有他一個人陣亡。\n・有換到占死亡：死亡前後 10 秒，我方拿到 2 個以上擊殺。\n・後期參與占比：擊殺＋助攻發生在對局最後 35% 時間的比例。\n基準是所有玩家在同出裝定位的比例，依他各定位的場次加權。差距不到基準的一成（至少 1 個百分點）算差不多；95% 區間整段在基準一邊才是實心。同一場的擊殺彼此有關聯，區間會偏窄，當作描述看。不到 ${HABIT_MIN} 次先不判斷。`}
+          >
+            {summary.loading || roles.loading || habits.loading || habitBase.loading ? (
+              <LoadingBlock height={Math.max(160, 60 + ordered.length * 48)} label="載入行為習慣…" />
+            ) : (
+              <HabitTable people={ordered} profiles={profiles} rows={habits.rows} baseRows={habitBase.rows} onOpen={(puuid) => open(puuid, null, "overview")} />
             )}
           </Panel>
         </TabsContent>
