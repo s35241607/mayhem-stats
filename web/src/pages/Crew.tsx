@@ -757,55 +757,6 @@ function RowLegend() {
   )
 }
 
-/** 全員一覽最上面的一句結論：誰貢獻最高、誰勝率最高、誰最近進步最多（近期資料載到了才有）。
- *  2026-11-25 試過在這裡再放一份每人一列的排行，使用者覺得和下面的全員一覽重複、效果差，已拿掉——不要再加第二份名單。 */
-const RANK_MIN = 30
-
-function CrewRanking({
-  rows,
-  recent,
-  recentSize,
-}: {
-  rows: { player: Player; games: number; winrate: number | null; score: number | null }[]
-  /** 每人近期平均和整體的差；還沒載到是 null */
-  recent: Map<string, number> | null
-  recentSize: number
-}) {
-  const ranked = [...rows].sort((a, b) => (b.score ?? -1) - (a.score ?? -1) || b.games - a.games)
-  const name = (r: (typeof rows)[number]) => splitId(r.player.riot_id, r.player.puuid).name
-  // 一句結論只看場次夠多的人：8 場 7 勝的 87.5% 不該被寫成「勝率最高」
-  const enough = ranked.filter((r) => r.games >= RANK_MIN)
-  const topScore = enough.find((r) => r.score !== null)
-  const topWr = [...enough].filter((r) => r.winrate !== null).sort((a, b) => b.winrate! - a.winrate!)[0]
-  const rising = recent
-    ? enough.map((r) => ({ r, d: recent.get(r.player.puuid) ?? 0 })).sort((a, b) => b.d - a.d)[0]
-    : null
-  return (
-    <section className="space-y-2" data-testid="crew-ranking">
-      {(topScore || topWr) && (
-        <p className="text-sm" data-testid="crew-ranking-summary">
-          {topScore && (
-            <>
-              貢獻最高是 <b>{name(topScore)}</b>（{Math.round(topScore.score!)}）
-            </>
-          )}
-          {topWr && (
-            <>
-              ，勝率最高是 <b>{name(topWr)}</b>（{topWr.winrate!.toFixed(1)}%）
-            </>
-          )}
-          {rising && rising.d >= WORK_GAP && (
-            <>
-              ，最近 {recentSize} 場進步最多的是 <b>{name(rising.r)}</b>（<span className="text-win">{signed(rising.d)}</span>）
-            </>
-          )}
-          。<span className="text-xs text-muted-foreground">只算 {RANK_MIN} 場以上的人。</span>
-        </p>
-      )}
-    </section>
-  )
-}
-
 /** 全員一覽的「怎麼判斷的」：預設收起，標題列只留一句話 */
 function HowWeJudge({ children }: { children: ReactNode }) {
   return (
@@ -4861,16 +4812,6 @@ export function Crew() {
     teamRoles.error ?? everyoneRoles.error ?? dmgTypes.error ?? badgeError ?? duo.error ?? together.error
 
   const sumOf = (puuid: string) => summary.rows.find((r) => r["participants.puuid"] === puuid)
-  // 排行那句「最近進步最多」：每人近期平均和整體的差；逐場資料還沒載到時是 null（那半句就不寫）
-  const recentDelta = useMemo(() => {
-    if (!gameRows.rows.length) return null
-    const out = new Map<string, number>()
-    for (const [puuid, games] of gamesByPlayer) {
-      const d = recentStatsOf(games, Number(recentSize), opt(summary.rows.find((r) => r["participants.puuid"] === puuid), WORK))?.delta
-      if (d != null) out.set(puuid, d)
-    }
-    return out
-  }, [gameRows.rows, gamesByPlayer, recentSize, summary.rows])
   const gamesOf = (puuid: string) => n0(sumOf(puuid), "participants.games")
   const wrOf = (puuid: string) => opt(sumOf(puuid), "participants.winrate")
 
@@ -5105,11 +5046,6 @@ export function Crew() {
               <MatrixSkeleton rows={matrixRows.length || crew.length || 6} label="載入好友戰績…" />
             ) : (
               <div className="space-y-3">
-                <CrewRanking
-                  rows={ordered.map((p) => ({ player: p, games: gamesOf(p.puuid), winrate: wrOf(p.puuid), score: opt(sumOf(p.puuid), WORK) }))}
-                  recent={recentDelta}
-                  recentSize={Number(recentSize)}
-                />
                 <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
                   <p className="text-sm" data-testid="crew-matrix-summary">
                     各出裝裡 {counts.judged} 格有 {MIN_N} 場以上，看得出強弱的有 {counts.strong + counts.weak} 格（看得出高 {counts.strong}、看得出低 {counts.weak}），其餘差距都還在誤差內。
