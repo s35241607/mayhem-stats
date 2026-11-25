@@ -46,7 +46,6 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
-import { Separator } from "@/components/ui/separator"
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -804,6 +803,13 @@ function NavSections({
   )
 }
 
+/** 側欄的收合開關（Ctrl+B 也可以）。放在側欄裡而不是標題列：標題列會跟著側欄寬度左右移動，開關就跟著跑 */
+function NavToggle() {
+  const { state } = useSidebar()
+  const label = state === "collapsed" ? "展開側欄" : "收合側欄"
+  return <SidebarTrigger className="size-8 shrink-0" aria-label={label} data-tip={`${label}（Ctrl+B）`} />
+}
+
 export function AppShell({
   page,
   onNavigate,
@@ -871,13 +877,18 @@ export function AppShell({
     <SidebarProvider>
       <Sidebar collapsible="icon">
         <SidebarHeader>
-          <div className="flex items-center gap-2 px-2 py-1.5">
-            <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/15">
-              <Zap className="size-4 text-primary" />
-            </div>
-            <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-              <div className="truncate text-sm font-semibold leading-tight">Mayhem 戰績</div>
-              <div className="truncate text-[11px] text-muted-foreground">本機 BI</div>
+          {/* 收合開關固定在側欄左上角：展開、收合時都在螢幕上同一個位置（收合後的窄欄寬 3rem＝內距 0.5rem＋按鈕 2rem＋內距 0.5rem），
+              按完滑鼠不用移動就能再按一次。標誌與站名排在它右邊，收合時整塊藏起來 */}
+          <div className="flex h-9 items-center gap-2">
+            <NavToggle />
+            <div className="flex min-w-0 items-center gap-2 group-data-[collapsible=icon]:hidden">
+              <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/15">
+                <Zap className="size-4 text-primary" />
+              </div>
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold leading-tight">Mayhem 戰績</div>
+                <div className="truncate text-[11px] text-muted-foreground">本機 BI</div>
+              </div>
             </div>
           </div>
         </SidebarHeader>
@@ -899,12 +910,6 @@ export function AppShell({
         {/* 手機：標題＋帳號一行、條件摘要一行；頂端讓出瀏海（加到主畫面全螢幕時） */}
         <header id="app-header" className="sticky top-0 z-20 flex flex-col gap-2.5 glass border-b px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2.5 md:gap-3 md:px-5 md:py-3">
           <div className="flex flex-wrap items-center gap-3">
-            {!isMobile && (
-              <>
-                <SidebarTrigger className="-ml-1" />
-                <Separator orientation="vertical" className="!h-5" />
-              </>
-            )}
             <Breadcrumb title={meta.title} caption={meta.caption} />
             {isMobile ? (
               <AccountSwitcher />
