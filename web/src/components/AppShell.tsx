@@ -826,6 +826,22 @@ function NavToggle() {
   )
 }
 
+/** 主內容區。側欄收合／展開時加上 inset-shut／inset-open（index.css），讓內容跟著側欄的邊滑過去而不是跳過去。
+ *  要和側欄狀態在同一次畫面更新裡套上（所以在 render 裡比對，不用 effect）：晚一幀的話會先看到內容跳到位再滑。
+ *  剛載入時不播：只有狀態真的變了才有 class。 */
+function ShiftInset({ children }: { children: ReactNode }) {
+  const { state } = useSidebar()
+  const [seen, setSeen] = useState(state)
+  const [move, setMove] = useState<"inset-shut" | "inset-open" | null>(null)
+  if (seen !== state) {
+    setSeen(state)
+    setMove(state === "collapsed" ? "inset-shut" : "inset-open")
+  }
+  // 透明底：讓 body 的主題光暈與格線透出來
+  // min-w-0：flex 子元素預設 min-width: auto，內容一寬就把整塊推出視窗（768px 寬時對局紀錄、好友比較橫向溢出）
+  return <SidebarInset className={cn("min-w-0 bg-transparent", move)}>{children}</SidebarInset>
+}
+
 export function AppShell({
   page,
   onNavigate,
@@ -890,7 +906,7 @@ export function AppShell({
       : null
 
   return (
-    <SidebarProvider>
+    <SidebarProvider className="overflow-x-clip">
       <Sidebar collapsible="icon">
         <SidebarHeader>
           {/* 收合開關固定在側欄左上角：展開、收合時都在螢幕上同一個位置（收合後的窄欄寬 3rem＝內距 0.5rem＋按鈕 2rem＋內距 0.5rem），
@@ -922,7 +938,7 @@ export function AppShell({
 
       {/* 透明底：讓 body 的主題光暈與格線透出來 */}
       {/* min-w-0：flex 子元素預設 min-width: auto，內容一寬就把整塊推出視窗（768px 寬時對局紀錄、好友比較橫向溢出） */}
-      <SidebarInset className="min-w-0 bg-transparent">
+      <ShiftInset>
         {/* id 給好友比較的分頁列量高度：標題列會換行，分頁列要貼在它正下方 */}
         {/* 手機：標題＋帳號一行、條件摘要一行；頂端讓出瀏海（加到主畫面全螢幕時） */}
         <header id="app-header" className="sticky top-0 z-20 flex flex-col gap-2.5 glass border-b px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2.5 md:gap-3 md:px-5 md:py-3">
@@ -972,7 +988,7 @@ export function AppShell({
             <MoreSheet open={moreOpen} onOpenChange={setMoreOpen} page={page} onNavigate={onNavigate} />
           </>
         )}
-      </SidebarInset>
+      </ShiftInset>
     </SidebarProvider>
   )
 }

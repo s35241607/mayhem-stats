@@ -535,6 +535,24 @@
 @utility drawer-in {
   animation: drawer-in 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
+/* 側欄收合／展開時，主內容跟著側欄的邊一起滑（AppShell 的 ShiftInset）。
+   主內容的寬度是一次跳到位的（ui/sidebar.tsx 的 sidebar-gap：逐幀改寬度會讓整頁每一幀重新排版），
+   這裡用 transform 把那一跳補成滑動：兩個方向滑的時候都是「寬的那個版面」，右邊多出來的部分在畫面外。
+   時長與曲線要和側欄本體的寬度漸變（200ms linear）一樣，邊才會貼在一起。播完不留 transform（不然裡面 fixed 的東西會改以它為基準）。 */
+@keyframes inset-shut {
+  from { transform: translateX(calc(var(--sidebar-width) - var(--sidebar-width-icon))); }
+  to { transform: none; }
+}
+@keyframes inset-open {
+  from { transform: none; }
+  to { transform: translateX(calc(var(--sidebar-width) - var(--sidebar-width-icon))); }
+}
+@utility inset-shut {
+  animation: inset-shut 200ms linear;
+}
+@utility inset-open {
+  animation: inset-open 200ms linear;
+}
 /* 手機的底部面板（篩選、更多）由下往上滑出 */
 @keyframes sheet-up {
   from { opacity: 0.6; transform: translateY(48px); }
