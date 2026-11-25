@@ -818,7 +818,6 @@ function NavToggle() {
       size="icon-sm"
       className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
       aria-label={label}
-      aria-expanded={!shut}
       data-tip={`${label}（Ctrl+B）`}
       onClick={toggleSidebar}
     >
@@ -900,7 +899,8 @@ export function AppShell({
             <NavToggle />
             <div className="flex min-w-0 items-center gap-2 group-data-[collapsible=icon]:hidden">
               <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/15">
-                <Zap className="size-4 text-primary" />
+                {/* 實心閃電：和分頁圖示（public/app-icon.svg）同一個形狀，顏色跟主題 */}
+                <Zap className="size-4 fill-current text-primary" />
               </div>
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold leading-tight">Mayhem 戰績</div>

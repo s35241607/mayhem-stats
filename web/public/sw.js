@@ -5,7 +5,7 @@
 // - 頁面（/、/dashboard…）：網路優先，斷線時才拿上一次的 index.html，所以改版後一連上就是新版。
 // - /api、/auth、/login 一律不碰：資料有登入與名稱遮罩，存進快取可能在別人的手機上看到不該看的東西；
 //   登入流程也不能被攔。
-const CACHE = "mayhem-shell-v3"
+const CACHE = "mayhem-shell-v4"
 const PAGES = new Set(["", "dashboard", "matches", "champions", "augments", "lineups", "players", "crew",
   "time", "tilt", "losses", "explore", "recap", "calc", "tracked", "settings", "logs",
   "score", "changelog"])
