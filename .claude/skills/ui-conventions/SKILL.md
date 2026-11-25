@@ -169,7 +169,7 @@ description: 這個專案前端的主題與動畫規範。只要動到 web/src �
 
 - 首頁（`/`）是儀表板。手機底部分頁列：儀表板｜對局｜英雄｜好友｜更多。其餘頁面在 `NAV`，「更多」自動列出不在分頁列的。
 - 2026-11-24 試過「戰報」首頁、選角助手、個人頁、新對局推播，使用者覺得沒用已移除，不要再加回來。
-- 好友比較的全員一覽：最上面是 `CrewRanking`（只等 `summary` 一支查詢就畫；結論那句只算 `RANK_MIN` 30 場以上的人），細節在 `MatrixFold` 裡，手機預設收起。圖例預設五組（`LEVEL_GROUPS`），十九級名稱與切點不變。
+- 好友比較的全員一覽：最上面只有一句結論（`CrewRanking`，只算 `RANK_MIN` 30 場以上的人）；圖例預設五組（`LEVEL_GROUPS`），十九級名稱與切點不變。2026-11-25 試過在上面再放一份每人一列的排行並把細節收合，使用者覺得重複、效果差，已拿掉，不要再加第二份名單。
 - 「分數怎麼算」（`pages/Score.tsx`）的圖在 `components/ScoreCharts.tsx`：內嵌 SVG、只用主題 token；定位比重解析 `WORK_PARTS.weight` 的文字，不另抄數字。
 - 「習慣」一組（時段、節奏與連敗、敗因分析）由 `AppShell` 的 `HabitSwitch` 在頁面頂端互相切換，網址仍是各自的。
 - 從主畫面開啟時（standalone）有下拉重新整理（`components/PullToRefresh.tsx`），重查走 `mayhem:data-changed`，不重掛頁面。

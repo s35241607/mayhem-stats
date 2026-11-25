@@ -757,26 +757,19 @@ function RowLegend() {
   )
 }
 
-/** 全員一覽最上面的排行：每人一列只有場次、勝率、本場貢獻，依貢獻排。
- *  只吃 summary（一支查詢），其餘出裝、英雄的查詢還在跑時就先畫得出來；等級標籤等 profiles 算好才補上。
- *  上面一句結論：誰貢獻最高、誰勝率最高、誰最近進步最多（近期資料載到了才有）。 */
+/** 全員一覽最上面的一句結論：誰貢獻最高、誰勝率最高、誰最近進步最多（近期資料載到了才有）。
+ *  2026-11-25 試過在這裡再放一份每人一列的排行，使用者覺得和下面的全員一覽重複、效果差，已拿掉——不要再加第二份名單。 */
 const RANK_MIN = 30
 
 function CrewRanking({
   rows,
-  profiles,
   recent,
   recentSize,
-  focused,
-  onOpen,
 }: {
   rows: { player: Player; games: number; winrate: number | null; score: number | null }[]
-  profiles: Map<string, Profile>
   /** 每人近期平均和整體的差；還沒載到是 null */
   recent: Map<string, number> | null
   recentSize: number
-  focused: string | null
-  onOpen: (puuid: string) => void
 }) {
   const ranked = [...rows].sort((a, b) => (b.score ?? -1) - (a.score ?? -1) || b.games - a.games)
   const name = (r: (typeof rows)[number]) => splitId(r.player.riot_id, r.player.puuid).name
@@ -806,64 +799,10 @@ function CrewRanking({
               ，最近 {recentSize} 場進步最多的是 <b>{name(rising.r)}</b>（<span className="text-win">{signed(rising.d)}</span>）
             </>
           )}
-          。<span className="text-xs text-muted-foreground">這句只算 {RANK_MIN} 場以上的人；點一列看他的完整分析。</span>
+          。<span className="text-xs text-muted-foreground">只算 {RANK_MIN} 場以上的人。</span>
         </p>
       )}
-      <ol className="overflow-hidden rounded-lg border">
-        {ranked.map((r, i) => {
-          const ov = profiles.get(r.player.puuid)?.overall
-          return (
-            <li key={r.player.puuid} className="border-b last:border-b-0">
-              <button
-                type="button"
-                onClick={() => onOpen(r.player.puuid)}
-                data-testid="crew-rank-row"
-                className={cn(
-                  "pressable grid min-h-11 w-full grid-cols-[1.5rem_minmax(0,1fr)_auto_auto] items-center gap-x-3 px-3 py-1.5 text-left transition-colors hover:bg-accent sm:grid-cols-[1.5rem_minmax(0,1fr)_5rem_4.5rem_8.5rem]",
-                  focused === r.player.puuid && "bg-primary/10",
-                )}
-              >
-                <span className="font-mono text-xs tabular-nums text-muted-foreground">{i + 1}</span>
-                <PlayerName player={r.player} className="text-sm" />
-                <span className="text-right text-xs tabular-nums text-muted-foreground max-sm:hidden">{r.games} 場</span>
-                <span className="text-right text-xs tabular-nums">
-                  <span className="sm:hidden text-muted-foreground">{r.games} 場・</span>
-                  {r.winrate === null ? "—" : `${r.winrate.toFixed(1)}%`}
-                </span>
-                <span className="flex items-center justify-end gap-1.5">
-                  {ov?.g?.interval && <span className={cn(CHIP, "max-sm:hidden", levelClass(ov))}>{labelOf(ov)}</span>}
-                  <span className={cn("w-7 text-right font-mono text-base font-semibold tabular-nums", ov?.g?.interval ? NUM_CLASS[ov.strength] : "text-foreground")}>
-                    {r.score === null ? "—" : Math.round(r.score)}
-                  </span>
-                </span>
-              </button>
-            </li>
-          )
-        })}
-      </ol>
     </section>
-  )
-}
-
-/** 排行下面的細節（各定位平均、每人的出裝與英雄）：電腦預設展開；手機預設收起——
- *  十幾個人每人一大塊，手機要滑非常久，而且收起時不必畫那幾百個元素。 */
-function MatrixFold({ title, children }: { title: string; children: ReactNode }) {
-  const [open, setOpen] = useState(() => typeof window === "undefined" || window.innerWidth >= 768)
-  return (
-    <div>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-        data-testid="crew-matrix-fold"
-        className="flex min-h-10 w-full items-center gap-2 border-t pt-2 text-left text-sm font-semibold"
-      >
-        <ChevronDown className={cn("size-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
-        {title}
-        {!open && <span className="text-xs font-normal text-muted-foreground">點開看</span>}
-      </button>
-      {open && <div className="reveal mt-2 space-y-3">{children}</div>}
-    </div>
   )
 }
 
@@ -5162,24 +5101,15 @@ export function Crew() {
             caption="每人一列；滑過看數字，點一列看完整分析"
             hint={"判定看本場貢獻（50＝校準時的整體基準）的誤差範圍：整段高於 50 是得心應手以上（拿手、招牌、傳奇）、整段低於 50 是潛力股或璞玉，還在誤差內的依差距細分（虛線框）；滑過圖例看每一級的切點。\n雷達是各出裝佔他場次的比例；出裝欄每種出裝一條，所有人同一把尺，點是本場貢獻和 50 的差、橫線是誤差範圍（實心＝看得出）。\n英雄的數字是名次，看得出的排前面。"}
           >
-            {/* 排行只等 summary 一支查詢：其餘出裝、英雄還在查時就先看得到誰高誰低 */}
-            {summary.loading ? (
-              <LoadingBlock height={Math.max(180, (crew.length || 6) * 44)} label="載入好友戰績…" />
-            ) : (
-              <CrewRanking
-                rows={ordered.map((p) => ({ player: p, games: gamesOf(p.puuid), winrate: wrOf(p.puuid), score: opt(sumOf(p.puuid), WORK) }))}
-                profiles={profiles}
-                recent={recentDelta}
-                recentSize={Number(recentSize)}
-                focused={focus?.kind === "player" ? focus.puuid : null}
-                onOpen={(puuid) => open(puuid, null, "overview")}
-              />
-            )}
-            <div className="mt-3" />
             {matrixLoading ? (
-              <MatrixSkeleton rows={matrixRows.length || crew.length || 6} label="載入出裝與英雄…" />
+              <MatrixSkeleton rows={matrixRows.length || crew.length || 6} label="載入好友戰績…" />
             ) : (
-              <MatrixFold title="每人的出裝、英雄與各定位平均">
+              <div className="space-y-3">
+                <CrewRanking
+                  rows={ordered.map((p) => ({ player: p, games: gamesOf(p.puuid), winrate: wrOf(p.puuid), score: opt(sumOf(p.puuid), WORK) }))}
+                  recent={recentDelta}
+                  recentSize={Number(recentSize)}
+                />
                 <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
                   <p className="text-sm" data-testid="crew-matrix-summary">
                     各出裝裡 {counts.judged} 格有 {MIN_N} 場以上，看得出強弱的有 {counts.strong + counts.weak} 格（看得出高 {counts.strong}、看得出低 {counts.weak}），其餘差距都還在誤差內。
@@ -5352,10 +5282,6 @@ export function Crew() {
                     })}
                   </div>
                 </div>
-              </MatrixFold>
-            )}
-            {!matrixLoading && (
-              <div className="mt-3">
                 <HowWeJudge>
                   <p>
                     本場貢獻（v5.4 / v5-B 修訂版）：九個基因——輸出（依敵方前排數與血腥度校正，非主 C 高傷享動態轉型加成）、承傷（0.62×減免＋0.38×承受，高傷享以攻代守免扣）、擊殺（與輸出上限連動，坦／輔高傷解鎖有效擊殺）、參團（依前排與血腥度校正，含 65% 後期參團；輔助 70% 同定位＋30% 全局）、治療護盾隊友、控場（次數／時長混合，高傷／高坦享負分豁免）、推塔（turret_dmg）、清兵、功能裝——
